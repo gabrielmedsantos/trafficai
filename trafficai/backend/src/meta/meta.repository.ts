@@ -15,6 +15,15 @@ export interface AdAccount {
     is_client_active: boolean;
     client_notes?: string;
     created_at: Date;
+    // billing / sync metadata
+    cached_balance?: number | null;
+    cached_amount_spent?: number | null;
+    cached_spend_cap?: number | null;
+    cached_account_status?: number | null;
+    balance_updated_at?: Date | null;
+    last_insights_sync_at?: Date | null;
+    payment_type?: 'pix' | 'card' | null;
+    balance_alert_threshold?: number | null;
 }
 
 export interface Campaign {

@@ -28,6 +28,7 @@ interface AdAccount {
   cached_amount_spent?: number | null;
   cached_spend_cap?: number | null;
   balance_updated_at?: string | null;
+  last_insights_sync_at?: string | null;
 }
 
 interface BillingDraft {
@@ -64,6 +65,17 @@ function getBalanceColor(
   if (balance <= threshold) return 'var(--accent-red)';
   if (balance <= threshold * 1.2) return 'var(--accent-yellow)';
   return 'var(--accent-green)';
+}
+
+function syncStatus(iso: string | null | undefined): { label: string; color: string } {
+  if (!iso) return { label: 'Nunca sincronizado', color: 'var(--accent-red)' };
+  const diff = Date.now() - new Date(iso).getTime();
+  const hours = diff / 3_600_000;
+  if (hours < 1) return { label: `há ${Math.max(1, Math.round(diff / 60_000))}min`, color: 'var(--accent-green)' };
+  if (hours < 24) return { label: `há ${Math.round(hours)}h`, color: 'var(--accent-green)' };
+  if (hours < 48) return { label: `há 1 dia`, color: 'var(--accent-yellow)' };
+  if (hours < 168) return { label: `há ${Math.round(hours / 24)} dias`, color: 'var(--accent-yellow)' };
+  return { label: `há ${Math.round(hours / 24)} dias`, color: 'var(--accent-red)' };
 }
 
 export default function AccountsPage() {
@@ -556,6 +568,27 @@ export default function AccountsPage() {
                       </span>
                     )}
                   </div>
+
+                  {/* Insights sync status */}
+                  {account.is_client_active && (() => {
+                    const s = syncStatus(account.last_insights_sync_at);
+                    return (
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '4px 10px',
+                        background: 'var(--bg-input)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 999,
+                        fontSize: 11,
+                        color: 'var(--text-muted)',
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.color }} />
+                        Dados {s.label}
+                      </div>
+                    );
+                  })()}
 
                   {/* Action buttons */}
                   <div style={{ display: 'flex', gap: '8px' }}>

@@ -177,67 +177,20 @@ export class MetaService {
     }
 
     /**
-     * Sync a single account's campaigns + insights for a specific date range (since/until)
-     * Used by report generation to pull fresh data from Meta before aggregating
+     * Sync das campanhas + insights de uma conta específica num período.
+     * Usado por relatórios e pelo botão "Sincronizar" na UI.
      */
     async syncAccountForPeriod(userId: string, accessToken: string, dbAccountId: string, since: string, until: string): Promise<void> {
-        logger.info('Syncing account for report period', { dbAccountId, since, until });
-
-        // Get meta_account_id from DB
-        const rows = await query<any>(`SELECT meta_account_id FROM ad_accounts WHERE id = $1`, [dbAccountId]);
+        const rows = await query<any>(
+            `SELECT meta_account_id, account_name FROM ad_accounts WHERE id = $1`,
+            [dbAccountId]
+        );
         if (!rows.length) throw new Error('Conta não encontrada no banco');
-        const metaAccountId = rows[0].meta_account_id;
+        const { meta_account_id, account_name } = rows[0];
 
-        const campaigns = await this.getCampaigns(userId, accessToken, metaAccountId);
-
-        for (const campaign of campaigns) {
-            const dbCampaign = await metaRepository.upsertCampaign(dbAccountId, {
-                meta_campaign_id: campaign.id,
-                name: campaign.name,
-                objective: campaign.objective,
-                status: campaign.status,
-                daily_budget: campaign.daily_budget ? parseFloat(campaign.daily_budget) / 100 : undefined,
-                lifetime_budget: campaign.lifetime_budget ? parseFloat(campaign.lifetime_budget) / 100 : undefined,
-                created_time: campaign.created_time,
-            });
-
-            try {
-                const insights = await metaRateLimiter.executeWithRetry(userId, async () => {
-                    const client = this.createClient(accessToken);
-                    return await this.fetchAllPages(client, `/${campaign.id}/insights`, {
-                        fields: ['impressions','reach','clicks','ctr','cpc','cpm','spend','frequency','actions','cost_per_action_type','purchase_roas'].join(','),
-                        time_range: JSON.stringify({ since, until }),
-                        time_increment: 1,
-                    });
-                });
-
-                for (const insight of insights) {
-                    const conversions = this.extractConversions(insight.actions);
-                    const roas = this.extractRoas(insight.purchase_roas);
-                    const costPerConversion = this.extractCostPerConversion(insight.cost_per_action_type);
-                    await metaRepository.upsertInsight({
-                        campaign_id: dbCampaign.id,
-                        date: insight.date_start,
-                        spend: parseFloat(insight.spend || '0'),
-                        impressions: parseInt(insight.impressions || '0', 10),
-                        reach: parseInt(insight.reach || '0', 10),
-                        clicks: parseInt(insight.clicks || '0', 10),
-                        ctr: parseFloat(insight.ctr || '0'),
-                        cpc: parseFloat(insight.cpc || '0'),
-                        cpm: parseFloat(insight.cpm || '0'),
-                        frequency: parseFloat(insight.frequency || '0'),
-                        conversions,
-                        cost_per_conversion: costPerConversion,
-                        roas,
-                        actions: insight.actions,
-                    });
-                }
-            } catch (err: any) {
-                logger.warn('Failed to sync insights for campaign during report', { campaignId: campaign.id, error: err.message });
-            }
-        }
-
-        logger.info('Account sync for report completed', { dbAccountId, since, until });
+        logger.info(`sync on-demand: ${account_name}`, { dbAccountId, since, until });
+        const r = await this.syncSingleAccount(userId, accessToken, dbAccountId, meta_account_id, since, until);
+        logger.info(`sync on-demand: ${account_name} concluído`, r);
     }
 
     /**
@@ -390,13 +343,92 @@ export class MetaService {
     }
 
     /**
-     * Sync all data for a user — called by background workers.
-     * Usa time_range absoluto dos últimos N dias para evitar drift do `date_preset`.
+     * Sync insights de uma única conta (identificada pelo meta_account_id).
+     * Usado por syncUserData e sync-account (on-demand).
+     * Atualiza ad_accounts.last_insights_sync_at no final.
+     */
+    async syncSingleAccount(
+        userId: string,
+        accessToken: string,
+        dbAccountId: string,
+        metaAccountId: string,
+        since: string,
+        until: string
+    ): Promise<{ campaigns: number; insights: number; errors: number }> {
+        let campaignsSynced = 0;
+        let insightsSynced = 0;
+        let errors = 0;
+
+        const campaigns = await this.getCampaigns(userId, accessToken, metaAccountId);
+        campaignsSynced = campaigns.length;
+
+        for (const campaign of campaigns) {
+            const dbCampaign = await metaRepository.upsertCampaign(dbAccountId, {
+                meta_campaign_id: campaign.id,
+                name: campaign.name,
+                objective: campaign.objective,
+                status: campaign.status,
+                daily_budget: campaign.daily_budget ? parseFloat(campaign.daily_budget) / 100 : undefined,
+                lifetime_budget: campaign.lifetime_budget ? parseFloat(campaign.lifetime_budget) / 100 : undefined,
+                created_time: campaign.created_time,
+            });
+
+            try {
+                const insights = await this.getCampaignInsights(
+                    userId, accessToken, campaign.id, 'last_30d', { since, until }
+                );
+                for (const insight of insights) {
+                    await metaRepository.upsertInsight({
+                        campaign_id: dbCampaign.id,
+                        date: insight.date_start,
+                        spend: parseFloat(insight.spend || '0'),
+                        impressions: parseInt(insight.impressions || '0', 10),
+                        reach: parseInt(insight.reach || '0', 10),
+                        clicks: parseInt(insight.clicks || '0', 10),
+                        ctr: parseFloat(insight.ctr || '0'),
+                        cpc: parseFloat(insight.cpc || '0'),
+                        cpm: parseFloat(insight.cpm || '0'),
+                        frequency: parseFloat(insight.frequency || '0'),
+                        conversions: this.extractConversions(insight.actions),
+                        cost_per_conversion: this.extractCostPerConversion(insight.cost_per_action_type),
+                        roas: this.extractRoas(insight.purchase_roas),
+                        actions: insight.actions,
+                    });
+                    insightsSynced++;
+                }
+            } catch (err: any) {
+                errors++;
+                logger.warn('sync: insights falharam para campanha', {
+                    campaignId: campaign.id, accountId: metaAccountId, error: err.message,
+                });
+            }
+        }
+
+        // Atualiza last_insights_sync_at
+        await query(
+            `UPDATE ad_accounts SET last_insights_sync_at = NOW(), updated_at = NOW() WHERE id = $1`,
+            [dbAccountId]
+        );
+
+        return { campaigns: campaignsSynced, insights: insightsSynced, errors };
+    }
+
+    /**
+     * Sync em duas fases:
+     *   Fase 1 — Discovery (leve): lista contas do Meta API e faz upsert em `ad_accounts`.
+     *            Mantém a lista atualizada sem baixar insights de centenas de contas.
+     *   Fase 2 — Sync dirigido: baixa campanhas + insights apenas das contas marcadas
+     *            como `is_client_active = true`. Isso evita estourar o rate-limit da
+     *            Meta quando o admin tem acesso a centenas de contas via BM.
+     *
+     * O sync da Fase 2 itera sequencialmente por conta (não em paralelo) para não
+     * disparar muitas requisições simultâneas.
      */
     async syncUserData(userId: string, accessToken: string, daysBack: number = 35): Promise<void> {
-        logger.info('Starting data sync', { userId, daysBack });
+        const started = Date.now();
+        logger.info('sync: iniciando', { userId, daysBack });
 
-        // Janela absoluta = hoje (inclusive) menos N-1 dias
+        // Janela absoluta
         const now = new Date();
         const until = now.toISOString().split('T')[0];
         const sinceDate = new Date(now);
@@ -404,121 +436,80 @@ export class MetaService {
         const since = sinceDate.toISOString().split('T')[0];
 
         try {
-            // 1. Sync ad accounts
-            const metaAccounts = await this.getAdAccounts(userId, accessToken);
-            for (const account of metaAccounts) {
-                const dbAccount = await metaRepository.upsertAdAccount(userId, {
-                    meta_account_id: account.id,
-                    account_name: account.name,
-                    currency: account.currency || 'BRL',
-                    timezone: account.timezone_name || 'America/Sao_Paulo',
-                });
-
-                // 2. Sync campaigns per account (paginado — todas)
-                const campaigns = await this.getCampaigns(userId, accessToken, account.id);
-                for (const campaign of campaigns) {
-                    const dbCampaign = await metaRepository.upsertCampaign(dbAccount.id, {
-                        meta_campaign_id: campaign.id,
-                        name: campaign.name,
-                        objective: campaign.objective,
-                        status: campaign.status,
-                        daily_budget: campaign.daily_budget ? parseFloat(campaign.daily_budget) / 100 : undefined,
-                        lifetime_budget: campaign.lifetime_budget ? parseFloat(campaign.lifetime_budget) / 100 : undefined,
-                        created_time: campaign.created_time,
+            // ── FASE 1 — Discovery: upsert todas as contas (sem campanhas) ─────
+            let discovered = 0;
+            try {
+                const metaAccounts = await this.getAdAccounts(userId, accessToken);
+                for (const account of metaAccounts) {
+                    await metaRepository.upsertAdAccount(userId, {
+                        meta_account_id: account.id,
+                        account_name: account.name,
+                        currency: account.currency || 'BRL',
+                        timezone: account.timezone_name || 'America/Sao_Paulo',
                     });
-
-                    // 3. Sync insights per campaign (time_range absoluto, paginado)
-                    try {
-                        const insights = await this.getCampaignInsights(
-                            userId, accessToken, campaign.id, 'last_30d',
-                            { since, until }
-                        );
-                        for (const insight of insights) {
-                            const conversions = this.extractConversions(insight.actions);
-                            const roas = this.extractRoas(insight.purchase_roas);
-                            const costPerConversion = this.extractCostPerConversion(insight.cost_per_action_type);
-
-                            await metaRepository.upsertInsight({
-                                campaign_id: dbCampaign.id,
-                                date: insight.date_start,
-                                spend: parseFloat(insight.spend || '0'),
-                                impressions: parseInt(insight.impressions || '0', 10),
-                                reach: parseInt(insight.reach || '0', 10),
-                                clicks: parseInt(insight.clicks || '0', 10),
-                                ctr: parseFloat(insight.ctr || '0'),
-                                cpc: parseFloat(insight.cpc || '0'),
-                                cpm: parseFloat(insight.cpm || '0'),
-                                frequency: parseFloat(insight.frequency || '0'),
-                                conversions,
-                                cost_per_conversion: costPerConversion,
-                                roas,
-                                actions: insight.actions,
-                            });
-                        }
-                    } catch (err: any) {
-                        logger.warn('Failed to sync insights for campaign', {
-                            campaignId: campaign.id,
-                            error: err.message,
-                        });
-                    }
+                    discovered++;
                 }
+                logger.info(`sync: descoberta concluída`, { userId, discovered });
+            } catch (err: any) {
+                logger.warn('sync: falha na fase de descoberta, seguindo com contas do banco', { error: err.message });
             }
 
-            // Also sync manually-added accounts not returned by Meta API
-            const allDbAccounts = await query<any>(
-                `SELECT id, meta_account_id FROM ad_accounts WHERE user_id = $1 AND is_client_active = true`,
+            // ── FASE 2 — Sync apenas das contas ATIVAS ────────────────────────
+            const activeAccounts = await query<any>(
+                `SELECT id, meta_account_id, account_name
+                 FROM ad_accounts
+                 WHERE user_id = $1 AND is_client_active = true
+                 ORDER BY last_insights_sync_at NULLS FIRST, account_name`,
                 [userId]
             );
-            const syncedMetaIds = new Set(metaAccounts.map((a: any) => String(a.id).replace(/^act_/, '')));
-            for (const dbAcc of allDbAccounts) {
-                const rawId = String(dbAcc.meta_account_id).replace(/^act_/, '');
-                if (syncedMetaIds.has(rawId)) continue; // já sincronizado acima
+
+            if (activeAccounts.length === 0) {
+                logger.info('sync: nenhuma conta ativa — nada para sincronizar', { userId });
+                return;
+            }
+
+            logger.info(`sync: sincronizando ${activeAccounts.length} conta(s) ativa(s)`, { userId });
+
+            let totalCampaigns = 0;
+            let totalInsights = 0;
+            let accountsOk = 0;
+            let accountsFailed = 0;
+
+            for (const acc of activeAccounts) {
                 try {
-                    logger.info(`Syncing manually-added account not in Meta API list: ${dbAcc.meta_account_id}`);
-                    const campaigns = await this.getCampaigns(userId, accessToken, dbAcc.meta_account_id);
-                    for (const campaign of campaigns) {
-                        const dbCampaign = await metaRepository.upsertCampaign(dbAcc.id, {
-                            meta_campaign_id: campaign.id,
-                            name: campaign.name,
-                            objective: campaign.objective,
-                            status: campaign.status,
-                            daily_budget: campaign.daily_budget ? parseFloat(campaign.daily_budget) / 100 : undefined,
-                            lifetime_budget: campaign.lifetime_budget ? parseFloat(campaign.lifetime_budget) / 100 : undefined,
-                            created_time: campaign.created_time,
-                        });
-                        try {
-                            const insights = await this.getCampaignInsights(
-                                userId, accessToken, campaign.id, 'last_30d',
-                                { since, until }
-                            );
-                            for (const insight of insights) {
-                                await metaRepository.upsertInsight({
-                                    campaign_id: dbCampaign.id,
-                                    date: insight.date_start,
-                                    spend: parseFloat(insight.spend || '0'),
-                                    impressions: parseInt(insight.impressions || '0', 10),
-                                    reach: parseInt(insight.reach || '0', 10),
-                                    clicks: parseInt(insight.clicks || '0', 10),
-                                    ctr: parseFloat(insight.ctr || '0'),
-                                    cpc: parseFloat(insight.cpc || '0'),
-                                    cpm: parseFloat(insight.cpm || '0'),
-                                    frequency: parseFloat(insight.frequency || '0'),
-                                    conversions: this.extractConversions(insight.actions),
-                                    cost_per_conversion: this.extractCostPerConversion(insight.cost_per_action_type),
-                                    roas: this.extractRoas(insight.purchase_roas),
-                                    actions: insight.actions,
-                                });
-                            }
-                        } catch { /* skip campaign insights */ }
-                    }
-                } catch (e: any) {
-                    logger.warn(`Failed to sync manually-added account ${dbAcc.meta_account_id}`, { error: e.message });
+                    const r = await this.syncSingleAccount(
+                        userId, accessToken, acc.id, acc.meta_account_id, since, until
+                    );
+                    totalCampaigns += r.campaigns;
+                    totalInsights += r.insights;
+                    accountsOk++;
+                    logger.info(`sync: ${acc.account_name} OK`, {
+                        accountId: acc.meta_account_id,
+                        campaigns: r.campaigns,
+                        insights: r.insights,
+                        errors: r.errors,
+                    });
+                } catch (err: any) {
+                    accountsFailed++;
+                    logger.error(`sync: ${acc.account_name} FALHOU`, {
+                        accountId: acc.meta_account_id,
+                        error: err.message,
+                    });
                 }
             }
 
-            logger.info('Data sync completed', { userId });
+            const duration = Math.round((Date.now() - started) / 1000);
+            logger.info('sync: concluído', {
+                userId,
+                duration_s: duration,
+                discovered,
+                accounts_ok: accountsOk,
+                accounts_failed: accountsFailed,
+                total_campaigns: totalCampaigns,
+                total_insights: totalInsights,
+            });
         } catch (error: any) {
-            logger.error('Data sync failed', { userId, error: error.message });
+            logger.error('sync: falhou completamente', { userId, error: error.message });
             throw error;
         }
     }
