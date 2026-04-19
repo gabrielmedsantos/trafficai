@@ -68,7 +68,8 @@ export class NotificationService {
             promises.push(this.sendEmail(settings, alert));
         }
 
-        if (settings.whatsapp_enabled && settings.whatsapp_number) {
+        // WhatsApp apenas para alertas críticos — evita spam
+        if (settings.whatsapp_enabled && settings.whatsapp_number && alert.severity === 'critical') {
             promises.push(this.sendWhatsApp(settings, alert));
         }
 

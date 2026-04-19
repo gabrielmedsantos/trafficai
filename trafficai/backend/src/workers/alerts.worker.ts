@@ -11,8 +11,8 @@ import { logger } from '../shared/logger';
  * Worker que executa análise de alertas a cada 30 minutos
  */
 export function startAlertsWorker() {
-    // Executa a cada 30 minutos
-    cron.schedule('*/30 * * * *', async () => {
+    // Executa 1x por dia às 9h
+    cron.schedule('0 9 * * *', async () => {
         try {
             logger.info('🔔 Alerts worker triggered');
             await smartAlertsService.analyzeActiveAccounts();
@@ -21,5 +21,5 @@ export function startAlertsWorker() {
         }
     });
 
-    logger.info('🔔 Alerts worker started (every 30 minutes)');
+    logger.info('🔔 Alerts worker started (daily at 9h)');
 }

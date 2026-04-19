@@ -462,7 +462,7 @@ export class SmartAlertsService {
         const existing = await query<{ id: string }>(
             `SELECT id FROM alerts
              WHERE user_id = $1 AND title = $2
-               AND created_at > NOW() - INTERVAL '24 hours'
+               AND created_at > NOW() - INTERVAL '48 hours'
              LIMIT 1`,
             [userId, title]
         );
@@ -475,7 +475,7 @@ export class SmartAlertsService {
             const existing = await query(
                 `SELECT id FROM alerts
                  WHERE user_id = $1 AND type = $2 AND campaign_id = $3
-                   AND created_at > NOW() - INTERVAL '24 hours'
+                   AND created_at > NOW() - INTERVAL '48 hours'
                  LIMIT 1`,
                 [alert.user_id, alert.type, alert.campaign_id]
             );

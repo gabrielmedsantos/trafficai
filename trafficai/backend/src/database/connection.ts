@@ -13,6 +13,7 @@ const poolConfig: PoolConfig = {
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 };
 
 export const pool = new Pool(poolConfig);

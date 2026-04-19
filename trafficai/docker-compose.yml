@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
 
   backend:
@@ -9,17 +7,14 @@ services:
     env_file: ./backend/.env.production
     networks:
       - traefik_net
+      - ipv6_net
     labels:
       - "traefik.enable=true"
-      # HTTPS
+      - "traefik.docker.network=n8n_default"
       - "traefik.http.routers.trafficai-api.rule=Host(`api.alfamaxdigital.com.br`)"
       - "traefik.http.routers.trafficai-api.entrypoints=websecure"
-      - "traefik.http.routers.trafficai-api.tls.certresolver=myresolver"
+      - "traefik.http.routers.trafficai-api.tls.certresolver=mytlschallenge"
       - "traefik.http.services.trafficai-api.loadbalancer.server.port=3001"
-      # HTTP → HTTPS redirect
-      - "traefik.http.routers.trafficai-api-http.rule=Host(`api.alfamaxdigital.com.br`)"
-      - "traefik.http.routers.trafficai-api-http.entrypoints=web"
-      - "traefik.http.routers.trafficai-api-http.middlewares=redirect-to-https@file"
 
   frontend:
     build:
@@ -32,17 +27,15 @@ services:
       - traefik_net
     labels:
       - "traefik.enable=true"
-      # HTTPS
       - "traefik.http.routers.trafficai-app.rule=Host(`app.alfamaxdigital.com.br`)"
       - "traefik.http.routers.trafficai-app.entrypoints=websecure"
-      - "traefik.http.routers.trafficai-app.tls.certresolver=myresolver"
+      - "traefik.http.routers.trafficai-app.tls.certresolver=mytlschallenge"
       - "traefik.http.services.trafficai-app.loadbalancer.server.port=3002"
-      # HTTP → HTTPS redirect
-      - "traefik.http.routers.trafficai-app-http.rule=Host(`app.alfamaxdigital.com.br`)"
-      - "traefik.http.routers.trafficai-app-http.entrypoints=web"
-      - "traefik.http.routers.trafficai-app-http.middlewares=redirect-to-https@file"
 
 networks:
   traefik_net:
     external: true
     name: n8n_default
+  ipv6_net:
+    external: true
+    name: trafficai_ipv6

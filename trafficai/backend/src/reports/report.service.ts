@@ -279,18 +279,18 @@ export class ReportService {
         const startStr = start.toISOString().split('T')[0];
         const endStr = end.toISOString().split('T')[0];
 
-        // Totais do período
+        // Totais do período — métricas derivadas (CTR, CPC, CPM) calculadas
+        // dos TOTAIS (não média de linhas) para bater com o Gerenciador da Meta.
+        // Frequência usa média ponderada pelo alcance.
         const totals = await query<any>(`
             SELECT
                 COALESCE(SUM(ih.spend), 0) as total_spend,
                 COALESCE(SUM(ih.impressions), 0) as total_impressions,
+                COALESCE(SUM(ih.reach), 0) as total_reach,
                 COALESCE(SUM(ih.clicks), 0) as total_clicks,
                 COALESCE(SUM(ih.conversions), 0) as total_conversions,
-                COALESCE(AVG(NULLIF(ih.ctr, 0)), 0) as avg_ctr,
-                COALESCE(AVG(NULLIF(ih.cpc, 0)), 0) as avg_cpc,
-                COALESCE(AVG(NULLIF(ih.cpm, 0)), 0) as avg_cpm,
-                COALESCE(AVG(NULLIF(ih.roas, 0)), 0) as avg_roas,
-                COALESCE(AVG(NULLIF(ih.frequency, 0)), 0) as avg_frequency,
+                COALESCE(SUM(ih.frequency * ih.reach), 0) as weighted_frequency_sum,
+                COALESCE(SUM(ih.roas * ih.spend), 0) as weighted_roas_sum,
                 COUNT(DISTINCT c.id) as campaigns_total
             FROM insights_history ih
             JOIN campaigns c ON ih.campaign_id = c.id
@@ -300,15 +300,26 @@ export class ReportService {
 
         const t = totals[0];
         const totalSpend = parseFloat(t.total_spend) || 0;
+        const totalImpressions = parseInt(t.total_impressions) || 0;
+        const totalReach = parseInt(t.total_reach) || 0;
+        const totalClicks = parseInt(t.total_clicks) || 0;
         const totalConversions = parseInt(t.total_conversions) || 0;
+        const weightedFreq = parseFloat(t.weighted_frequency_sum) || 0;
+        const weightedRoas = parseFloat(t.weighted_roas_sum) || 0;
 
-        // Detecta o tipo de ação primária olhando o JSON de actions salvo
+        const avgCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+        const avgCpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+        const avgCpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+        const avgFrequency = totalReach > 0 ? weightedFreq / totalReach : 0;
+        const avgRoas = totalSpend > 0 ? weightedRoas / totalSpend : 0;
+
+        // Detecta o tipo de ação primária olhando TODO o JSON de actions salvo
+        // (sem LIMIT — varremos todas as linhas para não enviesar por ordem).
         const actionsRows = await query<any>(`
             SELECT ih.actions FROM insights_history ih
             JOIN campaigns c ON ih.campaign_id = c.id
             WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3
               AND ih.actions IS NOT NULL
-            LIMIT 20
         `, [accountId, startStr, endStr]);
 
         let primaryActionLabel = 'Conversões';
@@ -358,22 +369,22 @@ export class ReportService {
             if (bestCount > 0) break;
         }
 
-        // Top campanhas
+        // Todas as campanhas do período — sem limite. ROAS e CTR ponderados.
         const topCampaigns = await query<any>(`
             SELECT
                 c.name,
                 c.status,
                 COALESCE(SUM(ih.spend), 0) as spend,
+                COALESCE(SUM(ih.impressions), 0) as impressions,
+                COALESCE(SUM(ih.clicks), 0) as clicks,
                 COALESCE(SUM(ih.conversions), 0) as conversions,
-                COALESCE(AVG(NULLIF(ih.roas, 0)), 0) as roas,
-                COALESCE(AVG(NULLIF(ih.ctr, 0)), 0) as ctr
+                COALESCE(SUM(ih.roas * ih.spend), 0) as weighted_roas_sum
             FROM insights_history ih
             JOIN campaigns c ON ih.campaign_id = c.id
             WHERE c.account_id = $1
               AND ih.date BETWEEN $2 AND $3
             GROUP BY c.id, c.name, c.status
             ORDER BY spend DESC
-            LIMIT 10
         `, [accountId, startStr, endStr]);
 
         // Breakdown diário
@@ -401,15 +412,15 @@ export class ReportService {
 
         return {
             total_spend: totalSpend,
-            total_impressions: parseInt(t.total_impressions) || 0,
-            total_clicks: parseInt(t.total_clicks) || 0,
+            total_impressions: totalImpressions,
+            total_clicks: totalClicks,
             total_conversions: totalConversions,
             primary_action_label: primaryActionLabel,
-            avg_ctr: parseFloat(t.avg_ctr) || 0,
-            avg_cpc: parseFloat(t.avg_cpc) || 0,
-            avg_cpm: parseFloat(t.avg_cpm) || 0,
-            avg_roas: parseFloat(t.avg_roas) || 0,
-            avg_frequency: parseFloat(t.avg_frequency) || 0,
+            avg_ctr: avgCtr,
+            avg_cpc: avgCpc,
+            avg_cpm: avgCpm,
+            avg_roas: avgRoas,
+            avg_frequency: avgFrequency,
             cost_per_conversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
             campaigns_active: parseInt(activeCampaigns[0]?.count) || 0,
             campaigns_total: parseInt(t.campaigns_total) || 0,
@@ -417,14 +428,20 @@ export class ReportService {
             conversions_change_pct: null,
             roas_change_pct: null,
             cpa_change_pct: null,
-            top_campaigns: topCampaigns.map(c => ({
-                name: c.name,
-                status: c.status,
-                spend: parseFloat(c.spend) || 0,
-                conversions: parseInt(c.conversions) || 0,
-                roas: parseFloat(c.roas) || 0,
-                ctr: parseFloat(c.ctr) || 0,
-            })),
+            top_campaigns: topCampaigns.map(c => {
+                const sp = parseFloat(c.spend) || 0;
+                const imp = parseInt(c.impressions) || 0;
+                const clk = parseInt(c.clicks) || 0;
+                const weightedRoasSum = parseFloat(c.weighted_roas_sum) || 0;
+                return {
+                    name: c.name,
+                    status: c.status,
+                    spend: sp,
+                    conversions: parseInt(c.conversions) || 0,
+                    roas: sp > 0 ? weightedRoasSum / sp : 0,
+                    ctr: imp > 0 ? (clk / imp) * 100 : 0,
+                };
+            }),
             top_ads: [], // preenchido após sync em generateReport
             daily_breakdown: dailyBreakdown.map(d => ({
                 date: d.date,
@@ -707,8 +724,7 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                 };
             })
             .filter(a => a.spend > 0)
-            .sort((a, b) => b.spend - a.spend)
-            .slice(0, 12); // máximo 12 criativos
+            .sort((a, b) => b.spend - a.spend);
     }
 
     // ─── HELPERS ──────────────────────────────────────────────────────────────
@@ -729,7 +745,10 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
     }
 
     /**
-     * Retorna as datas do período para cada tipo
+     * Retorna as datas do período para cada tipo.
+     * Monthly = mês completo (dia 1 ao último dia). O cron roda no dia 1 do mês seguinte.
+     * Weekly  = 7 dias encerrados ontem.
+     * Daily   = dia de ontem.
      */
     static getPeriodDates(type: ReportType): { start: Date; end: Date } {
         const now = new Date();
@@ -749,9 +768,10 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
             return { start, end };
         }
 
-        // monthly
-        const end = new Date(now);
-        end.setDate(end.getDate() - 1);
+        // monthly: mês completo anterior (ex.: gerado em 2026-05-01 → 2026-04-01 a 2026-04-30)
+        const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const end = new Date(firstOfThisMonth);
+        end.setDate(end.getDate() - 1); // último dia do mês anterior
         const start = new Date(end.getFullYear(), end.getMonth(), 1);
         return { start, end };
     }

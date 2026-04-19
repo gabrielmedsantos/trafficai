@@ -119,7 +119,7 @@ class ApiClient {
         return this.request<any[]>('GET', `/meta/campaigns${query}`);
     }
 
-    async getInsights(campaignId: string, limit = 30, since?: string, until?: string) {
+    async getInsights(campaignId: string, limit = 10000, since?: string, until?: string) {
         const params = new URLSearchParams({ campaign_id: campaignId, limit: String(limit) });
         if (since) params.set('since', since);
         if (until) params.set('until', until);

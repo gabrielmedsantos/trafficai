@@ -297,61 +297,90 @@ export default function DashboardPage() {
             const detected = detectObjective(campaignsData);
             if (objectiveAuto) setObjective(detected);
 
-            // Aggregate insights
+            // Aggregate insights — TODAS as campanhas (sem limite).
+            // Métricas derivadas (CTR, CPC, CPM, ROAS) são calculadas dos TOTAIS,
+            // não média de linhas diárias — assim batem com o Gerenciador da Meta.
             let totalSpend = 0, totalImpressions = 0, totalReach = 0, totalClicks = 0;
             let totalConversions = 0, totalMessages = 0;
-            let ctrSum = 0, cpcSum = 0, cpmSum = 0, roasSum = 0, freqSum = 0;
-            let cpaSum = 0, count = 0;
+            let reachWeightedFreqSum = 0; // frequência ponderada por alcance
+            let purchaseValueSum = 0;     // para calcular ROAS real = receita / gasto
             const dailyData: Record<string, any> = {};
 
-            for (const campaign of campaignsData.slice(0, 10)) {
-                try {
-                    const insights = await api.getInsights(campaign.id, 90, dateRange.since, dateRange.until);
-                    for (const insight of insights) {
-                        totalSpend       += Number(insight.spend)       || 0;
-                        totalImpressions += Number(insight.impressions)  || 0;
-                        totalReach       += Number(insight.reach)        || 0;
-                        totalClicks      += Number(insight.clicks)       || 0;
-                        totalConversions += Number(insight.conversions)  || 0;
-                        ctrSum  += Number(insight.ctr)  || 0;
-                        cpcSum  += Number(insight.cpc)  || 0;
-                        cpmSum  += Number(insight.cpm)  || 0;
-                        roasSum += Number(insight.roas) || 0;
-                        freqSum += Number(insight.frequency) || 0;
-                        cpaSum  += Number(insight.cost_per_conversion) || 0;
-                        count++;
-
-                        // Extract messaging actions
-                        totalMessages += extractAction(
-                            insight.actions || [],
-                            'onsite_conversion.messaging_conversation_started_7d',
-                            'onsite_conversion.total_messaging_connection',
-                            'onsite_conversion.messaging_first_reply',
-                        );
-
-                        // Daily chart aggregation
-                        const day = insight.date?.substring(0, 10);
-                        if (day) {
-                            if (!dailyData[day]) dailyData[day] = {
-                                date: day, spend: 0, clicks: 0, conversions: 0,
-                                impressions: 0, reach: 0, messages: 0,
-                            };
-                            dailyData[day].spend       += Number(insight.spend)       || 0;
-                            dailyData[day].clicks      += Number(insight.clicks)       || 0;
-                            dailyData[day].conversions += Number(insight.conversions)  || 0;
-                            dailyData[day].impressions += Number(insight.impressions)  || 0;
-                            dailyData[day].reach       += Number(insight.reach)        || 0;
-                            dailyData[day].messages    += extractAction(
-                                insight.actions || [],
-                                'onsite_conversion.messaging_conversation_started_7d',
-                                'onsite_conversion.total_messaging_connection',
-                            );
-                        }
-                    }
-                } catch { /* skip campaigns without insights */ }
+            // Busca insights de todas as campanhas em paralelo (com limite de concorrência simples).
+            const CONCURRENCY = 8;
+            async function fetchInsightsInParallel() {
+                const results: any[] = [];
+                for (let i = 0; i < campaignsData.length; i += CONCURRENCY) {
+                    const batch = campaignsData.slice(i, i + CONCURRENCY);
+                    const batchResults = await Promise.all(
+                        batch.map(async (c: any) => {
+                            try {
+                                return await api.getInsights(c.id, 1000, dateRange.since, dateRange.until);
+                            } catch { return []; }
+                        })
+                    );
+                    results.push(...batchResults.flat());
+                }
+                return results;
             }
 
-            const avg = (v: number) => count > 0 ? v / count : 0;
+            const allInsights = await fetchInsightsInParallel();
+            for (const insight of allInsights) {
+                const sp = Number(insight.spend) || 0;
+                const imp = Number(insight.impressions) || 0;
+                const rch = Number(insight.reach) || 0;
+                const clk = Number(insight.clicks) || 0;
+                const cnv = Number(insight.conversions) || 0;
+
+                totalSpend       += sp;
+                totalImpressions += imp;
+                totalReach       += rch;
+                totalClicks      += clk;
+                totalConversions += cnv;
+                reachWeightedFreqSum += (Number(insight.frequency) || 0) * rch;
+
+                // Valor de compra (purchase_value) via actions — se houver
+                purchaseValueSum += extractAction(
+                    insight.actions || [],
+                    'omni_purchase_value',
+                    'offsite_conversion.fb_pixel_purchase.value',
+                );
+
+                // Extract messaging actions
+                totalMessages += extractAction(
+                    insight.actions || [],
+                    'onsite_conversion.messaging_conversation_started_7d',
+                    'onsite_conversion.total_messaging_connection',
+                    'onsite_conversion.messaging_first_reply',
+                );
+
+                // Daily chart aggregation
+                const day = insight.date?.substring(0, 10);
+                if (day) {
+                    if (!dailyData[day]) dailyData[day] = {
+                        date: day, spend: 0, clicks: 0, conversions: 0,
+                        impressions: 0, reach: 0, messages: 0,
+                    };
+                    dailyData[day].spend       += sp;
+                    dailyData[day].clicks      += clk;
+                    dailyData[day].conversions += cnv;
+                    dailyData[day].impressions += imp;
+                    dailyData[day].reach       += rch;
+                    dailyData[day].messages    += extractAction(
+                        insight.actions || [],
+                        'onsite_conversion.messaging_conversation_started_7d',
+                        'onsite_conversion.total_messaging_connection',
+                    );
+                }
+            }
+
+            // Métricas derivadas corretas (iguais ao Gerenciador da Meta)
+            const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+            const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+            const cpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+            const freq = totalReach > 0 ? reachWeightedFreqSum / totalReach : 0;
+            const roas = totalSpend > 0 ? purchaseValueSum / totalSpend : 0;
+
             setStats({
                 spend: totalSpend,
                 impressions: totalImpressions,
@@ -359,11 +388,11 @@ export default function DashboardPage() {
                 clicks: totalClicks,
                 conversions: totalConversions,
                 messages: totalMessages,
-                ctr: avg(ctrSum),
-                cpc: avg(cpcSum),
-                cpm: avg(cpmSum),
-                roas: avg(roasSum),
-                frequency: avg(freqSum),
+                ctr,
+                cpc,
+                cpm,
+                roas,
+                frequency: freq,
                 costPerConversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
                 costPerMessage: totalMessages > 0 ? totalSpend / totalMessages : 0,
             });

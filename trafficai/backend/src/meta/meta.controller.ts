@@ -110,20 +110,23 @@ router.get('/ads', async (req: Request, res: Response, next: NextFunction) => {
 
 /**
  * GET /meta/insights?campaign_id=xxx&date_preset=last_30d
+ * Ou:     /meta/insights?campaign_id=xxx&since=YYYY-MM-DD&until=YYYY-MM-DD
  */
 router.get('/insights', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.user!.userId;
-        const { campaign_id, date_preset } = req.query;
+        const { campaign_id, date_preset, since, until } = req.query;
         if (!campaign_id) {
             throw new AppError('campaign_id is required', 400);
         }
         const accessToken = await getAccessToken(userId);
+        const timeRange = (since && until) ? { since: since as string, until: until as string } : undefined;
         const insights = await metaService.getCampaignInsights(
             userId,
             accessToken,
             campaign_id as string,
-            (date_preset as string) || 'last_30d'
+            (date_preset as string) || 'last_30d',
+            timeRange
         );
         res.json({ success: true, data: insights });
     } catch (err) {
@@ -144,7 +147,9 @@ router.get('/local/accounts', async (req: Request, res: Response, next: NextFunc
 });
 
 /**
- * GET /meta/local/insights?campaign_id=xxx — stored insights from DB
+ * GET /meta/local/insights?campaign_id=xxx&since=YYYY-MM-DD&until=YYYY-MM-DD
+ * Se since/until forem enviados, retorna TODAS as linhas do intervalo — sem limite.
+ * Se não, o limit padrão é alto (10000) para cobrir até ~27 anos de dados diários.
  */
 router.get('/local/insights', async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -154,7 +159,7 @@ router.get('/local/insights', async (req: Request, res: Response, next: NextFunc
         }
         const insights = await metaRepository.getInsightsByCampaign(
             campaign_id as string,
-            parseInt(limit as string, 10) || 30,
+            parseInt(limit as string, 10) || 10000,
             since as string | undefined,
             until as string | undefined
         );
@@ -165,14 +170,14 @@ router.get('/local/insights', async (req: Request, res: Response, next: NextFunc
 });
 
 /**
- * POST /meta/sync — trigger manual sync
+ * POST /meta/sync — trigger manual sync (janela absoluta de days_back dias)
  */
 router.post('/sync', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.user!.userId;
-        const { date_preset = 'last_30d' } = req.body;
+        const { days_back = 35 } = req.body;
         const accessToken = await getAccessToken(userId);
-        await metaService.syncUserData(userId, accessToken, date_preset);
+        await metaService.syncUserData(userId, accessToken, parseInt(days_back, 10));
         res.json({ success: true, message: 'Sync completed successfully' });
     } catch (err) {
         next(err);
@@ -390,6 +395,96 @@ router.get('/debug/accounts', async (req: Request, res: Response, next: NextFunc
         }
 
         res.json({ success: true, data: result });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * GET /meta/validate/:accountId?since=YYYY-MM-DD&until=YYYY-MM-DD
+ * Compara o spend agregado do DB (soma de insights_history) com o spend
+ * retornado diretamente no nível da conta pela Meta API. Se divergirem
+ * muito, provavelmente há campanhas não sincronizadas ou insights faltando.
+ */
+router.get('/validate/:accountId', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user!.userId;
+        const { accountId } = req.params;
+        const { since, until } = req.query as any;
+        if (!since || !until) {
+            throw new AppError('since e until (YYYY-MM-DD) são obrigatórios', 400);
+        }
+
+        const rows = await query<any>(
+            `SELECT id, meta_account_id, account_name FROM ad_accounts WHERE id = $1 AND user_id = $2`,
+            [accountId, userId]
+        );
+        if (!rows.length) throw new AppError('Conta não encontrada', 404);
+        const account = rows[0];
+
+        const dbAgg = await query<any>(
+            `SELECT COALESCE(SUM(ih.spend), 0) as spend,
+                    COALESCE(SUM(ih.impressions), 0) as impressions,
+                    COALESCE(SUM(ih.clicks), 0) as clicks,
+                    COUNT(DISTINCT c.id) as campaigns_with_data,
+                    COUNT(*) as insight_rows
+             FROM insights_history ih
+             JOIN campaigns c ON ih.campaign_id = c.id
+             WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3`,
+            [accountId, since, until]
+        );
+        const db = dbAgg[0];
+        const dbSpend = parseFloat(db.spend) || 0;
+
+        const accessToken = await getAccessToken(userId);
+        const meta = await metaService.getAccountLevelSpend(userId, accessToken, account.meta_account_id, since, until);
+
+        const delta = meta.spend - dbSpend;
+        const deltaPct = meta.spend > 0 ? (delta / meta.spend) * 100 : 0;
+        const isAccurate = Math.abs(deltaPct) <= 1; // tolerância de 1%
+
+        res.json({
+            success: true,
+            data: {
+                account: { id: account.id, meta_account_id: account.meta_account_id, name: account.account_name },
+                period: { since, until },
+                db: {
+                    spend: dbSpend,
+                    impressions: parseInt(db.impressions) || 0,
+                    clicks: parseInt(db.clicks) || 0,
+                    campaigns_with_data: parseInt(db.campaigns_with_data) || 0,
+                    insight_rows: parseInt(db.insight_rows) || 0,
+                },
+                meta_account_level: meta,
+                delta: {
+                    spend_absolute: Number(delta.toFixed(2)),
+                    spend_pct: Number(deltaPct.toFixed(2)),
+                },
+                is_accurate: isAccurate,
+                recommendation: isAccurate
+                    ? 'Dados consistentes com a Meta.'
+                    : 'Divergência detectada — rode POST /meta/sync-account para esse período.',
+            },
+        });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * POST /meta/validate/:accountId/fix — re-sincroniza e valida novamente
+ */
+router.post('/validate/:accountId/fix', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user!.userId;
+        const { accountId } = req.params;
+        const { since, until } = req.body;
+        if (!since || !until) {
+            throw new AppError('since e until (YYYY-MM-DD) são obrigatórios', 400);
+        }
+        const accessToken = await getAccessToken(userId);
+        await metaService.syncAccountForPeriod(userId, accessToken, accountId, since, until);
+        res.json({ success: true, message: 'Sincronização forçada concluída. Valide novamente em GET /meta/validate.' });
     } catch (err) {
         next(err);
     }

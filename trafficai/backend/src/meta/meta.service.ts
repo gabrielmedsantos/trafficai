@@ -1,6 +1,10 @@
 // ==============================
 // TrafficAI — Meta Ads API Service
 // ==============================
+// Regras de ouro:
+//  - Todas as chamadas à Meta Graph API devem paginar até o fim (paging.next)
+//  - Nada de LIMIT artificial — puxar TUDO que a Meta retornar
+//  - Sempre que possível validar total de spend contra o nível de conta
 
 import axios, { AxiosInstance } from 'axios';
 import { metaRepository, InsightRecord } from './meta.repository';
@@ -11,14 +15,48 @@ import { query } from '../database/connection';
 
 const META_API_VERSION = 'v19.0';
 const META_BASE_URL = `https://graph.facebook.com/${META_API_VERSION}`;
+const PAGE_SIZE = 500; // apenas dimensionamento de página da Meta — NÃO é teto
 
 export class MetaService {
     private createClient(accessToken: string): AxiosInstance {
         return axios.create({
             baseURL: META_BASE_URL,
             params: { access_token: accessToken },
-            timeout: 30000,
+            timeout: 45000,
         });
+    }
+
+    /**
+     * Segue todas as páginas de um endpoint da Meta Graph API.
+     * Retorna TODOS os resultados — nunca corta.
+     */
+    private async fetchAllPages(
+        client: AxiosInstance,
+        path: string,
+        params: any
+    ): Promise<any[]> {
+        const results: any[] = [];
+        let nextUrl: string | null = path;
+        let nextParams: any = { ...params, limit: params.limit || PAGE_SIZE };
+        let pageCount = 0;
+        const MAX_PAGES = 200; // proteção contra loop infinito (100k+ itens)
+
+        while (nextUrl && pageCount < MAX_PAGES) {
+            const response: any = await client.get(nextUrl, { params: nextParams });
+            results.push(...(response.data?.data || []));
+            const next = response.data?.paging?.next;
+            if (!next) break;
+            // A URL `next` já contém query string completa (inclui access_token).
+            // Usamos a URL absoluta e não reenviamos params.
+            nextUrl = next;
+            nextParams = undefined;
+            pageCount++;
+        }
+
+        if (pageCount >= MAX_PAGES) {
+            logger.warn(`Meta pagination hit safety cap at ${MAX_PAGES} pages on ${path}`);
+        }
+        return results;
     }
 
     /**
@@ -34,19 +72,6 @@ export class MetaService {
         const allAccounts: any[] = [];
         const FIELDS = 'id,name,currency,timezone_name,account_status';
 
-        const fetchPaged = async (startUrl: string, params?: any): Promise<any[]> => {
-            const results: any[] = [];
-            let nextUrl: string | null = startUrl;
-            while (nextUrl) {
-                const response = await client.get(nextUrl, {
-                    params: nextUrl === startUrl ? params : undefined,
-                });
-                results.push(...(response.data.data || []));
-                nextUrl = response.data.paging?.next || null;
-            }
-            return results;
-        };
-
         const merge = (accounts: any[]) => {
             for (const acc of accounts) {
                 const rawId = String(acc.id).replace(/^act_/, '');
@@ -60,14 +85,14 @@ export class MetaService {
         return metaRateLimiter.executeWithRetry(userId, async () => {
             try {
                 // 1. Contas pessoais
-                const personal = await fetchPaged('/me/adaccounts', { fields: FIELDS, limit: 500 });
+                const personal = await this.fetchAllPages(client, '/me/adaccounts', { fields: FIELDS });
                 merge(personal);
                 logger.info(`Meta sync — contas pessoais: ${personal.length}`);
 
                 // 2. Business Managers do usuário
                 let businesses: any[] = [];
                 try {
-                    businesses = await fetchPaged('/me/businesses', { fields: 'id,name', limit: 100 });
+                    businesses = await this.fetchAllPages(client, '/me/businesses', { fields: 'id,name' });
                     logger.info(`Meta sync — Business Managers: ${businesses.length}`);
                 } catch (e: any) {
                     logger.warn('Falha ao buscar Business Managers (permissão insuficiente)', { error: e.message });
@@ -76,7 +101,7 @@ export class MetaService {
                 for (const biz of businesses) {
                     // Owned ad accounts
                     try {
-                        const owned = await fetchPaged(`/${biz.id}/owned_ad_accounts`, { fields: FIELDS, limit: 500 });
+                        const owned = await this.fetchAllPages(client, `/${biz.id}/owned_ad_accounts`, { fields: FIELDS });
                         merge(owned);
                         logger.info(`BM ${biz.name} — owned accounts: ${owned.length}`);
                     } catch (e: any) {
@@ -85,7 +110,7 @@ export class MetaService {
 
                     // Client ad accounts
                     try {
-                        const client_accs = await fetchPaged(`/${biz.id}/client_ad_accounts`, { fields: FIELDS, limit: 500 });
+                        const client_accs = await this.fetchAllPages(client, `/${biz.id}/client_ad_accounts`, { fields: FIELDS });
                         merge(client_accs);
                         logger.info(`BM ${biz.name} — client accounts: ${client_accs.length}`);
                     } catch (e: any) {
@@ -102,19 +127,17 @@ export class MetaService {
     }
 
     /**
-     * Fetch campaigns for an ad account
+     * Fetch ALL campaigns for an ad account (paginado, sem limite)
      */
     async getCampaigns(userId: string, accessToken: string, adAccountId: string) {
         return metaRateLimiter.executeWithRetry(userId, async () => {
             try {
                 const client = this.createClient(accessToken);
-                const response = await client.get(`/${adAccountId}/campaigns`, {
-                    params: {
-                        fields: 'id,name,objective,status,daily_budget,lifetime_budget,created_time',
-                        limit: 500,
-                    },
+                const campaigns = await this.fetchAllPages(client, `/${adAccountId}/campaigns`, {
+                    fields: 'id,name,objective,status,daily_budget,lifetime_budget,created_time',
                 });
-                return response.data.data || [];
+                logger.info(`Conta ${adAccountId}: ${campaigns.length} campanhas`);
+                return campaigns;
             } catch (error: any) {
                 this.handleMetaError(error);
             }
@@ -122,19 +145,15 @@ export class MetaService {
     }
 
     /**
-     * Fetch ad sets for a campaign
+     * Fetch ALL ad sets for a campaign (paginado)
      */
     async getAdSets(userId: string, accessToken: string, campaignId: string) {
         return metaRateLimiter.executeWithRetry(userId, async () => {
             try {
                 const client = this.createClient(accessToken);
-                const response = await client.get(`/${campaignId}/adsets`, {
-                    params: {
-                        fields: 'id,name,status,daily_budget,targeting,optimization_goal',
-                        limit: 500,
-                    },
+                return await this.fetchAllPages(client, `/${campaignId}/adsets`, {
+                    fields: 'id,name,status,daily_budget,targeting,optimization_goal',
                 });
-                return response.data.data || [];
             } catch (error: any) {
                 this.handleMetaError(error);
             }
@@ -142,19 +161,15 @@ export class MetaService {
     }
 
     /**
-     * Fetch ads for a campaign
+     * Fetch ALL ads for a campaign (paginado)
      */
     async getAds(userId: string, accessToken: string, campaignId: string) {
         return metaRateLimiter.executeWithRetry(userId, async () => {
             try {
                 const client = this.createClient(accessToken);
-                const response = await client.get(`/${campaignId}/ads`, {
-                    params: {
-                        fields: 'id,name,status,creative{id,name,thumbnail_url}',
-                        limit: 500,
-                    },
+                return await this.fetchAllPages(client, `/${campaignId}/ads`, {
+                    fields: 'id,name,status,creative{id,name,thumbnail_url}',
                 });
-                return response.data.data || [];
             } catch (error: any) {
                 this.handleMetaError(error);
             }
@@ -189,15 +204,11 @@ export class MetaService {
             try {
                 const insights = await metaRateLimiter.executeWithRetry(userId, async () => {
                     const client = this.createClient(accessToken);
-                    const response = await client.get(`/${campaign.id}/insights`, {
-                        params: {
-                            fields: ['impressions','reach','clicks','ctr','cpc','cpm','spend','frequency','actions','cost_per_action_type','purchase_roas'].join(','),
-                            time_range: JSON.stringify({ since, until }),
-                            time_increment: 1,
-                            limit: 100,
-                        },
+                    return await this.fetchAllPages(client, `/${campaign.id}/insights`, {
+                        fields: ['impressions','reach','clicks','ctr','cpc','cpm','spend','frequency','actions','cost_per_action_type','purchase_roas'].join(','),
+                        time_range: JSON.stringify({ since, until }),
+                        time_increment: 1,
                     });
-                    return response.data.data || [];
                 });
 
                 for (const insight of insights) {
@@ -230,7 +241,8 @@ export class MetaService {
     }
 
     /**
-     * Fetch ad-level insights for a report period — returns top ads with their metrics
+     * Fetch ad-level insights for a report period — returns ALL ads with their metrics.
+     * Paginado, sem limite artificial.
      */
     async getAdInsightsForReport(
         userId: string,
@@ -243,20 +255,16 @@ export class MetaService {
             try {
                 const client = this.createClient(accessToken);
                 const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
-                const response = await client.get(`/${acctPath}/insights`, {
-                    params: {
-                        level: 'ad',
-                        fields: [
-                            'ad_id', 'ad_name',
-                            'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'spend', 'frequency',
-                            'actions', 'cost_per_action_type', 'purchase_roas',
-                            'video_play_actions',
-                        ].join(','),
-                        time_range: JSON.stringify({ since, until }),
-                        limit: 50,
-                    },
+                return await this.fetchAllPages(client, `/${acctPath}/insights`, {
+                    level: 'ad',
+                    fields: [
+                        'ad_id', 'ad_name',
+                        'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'spend', 'frequency',
+                        'actions', 'cost_per_action_type', 'purchase_roas',
+                        'video_play_actions',
+                    ].join(','),
+                    time_range: JSON.stringify({ since, until }),
                 });
-                return response.data?.data || [];
             } catch (err: any) {
                 logger.warn('Failed to fetch ad-level insights for report', { error: err.message });
                 return [];
@@ -265,7 +273,8 @@ export class MetaService {
     }
 
     /**
-     * Fetch ad thumbnails for a Meta account — returns map of ad_id → thumbnail_url
+     * Fetch ad thumbnails for a Meta account — retorna mapa completo de ad_id → thumbnail_url.
+     * Faz múltiplas chamadas em batches para atender qualquer número de adIds.
      */
     async getAdThumbnails(
         userId: string,
@@ -277,62 +286,66 @@ export class MetaService {
         if (!adIds.length) return thumbnails;
 
         return metaRateLimiter.executeWithRetry(userId, async () => {
-            try {
-                const client = this.createClient(accessToken);
-                const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
-                const response = await client.get(`/${acctPath}/ads`, {
-                    params: {
+            const client = this.createClient(accessToken);
+            const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
+            const BATCH = 50; // filtro IN da Meta tem limite prático por request
+            for (let i = 0; i < adIds.length; i += BATCH) {
+                const slice = adIds.slice(i, i + BATCH);
+                try {
+                    const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
                         fields: 'id,creative{thumbnail_url,image_url}',
-                        filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: adIds.slice(0, 50) }]),
-                        limit: 50,
-                    },
-                });
-                for (const ad of (response.data?.data || [])) {
-                    const thumb = ad.creative?.thumbnail_url || ad.creative?.image_url;
-                    if (thumb) thumbnails.set(ad.id, thumb);
+                        filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
+                    });
+                    for (const ad of ads) {
+                        const thumb = ad.creative?.thumbnail_url || ad.creative?.image_url;
+                        if (thumb) thumbnails.set(ad.id, thumb);
+                    }
+                } catch (err: any) {
+                    logger.warn('Failed to fetch ad thumbnails batch', { error: err.message });
                 }
-            } catch (err: any) {
-                logger.warn('Failed to fetch ad thumbnails', { error: err.message });
             }
             return thumbnails;
         });
     }
 
     /**
-     * Fetch insights for a campaign with specified date range
+     * Fetch insights for a campaign with specified date range (paginado).
+     * Preferir time_range quando possível — date_preset é relativo ao momento da chamada.
      */
     async getCampaignInsights(
         userId: string,
         accessToken: string,
         campaignId: string,
-        datePreset: string = 'last_30d'
+        datePreset: string = 'last_30d',
+        timeRange?: { since: string; until: string }
     ) {
         return metaRateLimiter.executeWithRetry(userId, async () => {
             try {
                 const client = this.createClient(accessToken);
-                const response = await client.get(`/${campaignId}/insights`, {
-                    params: {
-                        fields: [
-                            'campaign_name',
-                            'objective',
-                            'impressions',
-                            'reach',
-                            'clicks',
-                            'ctr',
-                            'cpc',
-                            'cpm',
-                            'spend',
-                            'frequency',
-                            'actions',
-                            'cost_per_action_type',
-                            'purchase_roas',
-                        ].join(','),
-                        date_preset: datePreset,
-                        time_increment: 1, // daily breakdown
-                        limit: 100,
-                    },
-                });
-                return response.data.data || [];
+                const params: any = {
+                    fields: [
+                        'campaign_name',
+                        'objective',
+                        'impressions',
+                        'reach',
+                        'clicks',
+                        'ctr',
+                        'cpc',
+                        'cpm',
+                        'spend',
+                        'frequency',
+                        'actions',
+                        'cost_per_action_type',
+                        'purchase_roas',
+                    ].join(','),
+                    time_increment: 1,
+                };
+                if (timeRange) {
+                    params.time_range = JSON.stringify(timeRange);
+                } else {
+                    params.date_preset = datePreset;
+                }
+                return await this.fetchAllPages(client, `/${campaignId}/insights`, params);
             } catch (error: any) {
                 this.handleMetaError(error);
             }
@@ -340,10 +353,55 @@ export class MetaService {
     }
 
     /**
-     * Sync all data for a user — called by background workers
+     * Busca o total de spend DIRETAMENTE no nível da conta (act_XXX/insights)
+     * para um período. Usado como VALIDAÇÃO contra a soma de campanhas no DB.
+     * Se houver divergência significativa → alerta para re-sync.
      */
-    async syncUserData(userId: string, accessToken: string, datePreset: string = 'last_30d'): Promise<void> {
-        logger.info('Starting data sync', { userId, datePreset });
+    async getAccountLevelSpend(
+        userId: string,
+        accessToken: string,
+        metaAccountId: string,
+        since: string,
+        until: string
+    ): Promise<{ spend: number; impressions: number; clicks: number; reach: number }> {
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            try {
+                const client = this.createClient(accessToken);
+                const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
+                const rows = await this.fetchAllPages(client, `/${acctPath}/insights`, {
+                    level: 'account',
+                    fields: 'spend,impressions,clicks,reach',
+                    time_range: JSON.stringify({ since, until }),
+                });
+                // Mesmo em level=account pode vir uma única linha, mas somamos por garantia.
+                let spend = 0, impressions = 0, clicks = 0, reach = 0;
+                for (const r of rows) {
+                    spend += parseFloat(r.spend || '0');
+                    impressions += parseInt(r.impressions || '0', 10);
+                    clicks += parseInt(r.clicks || '0', 10);
+                    reach += parseInt(r.reach || '0', 10);
+                }
+                return { spend, impressions, clicks, reach };
+            } catch (error: any) {
+                logger.warn('Falha ao buscar spend de nível conta', { error: error.message });
+                return { spend: 0, impressions: 0, clicks: 0, reach: 0 };
+            }
+        });
+    }
+
+    /**
+     * Sync all data for a user — called by background workers.
+     * Usa time_range absoluto dos últimos N dias para evitar drift do `date_preset`.
+     */
+    async syncUserData(userId: string, accessToken: string, daysBack: number = 35): Promise<void> {
+        logger.info('Starting data sync', { userId, daysBack });
+
+        // Janela absoluta = hoje (inclusive) menos N-1 dias
+        const now = new Date();
+        const until = now.toISOString().split('T')[0];
+        const sinceDate = new Date(now);
+        sinceDate.setDate(sinceDate.getDate() - (daysBack - 1));
+        const since = sinceDate.toISOString().split('T')[0];
 
         try {
             // 1. Sync ad accounts
@@ -356,7 +414,7 @@ export class MetaService {
                     timezone: account.timezone_name || 'America/Sao_Paulo',
                 });
 
-                // 2. Sync campaigns per account
+                // 2. Sync campaigns per account (paginado — todas)
                 const campaigns = await this.getCampaigns(userId, accessToken, account.id);
                 for (const campaign of campaigns) {
                     const dbCampaign = await metaRepository.upsertCampaign(dbAccount.id, {
@@ -369,9 +427,12 @@ export class MetaService {
                         created_time: campaign.created_time,
                     });
 
-                    // 3. Sync insights per campaign
+                    // 3. Sync insights per campaign (time_range absoluto, paginado)
                     try {
-                        const insights = await this.getCampaignInsights(userId, accessToken, campaign.id, datePreset);
+                        const insights = await this.getCampaignInsights(
+                            userId, accessToken, campaign.id, 'last_30d',
+                            { since, until }
+                        );
                         for (const insight of insights) {
                             const conversions = this.extractConversions(insight.actions);
                             const roas = this.extractRoas(insight.purchase_roas);
@@ -411,7 +472,7 @@ export class MetaService {
             const syncedMetaIds = new Set(metaAccounts.map((a: any) => String(a.id).replace(/^act_/, '')));
             for (const dbAcc of allDbAccounts) {
                 const rawId = String(dbAcc.meta_account_id).replace(/^act_/, '');
-                if (syncedMetaIds.has(rawId)) continue; // already synced above
+                if (syncedMetaIds.has(rawId)) continue; // já sincronizado acima
                 try {
                     logger.info(`Syncing manually-added account not in Meta API list: ${dbAcc.meta_account_id}`);
                     const campaigns = await this.getCampaigns(userId, accessToken, dbAcc.meta_account_id);
@@ -426,7 +487,10 @@ export class MetaService {
                             created_time: campaign.created_time,
                         });
                         try {
-                            const insights = await this.getCampaignInsights(userId, accessToken, campaign.id, datePreset);
+                            const insights = await this.getCampaignInsights(
+                                userId, accessToken, campaign.id, 'last_30d',
+                                { since, until }
+                            );
                             for (const insight of insights) {
                                 await metaRepository.upsertInsight({
                                     campaign_id: dbCampaign.id,
@@ -522,7 +586,7 @@ export class MetaService {
         userId: string,
         accessToken: string,
         metaAccountId: string
-    ): Promise<{ balance: number; account_status: number; funding_source_details: any }> {
+    ): Promise<{ balance: number; amount_spent: number; spend_cap: number; account_status: number; funding_source_details: any }> {
         const accountPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
         return metaRateLimiter.executeWithRetry(userId, async () => {
             try {

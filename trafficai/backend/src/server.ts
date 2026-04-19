@@ -20,6 +20,9 @@ import { logger } from './shared/logger';
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
+// Trust proxy (necessário atrás do Traefik/nginx)
+app.set('trust proxy', 1);
+
 // ---- Security Middleware ----
 app.use(helmet());
 app.use(cors({
