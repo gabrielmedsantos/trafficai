@@ -157,6 +157,33 @@ class ApiClient {
         return this.request<any>('GET', `/prediction/campaign/${campaignId}`);
     }
 
+    // Team
+    async getMe_role(): Promise<{ role: string }> {
+        return this.request<{ role: string }>('GET', '/auth/me');
+    }
+
+    async getTeamMembers() {
+        return this.request<any[]>('GET', '/team/members');
+    }
+
+    async createTeamMember(data: {
+        name: string; email: string; password: string;
+        role?: 'admin' | 'member'; department?: string; job_title?: string; avatar_color?: string;
+    }) {
+        return this.request<any>('POST', '/team/members', data);
+    }
+
+    async updateTeamMember(id: string, data: Partial<{
+        name: string; email: string; password: string;
+        role: 'admin' | 'member'; department: string; job_title: string; avatar_color: string;
+    }>) {
+        return this.request<any>('PATCH', `/team/members/${id}`, data);
+    }
+
+    async deleteTeamMember(id: string) {
+        return this.request<{ message: string }>('DELETE', `/team/members/${id}`);
+    }
+
     // Alerts
     async getAlerts(unreadOnly = false, limit = 200) {
         return this.request<{ alerts: any[]; unread_count: number }>('GET', `/alerts?unread_only=${unreadOnly}&limit=${limit}`);

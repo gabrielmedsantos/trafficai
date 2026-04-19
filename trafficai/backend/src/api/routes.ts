@@ -14,6 +14,7 @@ import { routineController } from '../routine/routine.controller';
 import { clientsController } from '../clients/clients.controller';
 import { financialController } from '../financial/financial.controller';
 import { tasksController } from '../tasks/tasks.controller';
+import { teamController } from '../team/team.controller';
 
 const router = Router();
 
@@ -42,5 +43,6 @@ router.use('/routine', routineController);
 router.use('/clients', clientsController);
 router.use('/financial', financialController);
 router.use('/tasks', tasksController);
+router.use('/team', teamController);
 
 export const apiRoutes = router;
