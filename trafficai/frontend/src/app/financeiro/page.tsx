@@ -65,6 +65,7 @@ interface BillingRecord {
     percentage: number;
     percentage_base: string;
     billing_day: number;
+    due_date: string | null;
     reference_month: string;
     fixed_amount: number;
     percentage_amount: number;
@@ -136,6 +137,25 @@ function fmtMonthYear(dateStr: string): string {
     return d ? d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : '';
 }
 
+// Computa status de pagamento baseado em due_date + status
+// Retorna label, cor e dias até/desde o vencimento.
+function dueStatus(due_date: string | null | undefined, status: string): {
+    label: string; color: string; sub: string;
+} {
+    if (status === 'paid') return { label: 'Pago', color: '#10b981', sub: '' };
+    const d = safeDate(due_date || '');
+    if (!d) return { label: status === 'overdue' ? 'Atrasado' : 'Pendente', color: status === 'overdue' ? '#ef4444' : '#f59e0b', sub: '' };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((d.getTime() - today.getTime()) / 86_400_000);
+    const dueStr = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    if (diffDays > 1)   return { label: 'Em dia',    color: '#10b981', sub: `vence em ${diffDays} dias (${dueStr})` };
+    if (diffDays === 1) return { label: 'Em dia',    color: '#10b981', sub: `vence amanhã (${dueStr})` };
+    if (diffDays === 0) return { label: 'Vence hoje', color: '#f59e0b', sub: `até hoje (${dueStr})` };
+    if (diffDays === -1) return { label: 'Atrasado', color: '#ef4444', sub: `1 dia de atraso (venceu ${dueStr})` };
+    return { label: 'Atrasado', color: '#ef4444', sub: `${-diffDays} dias de atraso (venceu ${dueStr})` };
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
     confirmed: { label: 'Confirmado', color: '#10b981' },
     pending:   { label: 'Pendente',   color: '#f59e0b' },
@@ -178,7 +198,7 @@ export default function FinanceiroPage() {
     const [generateMonth, setGenerateMonth] = useState(new Date().getMonth() + 1);
     const [generateYear, setGenerateYear] = useState(new Date().getFullYear());
     const [billingModal, setBillingModal] = useState<BillingRecord | null>(null);
-    const [billingForm, setBillingForm] = useState({ status: 'paid', percentage_amount: '', payment_method: '', notes: '' });
+    const [billingForm, setBillingForm] = useState({ status: 'paid', percentage_amount: '', payment_method: '', notes: '', due_date: '' });
 
     const fetchAll = useCallback(async () => {
         setLoading(true);
@@ -787,7 +807,7 @@ export default function FinanceiroPage() {
                                                         onClick={() => {
                                                             if (isPaid) return;
                                                             setBillingModal(r);
-                                                            setBillingForm({ status: 'paid', percentage_amount: hasPercentage ? String(r.percentage_amount || '') : '', payment_method: r.payment_method || '', notes: r.notes || '' });
+                                                            setBillingForm({ status: 'paid', percentage_amount: hasPercentage ? String(r.percentage_amount || '') : '', payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
                                                         }}
                                                         title={isPaid ? 'Recebido' : 'Marcar como recebido'}
                                                         style={{
@@ -805,10 +825,34 @@ export default function FinanceiroPage() {
 
                                                     {/* Info */}
                                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ fontSize: 13, fontWeight: 600, color: isPaid ? 'var(--text-muted)' : 'var(--text)', textTransform: 'capitalize' }}>
-                                                            {monthLabel}
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                            <div style={{ fontSize: 13, fontWeight: 600, color: isPaid ? 'var(--text-muted)' : 'var(--text)', textTransform: 'capitalize' }}>
+                                                                {monthLabel}
+                                                            </div>
+                                                            {(() => {
+                                                                const s = dueStatus(r.due_date, r.status);
+                                                                return (
+                                                                    <span style={{
+                                                                        fontSize: 10.5,
+                                                                        fontWeight: 600,
+                                                                        padding: '2px 7px',
+                                                                        borderRadius: 999,
+                                                                        background: `${s.color}18`,
+                                                                        color: s.color,
+                                                                        border: `1px solid ${s.color}44`,
+                                                                        textTransform: 'uppercase',
+                                                                        letterSpacing: '.3px',
+                                                                    }}>
+                                                                        {s.label}
+                                                                    </span>
+                                                                );
+                                                            })()}
                                                         </div>
-                                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                                            {!isPaid && (() => {
+                                                                const s = dueStatus(r.due_date, r.status);
+                                                                return s.sub && <span style={{ color: s.color }}>{s.sub}</span>;
+                                                            })()}
                                                             <span>{r.contract_description}</span>
                                                             {hasPercentage && r.percentage > 0 && (
                                                                 <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -822,16 +866,13 @@ export default function FinanceiroPage() {
 
                                                     {/* Amount */}
                                                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                                                        <div style={{ fontSize: 15, fontWeight: 700, color: isPaid ? '#10b981' : isOverdue ? '#ef4444' : 'var(--text)', textDecoration: isPaid ? 'none' : 'none' }}>
+                                                        <div style={{ fontSize: 15, fontWeight: 700, color: isPaid ? '#10b981' : isOverdue ? '#ef4444' : 'var(--text)' }}>
                                                             {formatBRL(Number(r.total_amount))}
                                                         </div>
                                                         {isPaid && r.paid_at && (
                                                             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                                                                 Recebido em {new Date(r.paid_at).toLocaleDateString('pt-BR')}
                                                             </div>
-                                                        )}
-                                                        {isOverdue && (
-                                                            <div style={{ fontSize: 11, color: '#ef4444', marginTop: 2 }}>Atrasado</div>
                                                         )}
                                                     </div>
 
@@ -840,7 +881,7 @@ export default function FinanceiroPage() {
                                                         <button
                                                             onClick={() => {
                                                                 setBillingModal(r);
-                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '' });
+                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
                                                             }}
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, flexShrink: 0 }}
                                                         >
@@ -851,7 +892,7 @@ export default function FinanceiroPage() {
                                                         <button
                                                             onClick={() => {
                                                                 setBillingModal(r);
-                                                                setBillingForm({ status: 'pending', percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '' });
+                                                                setBillingForm({ status: 'pending', percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
                                                             }}
                                                             title="Desfazer recebimento"
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.4)', padding: 4, flexShrink: 0 }}
@@ -1006,6 +1047,26 @@ export default function FinanceiroPage() {
                                 </div>
                             )}
 
+                            {/* Data combinada de pagamento */}
+                            <div>
+                                <label style={labelSt}>Data combinada de pagamento</label>
+                                <input
+                                    type="date"
+                                    value={billingForm.due_date}
+                                    onChange={e => setBillingForm(f => ({ ...f, due_date: e.target.value }))}
+                                    style={inputSt}
+                                />
+                                {billingForm.due_date && (() => {
+                                    const s = dueStatus(billingForm.due_date, billingForm.status);
+                                    return (
+                                        <div style={{ fontSize: 12, color: s.color, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
+                                            {s.label}{s.sub ? ` · ${s.sub}` : ''}
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+
                             {/* Payment method */}
                             <div>
                                 <label style={labelSt}>Forma de Pagamento</label>
@@ -1040,7 +1101,12 @@ export default function FinanceiroPage() {
                             <button onClick={() => setBillingModal(null)} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 14, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>Cancelar</button>
                             <button
                                 onClick={async () => {
-                                    const body: any = { status: billingForm.status, payment_method: billingForm.payment_method || null, notes: billingForm.notes || null };
+                                    const body: any = {
+                                        status: billingForm.status,
+                                        payment_method: billingForm.payment_method || null,
+                                        notes: billingForm.notes || null,
+                                        due_date: billingForm.due_date || null,
+                                    };
                                     if (billingForm.percentage_amount) body.percentage_amount = parseFloat(billingForm.percentage_amount);
                                     await fetch(`${API}/financial/billing/${billingModal!.id}`, {
                                         method: 'PUT',

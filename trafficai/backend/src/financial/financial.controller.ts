@@ -457,14 +457,25 @@ router.post('/billing/generate', async (req: Request, res: Response) => {
         let created = 0;
         let skipped = 0;
 
+        // Último dia do mês (para cap em billing_day=31, fevereiro, etc)
+        const lastDayOfMonth = new Date(targetYear, targetMonth, 0).getDate();
+
         for (const contract of contracts) {
             try {
                 const fixedAmt = Number(contract.fixed_amount) || 0;
+                const billingDay = Math.min(
+                    Math.max(1, Number(contract.billing_day) || 1),
+                    lastDayOfMonth
+                );
+                const dueDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(billingDay).padStart(2, '0')}`;
+
                 await query(
-                    `INSERT INTO contract_billing (user_id, contract_id, client_id, reference_month, fixed_amount, percentage_amount, total_amount, status)
-                     VALUES ($1, $2, $3, $4, $5, 0, $5, 'pending')
+                    `INSERT INTO contract_billing
+                       (user_id, contract_id, client_id, reference_month, due_date,
+                        fixed_amount, percentage_amount, total_amount, status)
+                     VALUES ($1, $2, $3, $4, $5, $6, 0, $6, 'pending')
                      ON CONFLICT (contract_id, reference_month) DO NOTHING`,
-                    [userId, contract.id, contract.client_id, refMonth, fixedAmt]
+                    [userId, contract.id, contract.client_id, refMonth, dueDate, fixedAmt]
                 );
                 created++;
             } catch {
@@ -479,12 +490,12 @@ router.post('/billing/generate', async (req: Request, res: Response) => {
     }
 });
 
-// PUT /financial/billing/:id — mark paid / update percentage amount / notes
+// PUT /financial/billing/:id — marcar pago / editar valor / due_date / notes
 router.put('/billing/:id', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
-        const { status, percentage_amount, payment_method, notes } = req.body;
+        const { status, percentage_amount, payment_method, notes, due_date } = req.body;
 
         // Recalculate total if percentage_amount changes
         const existing = await query<any>(
@@ -497,6 +508,11 @@ router.put('/billing/:id', async (req: Request, res: Response) => {
         const pctAmt = percentage_amount !== undefined ? Number(percentage_amount) : null;
         const totalAmt = pctAmt !== null ? fixedAmt + pctAmt : null;
 
+        // due_date aceito como "YYYY-MM-DD" ou null (para remover).
+        // undefined = não altera.
+        const dueDateParam = due_date === undefined ? null : (due_date || null);
+        const dueDateProvided = due_date !== undefined;
+
         const rows = await query<any>(
             `UPDATE contract_billing SET
                 status = COALESCE($3, status),
@@ -504,10 +520,11 @@ router.put('/billing/:id', async (req: Request, res: Response) => {
                 total_amount = COALESCE($5, total_amount),
                 payment_method = COALESCE($6, payment_method),
                 notes = COALESCE($7, notes),
+                due_date = CASE WHEN $9::boolean THEN $8::date ELSE due_date END,
                 paid_at = CASE WHEN $3 = 'paid' AND paid_at IS NULL THEN NOW() ELSE paid_at END,
                 updated_at = NOW()
              WHERE id = $1 AND user_id = $2 RETURNING *`,
-            [id, userId, status || null, pctAmt, totalAmt, payment_method || null, notes || null]
+            [id, userId, status || null, pctAmt, totalAmt, payment_method || null, notes || null, dueDateParam, dueDateProvided]
         );
 
         res.json({ success: true, data: rows[0] });
@@ -538,22 +555,22 @@ router.delete('/billing/:id', async (req: Request, res: Response) => {
     }
 });
 
-// POST /financial/billing/mark-overdue — mark old pending as overdue
+// POST /financial/billing/mark-overdue — marca atrasadas (due_date < hoje)
 router.post('/billing/mark-overdue', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const today = new Date().toISOString().split('T')[0];
-        const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
-
         const result = await query<any>(
             `UPDATE contract_billing SET status = 'overdue', updated_at = NOW()
-             WHERE user_id = $1 AND status = 'pending' AND reference_month < $2
+             WHERE user_id = $1
+               AND status = 'pending'
+               AND due_date IS NOT NULL
+               AND due_date < CURRENT_DATE
              RETURNING id`,
-            [userId, currentMonth]
+            [userId]
         );
-
         res.json({ success: true, data: { updated: result.length } });
     } catch (error: any) {
+        logger.error('Erro em mark-overdue', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
