@@ -83,7 +83,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         const startDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
         const endDate = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
 
-        // Totals by type
+        // Totals by type (transactions avulsas)
         const totals = await query<any>(
             `SELECT type, SUM(amount) as total
              FROM transactions
@@ -92,8 +92,25 @@ router.get('/dashboard', async (req: Request, res: Response) => {
             [userId, startDate, endDate]
         );
 
-        const income = totals.find((r: any) => r.type === 'income')?.total || 0;
-        const expense = totals.find((r: any) => r.type === 'expense')?.total || 0;
+        const txIncome = Number(totals.find((r: any) => r.type === 'income')?.total || 0);
+        const txExpense = Number(totals.find((r: any) => r.type === 'expense')?.total || 0);
+
+        // Cobranças de contrato do mês de referência — considera pago como receita
+        // e pendente/atrasado como "a receber" (reportado separadamente).
+        const billingTotals = await query<any>(
+            `SELECT status, COALESCE(SUM(total_amount), 0) AS total
+             FROM contract_billing
+             WHERE user_id = $1 AND reference_month = $2
+             GROUP BY status`,
+            [userId, startDate]
+        );
+        const contractsPaid = Number(billingTotals.find((r: any) => r.status === 'paid')?.total || 0);
+        const contractsPending = Number(billingTotals.find((r: any) => r.status === 'pending')?.total || 0);
+        const contractsOverdue = Number(billingTotals.find((r: any) => r.status === 'overdue')?.total || 0);
+        const contractsReceivable = contractsPending + contractsOverdue;
+
+        const income = txIncome + contractsPaid;
+        const expense = txExpense;
 
         // Category breakdown
         const byCategory = await query<any>(
@@ -135,9 +152,18 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         res.json({
             success: true,
             data: {
-                income: Number(income),
-                expense: Number(expense),
-                balance: Number(income) - Number(expense),
+                income,
+                expense,
+                balance: income - expense,
+                income_breakdown: {
+                    transactions: txIncome,
+                    contracts_paid: contractsPaid,
+                },
+                receivable: contractsReceivable,
+                receivable_breakdown: {
+                    pending: contractsPending,
+                    overdue: contractsOverdue,
+                },
                 byCategory,
                 recent,
                 accounts,

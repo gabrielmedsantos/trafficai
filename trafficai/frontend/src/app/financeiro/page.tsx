@@ -17,6 +17,9 @@ interface DashboardData {
     income: number;
     expense: number;
     balance: number;
+    income_breakdown?: { transactions: number; contracts_paid: number };
+    receivable?: number;
+    receivable_breakdown?: { pending: number; overdue: number };
     byCategory: { type: string; category: string; total: number }[];
     recent: Transaction[];
     accounts: FinancialAccount[];
@@ -112,10 +115,25 @@ function formatBRL(value: number) {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 }
 
+// Normaliza uma string de data que pode vir como "YYYY-MM-DD"
+// ou ISO completo "YYYY-MM-DDTHH:mm:ss.sssZ" e retorna um Date ao meio-dia UTC
+// para evitar problemas de timezone deslocando o dia.
+function safeDate(dateStr: string | Date): Date | null {
+    if (!dateStr) return null;
+    if (dateStr instanceof Date) return dateStr;
+    const base = String(dateStr).slice(0, 10);
+    const d = new Date(base + 'T12:00:00');
+    return isNaN(d.getTime()) ? null : d;
+}
+
 function formatDate(dateStr: string) {
-    if (!dateStr) return '';
-    const d = new Date(dateStr + 'T12:00:00');
-    return d.toLocaleDateString('pt-BR');
+    const d = safeDate(dateStr);
+    return d ? d.toLocaleDateString('pt-BR') : '';
+}
+
+function fmtMonthYear(dateStr: string): string {
+    const d = safeDate(dateStr);
+    return d ? d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : '';
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -359,7 +377,7 @@ export default function FinanceiroPage() {
             </div>
 
             {/* ─── KPI Cards ─── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
                 <KpiCard
                     label="Receitas"
                     value={formatBRL(dashboard?.income || 0)}
@@ -367,6 +385,11 @@ export default function FinanceiroPage() {
                     color="#10b981"
                     bg="rgba(16,185,129,.12)"
                     border="rgba(16,185,129,.2)"
+                    footer={
+                        dashboard?.income_breakdown && dashboard.income_breakdown.contracts_paid > 0
+                            ? `${formatBRL(dashboard.income_breakdown.contracts_paid)} de contratos`
+                            : undefined
+                    }
                 />
                 <KpiCard
                     label="Despesas"
@@ -375,6 +398,19 @@ export default function FinanceiroPage() {
                     color="#ef4444"
                     bg="rgba(239,68,68,.12)"
                     border="rgba(239,68,68,.2)"
+                />
+                <KpiCard
+                    label="A Receber"
+                    value={formatBRL(dashboard?.receivable || 0)}
+                    icon={AlertCircle}
+                    color={(dashboard?.receivable_breakdown?.overdue || 0) > 0 ? '#ef4444' : '#f59e0b'}
+                    bg={(dashboard?.receivable_breakdown?.overdue || 0) > 0 ? 'rgba(239,68,68,.12)' : 'rgba(245,158,11,.12)'}
+                    border={(dashboard?.receivable_breakdown?.overdue || 0) > 0 ? 'rgba(239,68,68,.2)' : 'rgba(245,158,11,.2)'}
+                    footer={
+                        dashboard?.receivable_breakdown && (dashboard.receivable_breakdown.overdue > 0 || dashboard.receivable_breakdown.pending > 0)
+                            ? `${formatBRL(dashboard.receivable_breakdown.overdue)} em atraso · ${formatBRL(dashboard.receivable_breakdown.pending)} no prazo`
+                            : undefined
+                    }
                 />
                 <KpiCard
                     label="Saldo do Mês"
@@ -590,7 +626,7 @@ export default function FinanceiroPage() {
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.client_name}</div>
                                                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
                                                     {Number(s.pending_count)} {Number(s.pending_count) === 1 ? 'mês em atraso' : 'meses em atraso'}
-                                                    {s.oldest_pending && ` • desde ${new Date(s.oldest_pending + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}`}
+                                                    {s.oldest_pending && ` • desde ${fmtMonthYear(s.oldest_pending)}`}
                                                 </div>
                                             </div>
                                             <div style={{ fontSize: 15, fontWeight: 700, color: '#ef4444', flexShrink: 0 }}>
@@ -624,7 +660,7 @@ export default function FinanceiroPage() {
                                     )}
                                     {s.oldest_pending && (
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                                            Desde {new Date(s.oldest_pending + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}
+                                            Desde {(safeDate(s.oldest_pending)?.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })) || '—'}
                                         </div>
                                     )}
                                 </div>
@@ -734,8 +770,8 @@ export default function FinanceiroPage() {
 
                                         {/* Records per contract/month */}
                                         {records.map((r, ri) => {
-                                            const refDate = new Date(r.reference_month + 'T12:00:00');
-                                            const monthLabel = refDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+                                            const refDate = safeDate(r.reference_month);
+                                            const monthLabel = refDate ? refDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }) : '—';
                                             const isPaid = r.status === 'paid';
                                             const isOverdue = r.status === 'overdue';
                                             const hasPercentage = r.contract_type === 'percentage' || r.contract_type === 'mixed';
@@ -926,7 +962,7 @@ export default function FinanceiroPage() {
                                     {billingForm.status === 'paid' ? 'Confirmar Recebimento' : 'Editar Cobrança'}
                                 </h2>
                                 <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
-                                    {billingModal.client_name} • {new Date(billingModal.reference_month + 'T12:00:00').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                                    {billingModal.client_name} • {fmtMonthYear(billingModal.reference_month)}
                                 </p>
                             </div>
                             <button onClick={() => setBillingModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
@@ -1195,8 +1231,9 @@ export default function FinanceiroPage() {
 
 // ─── KPI Card ──────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, icon: Icon, color, bg, border }: {
+function KpiCard({ label, value, icon: Icon, color, bg, border, footer }: {
     label: string; value: string; icon: any; color: string; bg: string; border: string;
+    footer?: React.ReactNode;
 }) {
     return (
         <div style={{ background: 'var(--bg-card)', border: `1px solid ${border}`, borderRadius: 14, padding: '20px 22px' }}>
@@ -1207,6 +1244,7 @@ function KpiCard({ label, value, icon: Icon, color, bg, border }: {
                 </div>
             </div>
             <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>{value}</div>
+            {footer && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>{footer}</div>}
         </div>
     );
 }
