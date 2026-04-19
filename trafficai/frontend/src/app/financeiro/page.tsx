@@ -892,9 +892,9 @@ export default function FinanceiroPage() {
                                                         <button
                                                             onClick={() => {
                                                                 setBillingModal(r);
-                                                                setBillingForm({ status: 'pending', percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
+                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
                                                             }}
-                                                            title="Desfazer recebimento"
+                                                            title="Editar cobrança"
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.4)', padding: 4, flexShrink: 0 }}
                                                         >
                                                             <Edit2 size={13} />
@@ -1000,7 +1000,7 @@ export default function FinanceiroPage() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22 }}>
                             <div>
                                 <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text)' }}>
-                                    {billingForm.status === 'paid' ? 'Confirmar Recebimento' : 'Editar Cobrança'}
+                                    {billingModal.status !== 'paid' && billingForm.status === 'paid' ? 'Confirmar Recebimento' : 'Editar Cobrança'}
                                 </h2>
                                 <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>
                                     {billingModal.client_name} • {fmtMonthYear(billingModal.reference_month)}
@@ -1118,7 +1118,7 @@ export default function FinanceiroPage() {
                                 }}
                                 style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: billingForm.status === 'paid' ? '#10b981' : 'var(--primary)', border: 'none', color: '#fff', cursor: 'pointer' }}
                             >
-                                {billingForm.status === 'paid' ? '✓ Confirmar Recebimento' : 'Salvar'}
+                                {billingModal.status !== 'paid' && billingForm.status === 'paid' ? 'Confirmar Recebimento' : 'Salvar'}
                             </button>
                         </div>
                     </div>
