@@ -18,7 +18,6 @@ import {
     CalendarDays,
     Building2,
     Wallet,
-    ChevronRight,
     Radio,
     ClipboardList,
 } from 'lucide-react';
@@ -34,7 +33,6 @@ const AREAS = [
         id: 'traffic',
         label: 'Tráfego Pago',
         icon: Radio,
-        color: '#6366f1',
         routes: ['/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes'],
         groups: [
             {
@@ -69,7 +67,6 @@ const AREAS = [
         id: 'gestao',
         label: 'Gestão',
         icon: Building2,
-        color: '#10b981',
         routes: ['/clientes', '/financeiro', '/team'],
         groups: [
             {
@@ -82,7 +79,7 @@ const AREAS = [
             {
                 label: 'Time',
                 items: [
-                    { href: '/team',        label: 'Gestão do Time', icon: Users },
+                    { href: '/team',        label: 'Time',         icon: Users },
                 ],
             },
         ],
@@ -100,15 +97,12 @@ function detectArea(pathname: string): AreaId {
     return 'traffic';
 }
 
-// ─── Component ─────────────────────────────────────────────────────────────
-
 export default function Sidebar() {
     const pathname = usePathname();
     const [unreadAlerts, setUnreadAlerts] = useState(0);
     const [activeArea, setActiveArea] = useState<AreaId>(() => detectArea(pathname || ''));
     const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
 
-    // Keep area in sync with navigation
     useEffect(() => {
         if (pathname) setActiveArea(detectArea(pathname));
     }, [pathname]);
@@ -134,74 +128,54 @@ export default function Sidebar() {
 
     return (
         <aside className="sidebar">
-            {/* ── Brand ── */}
-            <div className="sidebar-logo" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2, paddingBottom: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div className="logo-icon">
-                        <Zap size={17} color="white" />
-                    </div>
-                    <div>
-                        <h1 style={{ margin: 0, fontSize: 15, fontWeight: 700, letterSpacing: '-.3px' }}>Alfamax</h1>
-                        <p style={{ margin: 0, fontSize: 10, color: 'var(--text-muted)', fontWeight: 400, letterSpacing: '.3px', textTransform: 'uppercase' }}>Digital</p>
-                    </div>
+            {/* Brand */}
+            <div className="sidebar-brand">
+                <div className="sidebar-brand-mark">
+                    <Zap size={16} strokeWidth={2.4} />
+                </div>
+                <div className="sidebar-brand-name">
+                    <span className="brand">Alfamax</span>
+                    <span className="product">TrafficAI</span>
                 </div>
             </div>
 
-            {/* ── Account Selector (only visible in traffic area) ── */}
+            {/* Account selector (só na área tráfego) */}
             {activeArea === 'traffic' && (
-                <div style={{ padding: '0 10px 8px' }}>
-                    <AccountSelect
-                        accounts={accounts}
-                        value={selectedAccountId || ''}
-                        onChange={id => setSelectedAccountId(id || null)}
-                        allowAll={true}
-                        allLabel="Todas as Contas"
-                    />
-                </div>
+                <AccountSelect
+                    accounts={accounts}
+                    value={selectedAccountId || ''}
+                    onChange={id => setSelectedAccountId(id || null)}
+                    allowAll={true}
+                    allLabel="Todas as contas"
+                />
             )}
 
-            {/* ── Area Switcher ── */}
-            <div style={{ padding: '4px 10px 12px' }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6 }}>Área</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {AREAS.map(area => {
-                        const Icon = area.icon;
-                        const isActive = activeArea === area.id;
-                        return (
-                            <button
-                                key={area.id}
-                                onClick={() => setActiveArea(area.id as AreaId)}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: 10,
-                                    padding: '9px 12px', borderRadius: 10,
-                                    border: isActive ? `1px solid ${area.color}40` : '1px solid transparent',
-                                    background: isActive ? `${area.color}14` : 'transparent',
-                                    cursor: 'pointer', textAlign: 'left', width: '100%',
-                                    transition: 'all .15s',
-                                }}
-                            >
-                                <div style={{
-                                    width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-                                    background: isActive ? `${area.color}22` : 'rgba(255,255,255,.05)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                }}>
-                                    <Icon size={14} color={isActive ? area.color : 'var(--text-muted)'} />
-                                </div>
-                                <span style={{ flex: 1, fontSize: 13, fontWeight: isActive ? 600 : 400, color: isActive ? area.color : 'var(--text-muted)' }}>
-                                    {area.label}
-                                </span>
-                                {isActive && <ChevronRight size={13} color={area.color} />}
-                            </button>
-                        );
-                    })}
-                </div>
+            {/* Área */}
+            <div className="sidebar-section">
+                <div className="sidebar-section-label">Área</div>
+                {AREAS.map(area => {
+                    const Icon = area.icon;
+                    const isActive = activeArea === area.id;
+                    return (
+                        <button
+                            key={area.id}
+                            onClick={() => setActiveArea(area.id as AreaId)}
+                            className={`sidebar-area ${isActive ? 'active' : ''}`}
+                            type="button"
+                        >
+                            <span className="area-icon">
+                                <Icon size={13} strokeWidth={2} />
+                            </span>
+                            <span>{area.label}</span>
+                        </button>
+                    );
+                })}
             </div>
 
-            {/* ── Nav divider ── */}
-            <div style={{ height: 1, background: 'var(--border)', margin: '0 10px 10px' }} />
+            <div className="sidebar-divider" />
 
-            {/* ── Navigation ── */}
-            <nav className="sidebar-nav" style={{ flex: 1 }}>
+            {/* Navegação */}
+            <nav className="sidebar-nav">
                 {currentArea.groups.map((group: any) => (
                     <div key={group.label}>
                         <div className="nav-group-label">{group.label}</div>
@@ -214,7 +188,7 @@ export default function Sidebar() {
                                     href={item.href}
                                     className={`sidebar-link ${isActive ? 'active' : ''}`}
                                 >
-                                    <Icon size={16} className="icon" />
+                                    <Icon className="icon" strokeWidth={1.8} />
                                     <span>{item.label}</span>
                                     {item.showBadge && unreadAlerts > 0 && (
                                         <span className="sidebar-badge">{unreadAlerts}</span>
@@ -226,18 +200,21 @@ export default function Sidebar() {
                 ))}
             </nav>
 
-            {/* ── Bottom ── */}
-            <div style={{ padding: '10px', borderTop: '1px solid var(--border)' }}>
-                <Link href="/settings" className={`sidebar-link ${pathname === '/settings' ? 'active' : ''}`} style={{ marginBottom: 4 }}>
-                    <Settings size={16} className="icon" />
+            {/* Footer */}
+            <div className="sidebar-footer">
+                <Link
+                    href="/settings"
+                    className={`sidebar-link ${pathname === '/settings' ? 'active' : ''}`}
+                >
+                    <Settings className="icon" strokeWidth={1.8} />
                     <span>Configurações</span>
                 </Link>
                 <button
                     onClick={handleLogout}
                     className="sidebar-link sidebar-logout"
-                    style={{ width: '100%', border: 'none', background: 'none', fontFamily: 'inherit', cursor: 'pointer' }}
+                    type="button"
                 >
-                    <LogOut size={16} className="icon" />
+                    <LogOut className="icon" strokeWidth={1.8} />
                     <span>Sair</span>
                 </button>
             </div>
