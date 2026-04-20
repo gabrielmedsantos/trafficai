@@ -197,8 +197,35 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
         //   contacts[update][0][custom_fields][0][values][0][value]  (email/phone)
         // Quando detectamos esse formato, normalizamos para o JSON esperado.
         if (b.leads && !b.event) {
+            // Log estrutural (keys) pra debug — útil pra entender payloads novos.
+            try {
+                const summary = {
+                    leads_sections: Object.keys(b.leads || {}),
+                    leads_count: Object.values(b.leads || {}).reduce((n: number, s: any) => n + Object.keys(s || {}).length, 0),
+                    contacts_sections: Object.keys(b.contacts || {}),
+                    has_custom_fields: !!(b.contacts && JSON.stringify(b.contacts).includes('custom_fields')),
+                };
+                logger.info('webhook Kommo recebido', { source: source.id, event_query: req.query.event, ...summary });
+            } catch { /* ignore */ }
+
             const normalized = normalizeKommoPayload(b, String(req.query.event || ''));
             if (normalized) b = normalized;
+        }
+
+        // ── Validação: Purchase exige value > 0 e currency ───────────────
+        // Se o webhook de Purchase for disparado sem valor (lead sem price no Kommo),
+        // a Meta retorna "Invalid parameter". Rejeitamos antes pra dar erro claro.
+        const eventName = (b.event || b.event_name || '').toString();
+        if (eventName === 'Purchase' && (!b.value || Number(b.value) <= 0)) {
+            logger.warn('webhook Purchase rejeitado sem value', {
+                source: source.id, external_id: b.external_id,
+            });
+            return res.status(400).json({
+                success: false,
+                error: {
+                    message: 'Purchase exige value > 0. Preencha o valor do lead no Kommo antes de arrastar para "Venda fechada".',
+                },
+            });
         }
 
         const event: TrackingEventInput = {
@@ -247,6 +274,21 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
 // ou é inferido pelo tipo de operação (add=Lead, status=Contact por default).
 function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | null {
     try {
+        // Diagnóstico leve — loga o primeiro contact pra ver estrutura
+        try {
+            const c0 = body?.contacts?.update?.[0] || body?.contacts?.add?.[0];
+            if (c0) {
+                const cfKeys = c0.custom_fields
+                    ? (Array.isArray(c0.custom_fields) ? c0.custom_fields : Object.values(c0.custom_fields))
+                    : [];
+                logger.debug('Kommo contact debug', {
+                    first_name: c0.first_name,
+                    last_name: c0.last_name,
+                    cf_names: cfKeys.map((f: any) => f?.name || f?.code).slice(0, 10),
+                });
+            }
+        } catch { /* ignore */ }
+
         const leads = body.leads || {};
         // Kommo envia tanto leads[status][0] (mudança de status) quanto
         // leads[add][0] (lead criado) etc.
@@ -265,17 +307,32 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
         ];
         const contact: any = contactBlocks[0] || {};
 
-        // Extrai email e telefone dos custom_fields (cada CRM nomeia diferente).
-        // Custom fields no Kommo chegam como array: [{ name, values: [{ value }] }]
+        // Extrai email e telefone dos custom_fields. No Kommo os custom_fields
+        // chegam como objeto aninhado (form-encoded parseado) tipo:
+        //   custom_fields: { '0': { name: 'E-mail', values: { '0': { value: 'x@y.com' } } } }
+        // Normalizamos tudo pra array e pegamos values[0].value.
         const extractField = (obj: any, needles: string[]): string | undefined => {
-            const fields = obj?.custom_fields || obj?.custom_fields_values || [];
-            for (const f of (Array.isArray(fields) ? fields : Object.values(fields))) {
-                const fname = String((f as any).name || (f as any).field_name || '').toLowerCase();
-                if (needles.some(n => fname.includes(n))) {
-                    const values = (f as any).values || (f as any).value;
-                    if (Array.isArray(values)) return String(values[0]?.value || '').trim() || undefined;
-                    return String(values || '').trim() || undefined;
+            const raw = obj?.custom_fields || obj?.custom_fields_values || obj?.customFields;
+            if (!raw) return undefined;
+            const fieldArr = Array.isArray(raw) ? raw : Object.values(raw);
+            for (const f of fieldArr) {
+                if (!f || typeof f !== 'object') continue;
+                const fname = String((f as any).name || (f as any).field_name || (f as any).code || '').toLowerCase();
+                if (!needles.some(n => fname.includes(n))) continue;
+
+                let vals: any = (f as any).values ?? (f as any).value;
+                if (vals && !Array.isArray(vals) && typeof vals === 'object') {
+                    vals = Object.values(vals);
                 }
+                if (Array.isArray(vals) && vals.length > 0) {
+                    const first = vals[0];
+                    if (first && typeof first === 'object') {
+                        const v = (first as any).value ?? (first as any).enum ?? '';
+                        return String(v).trim() || undefined;
+                    }
+                    return String(first).trim() || undefined;
+                }
+                if (typeof vals === 'string') return vals.trim() || undefined;
             }
             return undefined;
         };
