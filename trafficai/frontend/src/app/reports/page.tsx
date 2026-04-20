@@ -5,6 +5,7 @@ import {
   FileText, Plus, Send, Eye, Copy, Check, Trash2,
   Calendar, Settings2, RefreshCw, Edit2, X, MessageCircle,
   Phone, Mail, ChevronDown, ChevronUp, Clock, Download,
+  Upload, FileSpreadsheet, AlertCircle,
 } from 'lucide-react';
 import { useAccount } from '@/app/AccountContext';
 import AccountSelect from '@/components/AccountSelect';
@@ -101,6 +102,9 @@ export default function ReportsPage() {
     csv_data: '', text_data: '',
   });
   const [manualError, setManualError] = useState('');
+  const [csvFileName, setCsvFileName] = useState('');
+  const [csvRowCount, setCsvRowCount] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const [settingsForm, setSettingsForm] = useState<ReportSettings>({
     client_name: '', client_email: '', client_phone: '',
     daily_enabled: false, weekly_enabled: true, monthly_enabled: true,
@@ -176,6 +180,43 @@ export default function ReportsPage() {
       else alert('Erro: ' + result.error?.message);
     } catch (e: any) { alert('Erro: ' + e.message); }
     finally { setGenerating(false); }
+  };
+
+  const readCsvFile = async (file: File) => {
+    setManualError('');
+    const name = file.name.toLowerCase();
+    if (!/\.(csv|tsv|txt)$/.test(name)) {
+      if (/\.xlsx?$/.test(name)) {
+        setManualError('Excel (XLSX) não é suportado diretamente. No Gerenciador da Meta, escolha "Exportar como CSV" ou salve o arquivo como CSV no Excel.');
+      } else {
+        setManualError('Formato não suportado. Use CSV, TSV ou TXT.');
+      }
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setManualError('Arquivo maior que 10 MB. Exporte um período mais curto.');
+      return;
+    }
+    try {
+      // Tenta UTF-8 primeiro; se vier com caractere substituto, refaz como Latin-1 (CSV do Excel BR)
+      let text = await file.text();
+      if (/\uFFFD/.test(text)) {
+        const buf = await file.arrayBuffer();
+        text = new TextDecoder('windows-1252').decode(buf);
+      }
+      const rows = text.split(/\r?\n/).filter(Boolean).length;
+      setManualForm(f => ({ ...f, csv_data: text }));
+      setCsvFileName(file.name);
+      setCsvRowCount(Math.max(0, rows - 1));
+    } catch (err: any) {
+      setManualError('Falha ao ler o arquivo: ' + (err.message || 'erro desconhecido'));
+    }
+  };
+
+  const clearCsvUpload = () => {
+    setManualForm(f => ({ ...f, csv_data: '' }));
+    setCsvFileName('');
+    setCsvRowCount(0);
   };
 
   const generateManualReport = async () => {
@@ -745,15 +786,111 @@ export default function ReportsPage() {
 
                 {manualForm.input_type === 'csv' && (
                   <>
-                    <textarea value={manualForm.csv_data}
-                      onChange={e => setManualForm(f => ({ ...f, csv_data: e.target.value }))}
-                      placeholder={`Cole aqui o CSV exportado do Gerenciador de Anúncios.\nColunas esperadas: Nome da campanha, Valor gasto, Impressões, Cliques, CTR, CPC, Compras/Leads, ROAS...\n\nExemplo:\n"Nome da campanha","Valor gasto","Impressões","Cliques","Compras"\n"Campanha 1","1500,00","45000","890","12"\n"Campanha 2","2000,00","60000","1100","20"`}
-                      rows={10}
-                      className="form-textarea mono"
-                      style={{ fontSize: 11.5, minHeight: 180, fontFamily: 'var(--font-mono)' }} />
-                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                      No Gerenciador de Anúncios da Meta: <strong>Relatórios › Exportar › CSV</strong>.
-                      Aceita formato com vírgula, ponto-e-vírgula ou tab como separador.
+                    {/* File upload / drop zone */}
+                    {!csvFileName ? (
+                      <div
+                        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                        onDragLeave={() => setDragOver(false)}
+                        onDrop={e => {
+                          e.preventDefault();
+                          setDragOver(false);
+                          const file = e.dataTransfer.files?.[0];
+                          if (file) readCsvFile(file);
+                        }}
+                        onClick={() => document.getElementById('tai-csv-file')?.click()}
+                        style={{
+                          border: `1.5px dashed ${dragOver ? 'var(--primary)' : 'var(--border-strong)'}`,
+                          borderRadius: 10,
+                          padding: '28px 18px',
+                          textAlign: 'center',
+                          cursor: 'pointer',
+                          background: dragOver ? 'var(--primary-soft)' : 'var(--bg-surface-2)',
+                          transition: 'var(--transition)',
+                        }}
+                      >
+                        <Upload size={28} style={{ color: dragOver ? 'var(--primary)' : 'var(--text-muted)', marginBottom: 8 }} />
+                        <div style={{ fontSize: 13.5, color: 'var(--text-primary)', fontWeight: 500, marginBottom: 4 }}>
+                          {dragOver ? 'Solte o arquivo aqui' : 'Clique ou arraste seu CSV aqui'}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                          Aceita .csv, .tsv, .txt (até 10 MB)
+                        </div>
+                        <input
+                          id="tai-csv-file"
+                          type="file"
+                          accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+                          style={{ display: 'none' }}
+                          onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) readCsvFile(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '14px 16px',
+                        background: 'var(--primary-soft)',
+                        border: '1px solid rgba(99, 102, 241, 0.22)',
+                        borderRadius: 10,
+                      }}>
+                        <div style={{
+                          width: 36, height: 36, borderRadius: 8,
+                          background: 'rgba(99, 102, 241, 0.18)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <FileSpreadsheet size={18} color="var(--primary)" />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text-primary)' }} className="truncate">
+                            {csvFileName}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {csvRowCount.toLocaleString('pt-BR')} linha{csvRowCount === 1 ? '' : 's'} de dados · pronto para análise
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={clearCsvUpload}
+                          className="btn btn-ghost btn-sm btn-icon"
+                          title="Remover"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Expansão opcional — colar manualmente */}
+                    <details style={{ marginTop: -4 }}>
+                      <summary style={{
+                        fontSize: 11.5, color: 'var(--text-muted)', cursor: 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: 4, userSelect: 'none',
+                      }}>
+                        Ou cole o conteúdo manualmente
+                      </summary>
+                      <textarea value={manualForm.csv_data}
+                        onChange={e => { setManualForm(f => ({ ...f, csv_data: e.target.value })); if (csvFileName) setCsvFileName(''); }}
+                        placeholder={`"Nome da campanha","Valor gasto","Impressões","Cliques","Compras"\n"Campanha 1","1500,00","45000","890","12"`}
+                        rows={6}
+                        className="form-textarea mono"
+                        style={{ fontSize: 11.5, minHeight: 120, fontFamily: 'var(--font-mono)', marginTop: 8 }} />
+                    </details>
+
+                    <div style={{
+                      fontSize: 11.5, color: 'var(--text-muted)',
+                      display: 'flex', alignItems: 'flex-start', gap: 6,
+                      padding: '8px 10px',
+                      background: 'var(--bg-surface-2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                    }}>
+                      <AlertCircle size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                      <span>
+                        No Gerenciador de Anúncios da Meta: <strong>Relatórios › Exportar › CSV</strong>.
+                        Se exportou como XLSX, abra no Excel/Google Sheets e salve como CSV primeiro.
+                      </span>
                     </div>
                   </>
                 )}
