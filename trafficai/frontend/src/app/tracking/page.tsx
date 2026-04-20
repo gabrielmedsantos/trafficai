@@ -25,6 +25,11 @@ interface Source {
     errors_7d?: number | string;
     avg_emq_7d?: number | null;
     created_at?: string;
+    // CRM
+    crm_type?: string | null;
+    crm_subdomain?: string | null;
+    crm_access_token?: string | null;
+    last_backfill_at?: string | null;
 }
 
 interface FormState {
@@ -34,11 +39,15 @@ interface FormState {
     access_token: string;
     test_event_code: string;
     domain: string;
+    crm_type: string;
+    crm_subdomain: string;
+    crm_access_token: string;
 }
 
 const EMPTY_FORM: FormState = {
     name: '', account_id: '', pixel_id: '', access_token: '',
     test_event_code: '', domain: '',
+    crm_type: '', crm_subdomain: '', crm_access_token: '',
 };
 
 function fmtRelative(iso?: string) {
@@ -278,6 +287,43 @@ function SourceDetail({ source, onClose, onEdit }: {
         } finally { setRotating(false); }
     }
 
+    // CRM backfill state + handlers
+    const [showBackfill, setShowBackfill] = useState(false);
+    const [backfillOpts, setBackfillOpts] = useState({
+        enrich_existing: true, sync_won_purchases: true,
+    });
+    const [backfillRunning, setBackfillRunning] = useState(false);
+    const [backfillResult, setBackfillResult] = useState<any>(null);
+    const [crmTest, setCrmTest] = useState<any>(null);
+    const [crmTestErr, setCrmTestErr] = useState('');
+
+    async function testCrm() {
+        setCrmTest(null); setCrmTestErr('');
+        try {
+            const r = await api.testTrackingCrm(source.id);
+            setCrmTest(r);
+        } catch (err: any) {
+            setCrmTestErr(err.message || 'Falha ao testar');
+        }
+    }
+
+    async function runBackfill() {
+        setBackfillRunning(true); setBackfillResult(null);
+        try {
+            const r = await api.runTrackingBackfill(source.id, {
+                enrich_existing: backfillOpts.enrich_existing,
+                sync_won_purchases: backfillOpts.sync_won_purchases,
+                time_strategy: 'clamp_7d',
+            });
+            setBackfillResult(r);
+            setTimeout(load, 1000);
+        } catch (err: any) {
+            setBackfillResult({ error: err.message });
+        } finally {
+            setBackfillRunning(false);
+        }
+    }
+
     const pixelUrl = `${API_BASE}/track/pixel/${source.public_token}.js`;
     const webhookUrl = `${API_BASE}/track/webhook/${source.public_token}`;
     const embed = `<script async src="${pixelUrl}"></script>`;
@@ -421,6 +467,158 @@ function SourceDetail({ source, onClose, onEdit }: {
   }
 }`}</pre>
                     </details>
+                </Section>
+
+                {/* ── Integração CRM + Backfill ──────────────────────────── */}
+                <Section title="Integração CRM">
+                    {!source.crm_type ? (
+                        <div style={{
+                            padding: 12, background: 'var(--bg-surface-2)',
+                            border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                            fontSize: 12.5, color: 'var(--text-muted)',
+                        }}>
+                            Nenhum CRM conectado. Clique em <strong>Editar credenciais</strong> acima para conectar Kommo e
+                            habilitar enriquecimento de eventos + backfill de vendas fechadas como Purchase.
+                        </div>
+                    ) : (
+                        <>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                                <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>
+                                    {source.crm_type === 'kommo' ? 'Kommo' : source.crm_type} conectado
+                                </span>
+                                {source.crm_subdomain && (
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        · {source.crm_subdomain}.kommo.com
+                                    </span>
+                                )}
+                                {source.last_backfill_at && (
+                                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                                        último backfill {fmtRelative(source.last_backfill_at)}
+                                    </span>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                                <button type="button" className="btn btn-secondary btn-sm" onClick={testCrm}>
+                                    <ShieldCheck size={13} /> Testar conexão
+                                </button>
+                                <button type="button" className="btn btn-primary btn-sm"
+                                    onClick={() => { setShowBackfill(v => !v); setBackfillResult(null); }}>
+                                    <RefreshCw size={13} /> Backfill
+                                </button>
+                            </div>
+
+                            {crmTestErr && (
+                                <div style={{
+                                    padding: '8px 12px', background: 'rgba(239,68,68,.08)',
+                                    border: '1px solid rgba(239,68,68,.22)', borderRadius: 'var(--radius-sm)',
+                                    fontSize: 12, color: '#fca5a5', marginBottom: 10,
+                                }}>
+                                    {crmTestErr}
+                                </div>
+                            )}
+                            {crmTest && (
+                                <div style={{
+                                    padding: '10px 12px', background: 'rgba(34,197,94,.08)',
+                                    border: '1px solid rgba(34,197,94,.22)', borderRadius: 'var(--radius-sm)',
+                                    fontSize: 12.5, marginBottom: 10,
+                                }}>
+                                    <div style={{ color: 'var(--accent-green)', fontWeight: 500 }}>
+                                        Conexão OK · {crmTest.account?.name}
+                                    </div>
+                                    <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                                        {crmTest.won_statuses?.length || 0} status de venda detectado(s).
+                                    </div>
+                                </div>
+                            )}
+
+                            {showBackfill && (
+                                <div style={{
+                                    padding: 14,
+                                    background: 'var(--bg-surface-2)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 'var(--radius-md)',
+                                    marginTop: 4,
+                                }}>
+                                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10, color: 'var(--text-primary)' }}>
+                                        Opções de backfill
+                                    </div>
+                                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 10 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={backfillOpts.enrich_existing}
+                                            onChange={e => setBackfillOpts(o => ({ ...o, enrich_existing: e.target.checked }))}
+                                            style={{ marginTop: 3 }}
+                                        />
+                                        <div>
+                                            <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                                                Enriquecer eventos antigos com dados do CRM
+                                            </div>
+                                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                Busca email/telefone/nome no CRM para eventos que chegaram sem esses dados e reenvia pra Meta com o mesmo event_id (dedup automático).
+                                            </div>
+                                        </div>
+                                    </label>
+                                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 14 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={backfillOpts.sync_won_purchases}
+                                            onChange={e => setBackfillOpts(o => ({ ...o, sync_won_purchases: e.target.checked }))}
+                                            style={{ marginTop: 3 }}
+                                        />
+                                        <div>
+                                            <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                                                Sincronizar vendas fechadas como Purchase
+                                            </div>
+                                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                Busca todos os leads em etapas de venda ganha (com valor &gt; 0) e dispara Purchase pra Meta com value, currency e PII hashado.
+                                            </div>
+                                        </div>
+                                    </label>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button type="button" className="btn btn-primary btn-sm"
+                                            onClick={runBackfill} disabled={backfillRunning}>
+                                            {backfillRunning
+                                                ? <><div className="spinner" style={{ width: 12, height: 12, borderWidth: 2 }} /> Executando…</>
+                                                : 'Executar backfill'}
+                                        </button>
+                                        <button type="button" className="btn btn-ghost btn-sm"
+                                            onClick={() => setShowBackfill(false)}>Cancelar</button>
+                                    </div>
+                                    {backfillRunning && (
+                                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10 }}>
+                                            Pode levar 1-3 minutos dependendo do volume. Não feche esta janela.
+                                        </div>
+                                    )}
+                                    {backfillResult && (
+                                        <div style={{
+                                            marginTop: 12, padding: 10,
+                                            background: backfillResult.error ? 'rgba(239,68,68,.08)' : 'rgba(34,197,94,.08)',
+                                            border: `1px solid ${backfillResult.error ? 'rgba(239,68,68,.22)' : 'rgba(34,197,94,.22)'}`,
+                                            borderRadius: 'var(--radius-sm)',
+                                            fontSize: 12.5,
+                                        }}>
+                                            {backfillResult.error ? (
+                                                <span style={{ color: 'var(--accent-red)' }}>{backfillResult.error}</span>
+                                            ) : (
+                                                <>
+                                                    <div style={{ color: 'var(--accent-green)', fontWeight: 500 }}>
+                                                        Backfill concluído
+                                                    </div>
+                                                    <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
+                                                        {backfillResult.enriched > 0 && <>{backfillResult.enriched} evento(s) enriquecido(s). </>}
+                                                        {backfillResult.purchases_created > 0 && <>{backfillResult.purchases_created} Purchase criado(s) (R$ {Number(backfillResult.total_purchase_value).toLocaleString('pt-BR')}). </>}
+                                                        {backfillResult.skipped > 0 && <>{backfillResult.skipped} pulado(s) (sem PII). </>}
+                                                        {backfillResult.failed > 0 && <span style={{ color: 'var(--accent-red)' }}>{backfillResult.failed} falha(s).</span>}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    )}
                 </Section>
 
                 {/* Breakdown */}
@@ -619,6 +817,9 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
             access_token: '', // não trazemos o token por segurança; só setamos se mudar
             test_event_code: source.test_event_code || '',
             domain: source.domain || '',
+            crm_type: source.crm_type || '',
+            crm_subdomain: source.crm_subdomain || '',
+            crm_access_token: '', // mesma lógica: só envia se preencher
         };
         return EMPTY_FORM;
     });
@@ -655,9 +856,12 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                     pixel_id: form.pixel_id.trim(),
                     test_event_code: form.test_event_code.trim(),
                     domain: form.domain.trim(),
+                    crm_type: form.crm_type || null,
+                    crm_subdomain: form.crm_subdomain.trim() || null,
                 };
-                // Só envia access_token se for preenchido (preserva o atual se vazio)
+                // Só envia tokens se foram preenchidos (preserva atuais se vazio)
                 if (form.access_token.trim()) payload.access_token = form.access_token.trim();
+                if (form.crm_access_token.trim()) payload.crm_access_token = form.crm_access_token.trim();
                 await api.updateTrackingSource(source.id, payload);
             }
             onSaved();
@@ -774,6 +978,57 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                     />
                     <span className="form-hint">Use durante o setup para ver eventos na aba Test Events da Meta.</span>
                 </div>
+
+                {/* ── Integração CRM (opcional) ──────────────────────────── */}
+                {mode === 'edit' && (
+                    <>
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 18, marginBottom: 14 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                                Integração CRM (opcional)
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+                                Conecta um CRM para enriquecer eventos antigos e sincronizar vendas fechadas como Purchase.
+                            </div>
+                        </div>
+
+                        <div className="form-group">
+                            <label className="form-label">Tipo de CRM</label>
+                            <select
+                                className="form-select"
+                                value={form.crm_type}
+                                onChange={e => upd('crm_type', e.target.value)}
+                            >
+                                <option value="">— Nenhum —</option>
+                                <option value="kommo">Kommo</option>
+                            </select>
+                        </div>
+
+                        {form.crm_type === 'kommo' && (
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">Subdomínio Kommo</label>
+                                    <input
+                                        type="text" className="form-input"
+                                        value={form.crm_subdomain}
+                                        onChange={e => upd('crm_subdomain', e.target.value)}
+                                        placeholder="ex: alinemeloce"
+                                    />
+                                    <span className="form-hint">Parte antes de .kommo.com na URL que você acessa.</span>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Access Token Kommo</label>
+                                    <input
+                                        type="password" className="form-input"
+                                        value={form.crm_access_token}
+                                        onChange={e => upd('crm_access_token', e.target.value)}
+                                        placeholder={source?.crm_access_token ? 'Deixe vazio para manter o atual' : 'Configurações → Integrações → Privada → Access Token'}
+                                        autoComplete="off"
+                                    />
+                                </div>
+                            </>
+                        )}
+                    </>
+                )}
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                     {mode === 'edit' ? (

@@ -10,6 +10,7 @@ import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
 import { generatePublicToken, generateWebhookSecret } from './tracking.service';
+import { getAdapter, backfillSource } from './crm-sync.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -94,7 +95,10 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
-        const { name, account_id, pixel_id, access_token, test_event_code, domain, is_active } = req.body;
+        const {
+            name, account_id, pixel_id, access_token, test_event_code, domain, is_active,
+            crm_type, crm_subdomain, crm_access_token, crm_config,
+        } = req.body;
 
         const fields: string[] = [];
         const params: any[] = [];
@@ -106,6 +110,10 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
         if (test_event_code !== undefined)  { fields.push(`test_event_code=$${idx++}`); params.push(test_event_code || null); }
         if (domain !== undefined)           { fields.push(`domain=$${idx++}`); params.push(domain || null); }
         if (is_active !== undefined)        { fields.push(`is_active=$${idx++}`); params.push(Boolean(is_active)); }
+        if (crm_type !== undefined)         { fields.push(`crm_type=$${idx++}`); params.push(crm_type || null); }
+        if (crm_subdomain !== undefined)    { fields.push(`crm_subdomain=$${idx++}`); params.push(crm_subdomain || null); }
+        if (crm_access_token !== undefined) { fields.push(`crm_access_token=$${idx++}`); params.push(crm_access_token || null); }
+        if (crm_config !== undefined)       { fields.push(`crm_config=$${idx++}::jsonb`); params.push(JSON.stringify(crm_config || {})); }
 
         if (!fields.length) return res.status(400).json({ success: false, error: { message: 'Nada para atualizar' } });
 
@@ -122,6 +130,74 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
     } catch (err: any) {
         logger.error('tracking: update fonte falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /tracking/sources/:id/crm/test ────────────────────────────────────
+// Valida credenciais CRM e retorna info da conta
+router.post('/sources/:id/crm/test', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const rows = await query<any>(
+            `SELECT * FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const src = rows[0];
+        if (req.body?.crm_subdomain) src.crm_subdomain = req.body.crm_subdomain;
+        if (req.body?.crm_access_token) src.crm_access_token = req.body.crm_access_token;
+        if (req.body?.crm_type) src.crm_type = req.body.crm_type;
+
+        const adapter: any = getAdapter(src);
+        const account = await adapter.validate();
+        let wonStatuses: any[] = [];
+        try { wonStatuses = await adapter.findWonStatuses(); } catch { /* opcional */ }
+
+        res.json({
+            success: true,
+            data: {
+                account,
+                won_statuses: wonStatuses,
+            },
+        });
+    } catch (err: any) {
+        logger.error('tracking: test CRM falhou', { error: err.message });
+        res.status(400).json({ success: false, error: { message: err.message } });
+    }
+});
+
+// ─── POST /tracking/sources/:id/backfill ────────────────────────────────────
+// Executa backfill. Body:
+//   { enrich_existing: bool, sync_won_purchases: bool, time_strategy: 'clamp_7d' | 'now' | 'original' }
+router.post('/sources/:id/backfill', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const rows = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const opts = {
+            enrich_existing: Boolean(req.body?.enrich_existing),
+            sync_won_purchases: Boolean(req.body?.sync_won_purchases),
+            time_strategy: (req.body?.time_strategy || 'clamp_7d') as 'clamp_7d' | 'now' | 'original',
+        };
+        if (!opts.enrich_existing && !opts.sync_won_purchases) {
+            return res.status(400).json({
+                success: false,
+                error: { message: 'Selecione ao menos enrich_existing ou sync_won_purchases' },
+            });
+        }
+
+        const result = await backfillSource(id, opts);
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking: backfill falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: err.message } });
     }
 });
 

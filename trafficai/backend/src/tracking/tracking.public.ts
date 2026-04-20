@@ -15,6 +15,7 @@ import {
     trackEvent, recordClick, extractClientContext,
     TrackingSource, TrackingUserInput, TrackingEventInput, ClickRecordInput,
 } from './tracking.service';
+import { clampEventTime } from './crm-sync.service';
 
 const router = Router();
 
@@ -231,7 +232,9 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
         const event: TrackingEventInput = {
             event_name: b.event || b.event_name,
             event_id: b.event_id,
-            event_time: b.event_time,
+            // Meta rejeita eventos > 7 dias. Se vier antigo (ex: CRM mandando
+            // lead fechado ontem > 7 dias no passado), usa agora().
+            event_time: b.event_time ? clampEventTime(Number(b.event_time), 'clamp_7d') : undefined,
             action_source: b.action_source || 'system_generated',
             value: b.value,
             currency: b.currency || (b.value ? 'BRL' : undefined),

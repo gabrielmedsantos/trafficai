@@ -223,6 +223,22 @@ class ApiClient {
     async testTrackingSource(id: string) {
         return this.request<any>('POST', `/tracking/sources/${id}/test`);
     }
+    async testTrackingCrm(id: string, creds?: { crm_type?: string; crm_subdomain?: string; crm_access_token?: string }) {
+        return this.request<any>('POST', `/tracking/sources/${id}/crm/test`, creds || {});
+    }
+    async runTrackingBackfill(id: string, opts: {
+        enrich_existing?: boolean;
+        sync_won_purchases?: boolean;
+        time_strategy?: 'clamp_7d' | 'now' | 'original';
+    }) {
+        return this.request<{
+            enriched: number;
+            purchases_created: number;
+            skipped: number;
+            failed: number;
+            total_purchase_value: number;
+        }>('POST', `/tracking/sources/${id}/backfill`, opts);
+    }
 
     // Alerts
     async getAlerts(unreadOnly = false, limit = 200) {
