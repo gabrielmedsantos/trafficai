@@ -20,6 +20,7 @@ import {
     Wallet,
     Radio,
     ClipboardList,
+    Activity,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -33,7 +34,7 @@ const AREAS = [
         id: 'traffic',
         label: 'Tráfego Pago',
         icon: Radio,
-        routes: ['/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes'],
+        routes: ['/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking'],
         groups: [
             {
                 label: 'Inteligência',
@@ -58,6 +59,7 @@ const AREAS = [
                 items: [
                     { href: '/reports',     label: 'Relatórios',   icon: FileText },
                     { href: '/creative',    label: 'Criativos',    icon: Palette },
+                    { href: '/tracking',    label: 'Tracking',     icon: Activity },
                     { href: '/accounts',    label: 'Contas',       icon: Users },
                 ],
             },

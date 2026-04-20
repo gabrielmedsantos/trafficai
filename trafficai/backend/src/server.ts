@@ -25,6 +25,12 @@ app.set('trust proxy', 1);
 
 // ---- Security Middleware ----
 app.use(helmet());
+
+// CORS aberto para o namespace /api/v1/track (sites dos clientes embedam o pixel).
+// Os endpoints de tracking não usam cookies nem dependem de auth JWT.
+app.use('/api/v1/track', cors({ origin: true, credentials: false }));
+
+// CORS restrito ao painel para o restante.
 app.use(cors({
     origin: [
         process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -35,13 +41,24 @@ app.use(cors({
 }));
 
 // ---- Rate Limiting ----
-app.use(rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // increased for frontend initial requests
+// Rate limit mais generoso para /api/v1/track (cada usuário final do site
+// dispara múltiplos eventos: PageView + scrolls + conversões).
+const trackLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minuto
+    max: 120,            // 120 req/min por IP — suficiente para navegação normal
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, error: { message: 'Too many requests', code: 429 } },
-}));
+});
+const mainLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: { message: 'Too many requests', code: 429 } },
+});
+app.use('/api/v1/track', trackLimiter);
+app.use(mainLimiter);
 
 // ---- Body Parsing ----
 app.use(express.json({ limit: '10mb' }));

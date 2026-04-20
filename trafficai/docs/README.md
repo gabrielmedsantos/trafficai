@@ -22,6 +22,7 @@ Operado pela **Alfamax Digital** em produção:
 12. [DEPLOYMENT.md](./DEPLOYMENT.md) — Docker, Traefik, Supabase, IPv6
 13. [OPERATIONS.md](./OPERATIONS.md) — Runbook: como operar, diagnosticar, reparar
 14. [IMPROVEMENTS.md](./IMPROVEMENTS.md) — Backlog de melhorias possíveis
+15. [TRACKING.md](./TRACKING.md) — Pixel proprietário + Meta CAPI + webhook CRM
 
 ## Stack rápida
 

@@ -184,6 +184,46 @@ class ApiClient {
         return this.request<{ message: string }>('DELETE', `/team/members/${id}`);
     }
 
+    // Tracking (CAPI)
+    async getTrackingSources() {
+        return this.request<any[]>('GET', '/tracking/sources');
+    }
+    async getTrackingSource(id: string) {
+        return this.request<any>('GET', `/tracking/sources/${id}`);
+    }
+    async createTrackingSource(data: {
+        name: string; account_id?: string; pixel_id?: string; access_token?: string;
+        test_event_code?: string; domain?: string;
+    }) {
+        return this.request<any>('POST', '/tracking/sources', data);
+    }
+    async updateTrackingSource(id: string, data: Partial<{
+        name: string; account_id: string | null; pixel_id: string;
+        access_token: string; test_event_code: string; domain: string; is_active: boolean;
+    }>) {
+        return this.request<any>('PATCH', `/tracking/sources/${id}`, data);
+    }
+    async deleteTrackingSource(id: string) {
+        return this.request<any>('DELETE', `/tracking/sources/${id}`);
+    }
+    async rotateTrackingWebhook(id: string) {
+        return this.request<{ webhook_secret: string }>('POST', `/tracking/sources/${id}/rotate-webhook`);
+    }
+    async getTrackingEvents(sourceId: string, params?: { limit?: number; status?: string; event_name?: string }) {
+        const q = new URLSearchParams();
+        if (params?.limit) q.set('limit', String(params.limit));
+        if (params?.status) q.set('status', params.status);
+        if (params?.event_name) q.set('event_name', params.event_name);
+        const qs = q.toString();
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/events${qs ? '?' + qs : ''}`);
+    }
+    async getTrackingStats(sourceId: string, days = 7) {
+        return this.request<any>('GET', `/tracking/sources/${sourceId}/stats?days=${days}`);
+    }
+    async testTrackingSource(id: string) {
+        return this.request<any>('POST', `/tracking/sources/${id}/test`);
+    }
+
     // Alerts
     async getAlerts(unreadOnly = false, limit = 200) {
         return this.request<{ alerts: any[]; unread_count: number }>('GET', `/alerts?unread_only=${unreadOnly}&limit=${limit}`);
