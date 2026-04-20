@@ -81,13 +81,17 @@ export interface TrackingUserInput {
     fbc?: string;
     client_ip?: string;
     client_user_agent?: string;
+    // WhatsApp Click-to-Message attribution
+    ctwa_clid?: string;     // Click-to-WhatsApp Click ID
+    page_id?: string;       // Facebook page associada
 }
 
 export interface TrackingEventInput {
     event_name: string;
     event_id?: string;
     event_time?: number;   // unix seconds
-    action_source?: 'website' | 'system_generated' | 'phone_call' | 'chat' | 'email' | 'other';
+    action_source?: 'website' | 'system_generated' | 'phone_call' | 'chat' | 'email' | 'other' | 'business_messaging';
+    messaging_channel?: 'whatsapp' | 'messenger' | 'instagram';
     event_source_url?: string;
     value?: number;
     currency?: string;
@@ -116,6 +120,9 @@ function buildUserData(u: TrackingUserInput | undefined): Record<string, any> {
     if (u.fbc)                 ud.fbc = u.fbc;
     if (u.client_ip)           ud.client_ip_address = u.client_ip;
     if (u.client_user_agent)   ud.client_user_agent = u.client_user_agent;
+    // WhatsApp Click-to-Message
+    if (u.ctwa_clid)           ud.ctwa_clid = u.ctwa_clid;
+    if (u.page_id)             ud.page_id = u.page_id;
 
     return ud;
 }
@@ -224,6 +231,7 @@ export async function trackEvent(
         event_id: eventId,
         action_source: actionSource,
     };
+    if (event.messaging_channel) payload.messaging_channel = event.messaging_channel;
     if (event.event_source_url) payload.event_source_url = event.event_source_url;
     if (Object.keys(userData).length > 0) payload.user_data = userData;
     if (Object.keys(customData).length > 0) payload.custom_data = customData;
@@ -245,17 +253,17 @@ export async function trackEvent(
     try {
         await query(
             `INSERT INTO tracking_events (
-                source_id, event_name, event_id, event_time, action_source,
+                source_id, event_name, event_id, event_time, action_source, messaging_channel,
                 external_id, event_source_url, value, currency,
                 custom_data, user_data_hashed,
-                client_ip, client_user_agent, city, state, country, zip, fbp, fbc,
+                client_ip, client_user_agent, city, state, country, zip, fbp, fbc, ctwa_clid,
                 emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id
             ) VALUES (
-                $1,$2,$3,$4,$5,
-                $6,$7,$8,$9,
-                $10,$11,
-                $12,$13,$14,$15,$16,$17,$18,$19,
-                $20,$21,$22,$23,$24
+                $1,$2,$3,$4,$5,$6,
+                $7,$8,$9,$10,
+                $11,$12,
+                $13,$14,$15,$16,$17,$18,$19,$20,$21,
+                $22,$23,$24,$25,$26
             )`,
             [
                 source.id,
@@ -263,6 +271,7 @@ export async function trackEvent(
                 eventId,
                 eventTime,
                 actionSource,
+                event.messaging_channel || null,
                 event.user_data?.external_id || null,
                 event.event_source_url || null,
                 event.value ?? null,
@@ -277,6 +286,7 @@ export async function trackEvent(
                 event.user_data?.zip || null,
                 event.user_data?.fbp || null,
                 event.user_data?.fbc || null,
+                event.user_data?.ctwa_clid || null,
                 emq,
                 metaResult.status,
                 metaResult.response ? JSON.stringify(metaResult.response) : null,

@@ -22,13 +22,15 @@ router.get('/sources', async (req: Request, res: Response) => {
         const rows = await query<any>(
             `SELECT s.id, s.name, s.public_token, s.pixel_id, s.test_event_code,
                     s.domain, s.is_active, s.account_id, s.created_at, s.updated_at,
+                    s.crm_type, s.crm_subdomain, s.last_backfill_at,
                     a.account_name AS meta_account_name,
                     (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
                        AND e.created_at >= NOW() - INTERVAL '24 hours') AS events_24h,
                     (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
                        AND e.created_at >= NOW() - INTERVAL '7 days' AND e.meta_status = 'failed') AS errors_7d,
                     (SELECT AVG(emq_score) FROM tracking_events e WHERE e.source_id = s.id
-                       AND e.created_at >= NOW() - INTERVAL '7 days') AS avg_emq_7d
+                       AND e.created_at >= NOW() - INTERVAL '7 days') AS avg_emq_7d,
+                    (SELECT COUNT(*) FROM tracking_whatsapp_leads w WHERE w.source_id = s.id) AS whatsapp_leads_total
              FROM tracking_sources s
              LEFT JOIN ad_accounts a ON s.account_id = a.id
              WHERE s.user_id = $1
@@ -38,6 +40,33 @@ router.get('/sources', async (req: Request, res: Response) => {
         res.json({ success: true, data: rows });
     } catch (err: any) {
         logger.error('tracking: listar fontes falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/whatsapp-leads ───────────────────────────────
+router.get('/sources/:id/whatsapp-leads', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const rows = await query<any>(
+            `SELECT id, phone, name, ctwa_clid, ad_source_id, ad_source_url,
+                    ad_title, pixel_id, page_id, lead_meta_status, lead_meta_error,
+                    purchase_event_id, purchase_value, purchase_at, kommo_lead_id,
+                    created_at
+             FROM tracking_whatsapp_leads
+             WHERE source_id = $1
+             ORDER BY created_at DESC LIMIT 200`,
+            [id]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

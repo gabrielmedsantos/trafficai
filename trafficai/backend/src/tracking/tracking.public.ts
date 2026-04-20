@@ -16,6 +16,7 @@ import {
     TrackingSource, TrackingUserInput, TrackingEventInput, ClickRecordInput,
 } from './tracking.service';
 import { clampEventTime } from './crm-sync.service';
+import { processWhatsAppMessage, findWhatsAppLeadByPhone, recordPurchaseForWhatsAppLead } from './whatsapp-lead.service';
 
 const router = Router();
 
@@ -125,6 +126,34 @@ router.post('/click/:token', async (req: Request, res: Response) => {
         await recordClick(source.id, c);
         res.json({ success: true });
     } catch (err: any) {
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /track/whatsapp/:token ────────────────────────────────────────────
+// Recebe webhook do Evolution API (messages.upsert). Se a mensagem veio de
+// anúncio WhatsApp (tem ctwaClid), captura lead + dispara LeadSubmitted
+// com action_source=business_messaging.
+//
+// Configure no Evolution API:
+//   URL: https://api.alfamaxdigital.com.br/api/v1/track/whatsapp/{SEU_TOKEN}?key={SECRET}
+//   Eventos: messages.upsert
+router.post('/whatsapp/:token', async (req: Request, res: Response) => {
+    try {
+        const source = await findSource(req.params.token);
+        if (!source || !source.is_active) {
+            return res.status(404).json({ success: false, error: { message: 'Fonte não encontrada' } });
+        }
+
+        // Auth opcional via ?key= (Evolution não suporta header customizado na maioria dos plans)
+        if (source.webhook_secret && req.query.key && req.query.key !== source.webhook_secret) {
+            return res.status(401).json({ success: false, error: { message: 'Key inválida' } });
+        }
+
+        const result = await processWhatsAppMessage(source, req.body);
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking whatsapp falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
@@ -257,7 +286,36 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, error: { message: 'event obrigatório' } });
         }
 
+        // Enriquecimento: se o phone já está em tracking_whatsapp_leads,
+        // é um lead que veio de anúncio WhatsApp → anexa ctwa_clid + page_id
+        // e converte action_source pra business_messaging. Isso faz a Meta
+        // atribuir a conversão (ex: Purchase) ao clique específico do anúncio.
+        if (event.user_data?.phone) {
+            try {
+                const wa = await findWhatsAppLeadByPhone(source.id, event.user_data.phone);
+                if (wa?.ctwa_clid) {
+                    event.user_data.ctwa_clid = wa.ctwa_clid;
+                    if (wa.page_id) event.user_data.page_id = wa.page_id;
+                    event.action_source = 'business_messaging';
+                    event.messaging_channel = 'whatsapp';
+                }
+            } catch (e: any) {
+                logger.warn('enrich whatsapp falhou', { error: e.message });
+            }
+        }
+
         const r = await trackEvent(source, event);
+
+        // Se for Purchase pra lead WhatsApp, registra no whatsapp_lead
+        if (event.event_name === 'Purchase' && event.user_data?.phone && event.value) {
+            try {
+                await recordPurchaseForWhatsAppLead(
+                    source.id, event.user_data.phone, Number(event.value),
+                    event.user_data.external_id || null, r.event_id
+                );
+            } catch { /* não bloqueia */ }
+        }
+
         res.json({ success: true, data: r });
     } catch (err: any) {
         logger.error('tracking webhook falhou', { error: err.message });

@@ -24,6 +24,7 @@ interface Source {
     events_24h?: number | string;
     errors_7d?: number | string;
     avg_emq_7d?: number | null;
+    whatsapp_leads_total?: number | string;
     created_at?: string;
     // CRM
     crm_type?: string | null;
@@ -394,6 +395,30 @@ function SourceDetail({ source, onClose, onEdit }: {
                     <div style={{ marginTop: 14 }}>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>URL do pixel:</div>
                         <CopyBlock value={pixelUrl} small />
+                    </div>
+                </Section>
+
+                {/* ── WhatsApp Click-to-Message (Evolution API) ─────────── */}
+                <Section title="WhatsApp Click-to-Message (ctwa_clid)">
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
+                        Conecte o Evolution API / Chatwoot pra capturar leads que vieram de <strong>anúncios WhatsApp</strong>.
+                        Quando a primeira mensagem do usuário traz <span className="mono">ctwaClid</span>, nosso sistema
+                        captura o telefone, busca o pixel do anúncio automaticamente e dispara <span className="mono">LeadSubmitted</span> com
+                        <span className="mono"> action_source=business_messaging</span> + <span className="mono">messaging_channel=whatsapp</span>.
+                    </p>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Endpoint Evolution API:</div>
+                    <CopyBlock
+                        value={detail?.webhook_secret
+                            ? `${API_BASE}/track/whatsapp/${source.public_token}?key=${detail.webhook_secret}`
+                            : `${API_BASE}/track/whatsapp/${source.public_token}`}
+                        small
+                    />
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                        <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                        <span>
+                            No Evolution API: <strong>Instances → Settings → Webhooks</strong> → adiciona a URL acima e marca o evento
+                            <span className="mono"> messages.upsert</span>. Leads que não vierem de anúncio (sem ctwa_clid) são ignorados automaticamente.
+                        </span>
                     </div>
                 </Section>
 

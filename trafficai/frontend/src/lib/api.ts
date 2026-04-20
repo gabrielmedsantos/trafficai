@@ -223,6 +223,9 @@ class ApiClient {
     async getTrackingEvent(eventId: string) {
         return this.request<any>('GET', `/tracking/events/${eventId}`);
     }
+    async getTrackingWhatsAppLeads(sourceId: string) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/whatsapp-leads`);
+    }
     async testTrackingSource(id: string) {
         return this.request<any>('POST', `/tracking/sources/${id}/test`);
     }
