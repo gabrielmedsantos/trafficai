@@ -17,13 +17,21 @@ import {
 } from './tracking.service';
 import { clampEventTime } from './crm-sync.service';
 import { processWhatsAppMessage, findWhatsAppLeadByPhone, recordPurchaseForWhatsAppLead } from './whatsapp-lead.service';
+import { KommoAdapter } from './crm-adapters/kommo.adapter';
 
 const router = Router();
 
-async function findSource(token: string): Promise<(TrackingSource & { webhook_secret: string | null; domain: string | null }) | null> {
+async function findSource(token: string): Promise<(TrackingSource & {
+    webhook_secret: string | null;
+    domain: string | null;
+    crm_type: string | null;
+    crm_subdomain: string | null;
+    crm_access_token: string | null;
+}) | null> {
     const rows = await query<any>(
         `SELECT id, user_id, pixel_id, access_token, test_event_code, is_active,
-                webhook_secret, domain
+                webhook_secret, domain,
+                crm_type, crm_subdomain, crm_access_token
          FROM tracking_sources
          WHERE public_token = $1`,
         [token]
@@ -240,6 +248,34 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
 
             const normalized = normalizeKommoPayload(b, String(req.query.event || ''));
             if (normalized) b = normalized;
+
+            // Fallback: se webhook Kommo chegou sem phone (Salesbot pode omitir
+            // contato), busca via API do Kommo usando kommo_lead_id.
+            const missingPhone = !b.user?.phone && !b.phone;
+            const hasPhoneAndEmail = b.user?.email;
+            const kommoLeadId = b.custom_data?.kommo_lead_id;
+            if (missingPhone && kommoLeadId && source.crm_type === 'kommo' && source.crm_subdomain && source.crm_access_token) {
+                try {
+                    const adapter = new KommoAdapter(source.crm_subdomain, source.crm_access_token);
+                    const { lead, contact } = await adapter.fetchLeadWithContact(kommoLeadId);
+                    const extracted = adapter.extractUserData(lead, contact);
+                    if (extracted.phone || extracted.email || extracted.first_name) {
+                        b.user = {
+                            ...(b.user || {}),
+                            phone: b.user?.phone || extracted.phone,
+                            email: b.user?.email || extracted.email,
+                            first_name: b.user?.first_name || extracted.first_name,
+                            last_name: b.user?.last_name || extracted.last_name,
+                        };
+                        logger.info('Kommo fallback API: phone enriquecido', {
+                            source: source.id, leadId: kommoLeadId,
+                            has_phone: !!extracted.phone, has_email: !!extracted.email,
+                        });
+                    }
+                } catch (e: any) {
+                    logger.warn('Kommo fallback API falhou', { leadId: kommoLeadId, error: e.message });
+                }
+            }
         }
 
         // ── Validação: Purchase exige value > 0 e currency ───────────────
@@ -375,17 +411,15 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
 
         // Extrai email e telefone dos custom_fields. No Kommo os custom_fields
         // chegam como objeto aninhado (form-encoded parseado) tipo:
-        //   custom_fields: { '0': { name: 'E-mail', values: { '0': { value: 'x@y.com' } } } }
-        // Normalizamos tudo pra array e pegamos values[0].value.
-        const extractField = (obj: any, needles: string[]): string | undefined => {
+        //   custom_fields: { '0': { name: 'E-mail', code: 'EMAIL', values: { '0': { value: 'x@y.com' } } } }
+        // Busca PRIMEIRO por field_code (PHONE, EMAIL — códigos padrão ignoram idioma),
+        // depois por field_name (busca case-insensitive).
+        const extractField = (obj: any, needles: string[], codes: string[] = []): string | undefined => {
             const raw = obj?.custom_fields || obj?.custom_fields_values || obj?.customFields;
             if (!raw) return undefined;
             const fieldArr = Array.isArray(raw) ? raw : Object.values(raw);
-            for (const f of fieldArr) {
-                if (!f || typeof f !== 'object') continue;
-                const fname = String((f as any).name || (f as any).field_name || (f as any).code || '').toLowerCase();
-                if (!needles.some(n => fname.includes(n))) continue;
 
+            const tryValue = (f: any): string | undefined => {
                 let vals: any = (f as any).values ?? (f as any).value;
                 if (vals && !Array.isArray(vals) && typeof vals === 'object') {
                     vals = Object.values(vals);
@@ -399,12 +433,35 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
                     return String(first).trim() || undefined;
                 }
                 if (typeof vals === 'string') return vals.trim() || undefined;
+                return undefined;
+            };
+
+            // 1ª passada: por field_code (PHONE, EMAIL — padrão do Kommo)
+            if (codes.length > 0) {
+                for (const f of fieldArr) {
+                    if (!f || typeof f !== 'object') continue;
+                    const code = String((f as any).code || (f as any).field_code || '').toUpperCase();
+                    if (!codes.includes(code)) continue;
+                    const v = tryValue(f);
+                    if (v) return v;
+                }
+            }
+
+            // 2ª passada: por field_name (substring)
+            for (const f of fieldArr) {
+                if (!f || typeof f !== 'object') continue;
+                const fname = String((f as any).name || (f as any).field_name || '').toLowerCase();
+                if (!needles.some(n => fname.includes(n))) continue;
+                const v = tryValue(f);
+                if (v) return v;
             }
             return undefined;
         };
 
-        const email = extractField(contact, ['email', 'e-mail']) || extractField(lead, ['email']);
-        const phone = extractField(contact, ['telefone', 'phone', 'celular', 'whatsapp']) || extractField(lead, ['phone', 'telefone']);
+        const email = extractField(contact, ['email', 'e-mail'], ['EMAIL']) || extractField(lead, ['email'], ['EMAIL']);
+        const phone =
+            extractField(contact, ['telefone', 'phone', 'celular', 'whatsapp', 'móvel', 'movel'], ['PHONE', 'MOB', 'WORK_PHONE'])
+            || extractField(lead, ['phone', 'telefone'], ['PHONE']);
         const firstName = String(contact.first_name || contact.name || '').split(' ')[0] || undefined;
         const lastName = String(contact.last_name || contact.name || '').split(' ').slice(1).join(' ') || undefined;
 

@@ -159,8 +159,18 @@ export class KommoAdapter {
         };
         if (!contact) return result;
 
-        result.email = this.findCustomField(contact.custom_fields_values, ['email', 'e-mail']);
-        result.phone = this.findCustomField(contact.custom_fields_values, ['telefone', 'phone', 'celular', 'whatsapp']);
+        // 1. Busca por field_code (PHONE, EMAIL são códigos padrão do Kommo)
+        result.email = this.findCustomField(contact.custom_fields_values, ['email', 'e-mail'], ['EMAIL']);
+        result.phone = this.findCustomField(contact.custom_fields_values, ['telefone', 'phone', 'celular', 'whatsapp', 'móvel', 'movel'], ['PHONE', 'MOB', 'WORK_PHONE']);
+
+        // 2. Se ainda não achou telefone, tenta em campos alternativos do contato
+        if (!result.phone) {
+            // Kommo às vezes retorna em "phones" como array
+            if (Array.isArray((contact as any).phones)) {
+                const ph = (contact as any).phones[0];
+                if (ph) result.phone = String(typeof ph === 'string' ? ph : ph.value || '').trim() || undefined;
+            }
+        }
 
         let firstName = String(contact.first_name || '').trim() || undefined;
         let lastName = String(contact.last_name || '').trim() || undefined;
@@ -174,10 +184,26 @@ export class KommoAdapter {
         return result;
     }
 
-    private findCustomField(fields: any[] | undefined, needles: string[]): string | undefined {
+    // needles = match por nome (field_name), codes = match por código (field_code)
+    private findCustomField(
+        fields: any[] | undefined,
+        needles: string[],
+        codes: string[] = []
+    ): string | undefined {
         if (!Array.isArray(fields)) return undefined;
+        // 1ª passada: match por código (mais confiável, ignora idioma)
         for (const f of fields) {
-            const name = String(f.field_name || f.name || f.code || '').toLowerCase();
+            const code = String(f.field_code || f.code || '').toUpperCase();
+            if (!codes.includes(code)) continue;
+            const vals = f.values;
+            if (Array.isArray(vals) && vals.length > 0) {
+                const v = String(vals[0]?.value || '').trim();
+                if (v) return v;
+            }
+        }
+        // 2ª passada: match por nome do campo
+        for (const f of fields) {
+            const name = String(f.field_name || f.name || '').toLowerCase();
             if (!needles.some(n => name.includes(n))) continue;
             const vals = f.values;
             if (Array.isArray(vals) && vals.length > 0) {
