@@ -350,7 +350,7 @@ export class ReportService {
             `SELECT r.*, a.account_name, u.email as manager_email,
                     ns.resend_api_key, ns.notification_email as manager_notification_email
              FROM client_reports r
-             JOIN ad_accounts a ON r.account_id = a.id
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
              JOIN users u ON r.user_id = u.id
              LEFT JOIN notification_settings ns ON ns.user_id = r.user_id
              WHERE r.id = $1`,

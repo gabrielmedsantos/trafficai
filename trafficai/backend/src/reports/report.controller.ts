@@ -21,7 +21,7 @@ router.get('/public/:token', async (req: Request, res: Response) => {
         const rows = await query<any>(
             `SELECT r.*, a.account_name, a.currency
              FROM client_reports r
-             JOIN ad_accounts a ON r.account_id = a.id
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
              WHERE r.public_token = $1`,
             [token]
         );
@@ -62,7 +62,7 @@ router.get('/', async (req: Request, res: Response) => {
         let sql = `
             SELECT r.*, a.account_name
             FROM client_reports r
-            JOIN ad_accounts a ON r.account_id = a.id
+            LEFT JOIN ad_accounts a ON r.account_id = a.id
             WHERE r.user_id = $1
         `;
         const params: any[] = [userId];
@@ -96,7 +96,7 @@ router.get('/:id', async (req: Request, res: Response) => {
         const rows = await query<any>(
             `SELECT r.*, a.account_name, a.currency
              FROM client_reports r
-             JOIN ad_accounts a ON r.account_id = a.id
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
              WHERE r.id = $1 AND r.user_id = $2`,
             [id, userId]
         );
@@ -191,7 +191,7 @@ router.post('/generate', async (req: Request, res: Response) => {
         const reportId = await reportService.generateReport(userId, account_id, type as ReportType, start, end);
 
         const report = await query(
-            `SELECT r.*, a.account_name FROM client_reports r JOIN ad_accounts a ON r.account_id = a.id WHERE r.id = $1`,
+            `SELECT r.*, a.account_name FROM client_reports r LEFT JOIN ad_accounts a ON r.account_id = a.id WHERE r.id = $1`,
             [reportId]
         );
 
@@ -231,7 +231,7 @@ router.post('/:id/send-whatsapp', async (req: Request, res: Response) => {
 
         const rows = await query<any>(
             `SELECT r.*, a.account_name FROM client_reports r
-             JOIN ad_accounts a ON r.account_id = a.id
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
              WHERE r.id = $1 AND r.user_id = $2`,
             [id, userId]
         );
@@ -357,7 +357,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
         );
 
         const updated = await query(
-            `SELECT r.*, a.account_name FROM client_reports r JOIN ad_accounts a ON r.account_id = a.id WHERE r.id = $1`,
+            `SELECT r.*, a.account_name FROM client_reports r LEFT JOIN ad_accounts a ON r.account_id = a.id WHERE r.id = $1`,
             [id]
         );
 
