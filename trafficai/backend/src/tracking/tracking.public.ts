@@ -129,9 +129,13 @@ router.post('/click/:token', async (req: Request, res: Response) => {
 });
 
 // ─── POST /track/webhook/:token ─────────────────────────────────────────────
-// Webhook para CRM (Kommo, RD Station, etc). Espera:
-//   Header X-TAI-Signature: hex sha256 HMAC do body usando webhook_secret
-//   Body JSON:
+// Webhook para CRM (Kommo, RD Station, n8n, etc).
+// Aceita três formas de autenticação (da mais segura pra mais simples):
+//   1. Header X-TAI-Signature: hex sha256 HMAC do body com webhook_secret
+//   2. Header Authorization: Bearer <webhook_secret>   ← recomendado p/ Kommo
+//   3. Query param ?key=<webhook_secret>               ← fallback p/ CRMs limitados
+//
+// Body JSON:
 //     {
 //       event: 'Lead' | 'Contact' | 'Schedule' | 'Purchase' | 'Lead_Desqualificado',
 //       event_id?: string,
@@ -146,18 +150,42 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
         const source = await findSource(req.params.token);
         if (!source || !source.is_active) return res.status(404).json({ success: false });
 
-        // Verificação de assinatura (opcional mas recomendada)
+        // Verificação de credenciais
         if (source.webhook_secret) {
+            const secret = source.webhook_secret;
+            let authenticated = false;
+
+            // (1) HMAC assinado
             const signature = (req.headers['x-tai-signature'] as string) || '';
-            const raw = JSON.stringify(req.body || {});
-            const expected = crypto.createHmac('sha256', source.webhook_secret).update(raw).digest('hex');
-            if (!signature || signature !== expected) {
-                // Em modo desenvolvimento, deixa passar se vier ?dev=1 — em prod sempre valida.
-                const isDev = process.env.NODE_ENV !== 'production';
-                if (!(isDev && req.query.dev === '1')) {
-                    logger.warn('tracking webhook: assinatura inválida', { source: source.id });
-                    return res.status(401).json({ success: false, error: { message: 'Assinatura inválida' } });
-                }
+            if (signature) {
+                const raw = JSON.stringify(req.body || {});
+                const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+                if (signature === expected) authenticated = true;
+            }
+
+            // (2) Authorization: Bearer <secret>
+            if (!authenticated) {
+                const auth = (req.headers['authorization'] as string) || '';
+                const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+                if (bearer && bearer === secret) authenticated = true;
+            }
+
+            // (3) ?key=<secret>
+            if (!authenticated && req.query.key === secret) {
+                authenticated = true;
+            }
+
+            // Dev bypass
+            if (!authenticated && process.env.NODE_ENV !== 'production' && req.query.dev === '1') {
+                authenticated = true;
+            }
+
+            if (!authenticated) {
+                logger.warn('tracking webhook: não autenticado', { source: source.id });
+                return res.status(401).json({
+                    success: false,
+                    error: { message: 'Webhook não autenticado. Envie X-TAI-Signature, Authorization: Bearer ou ?key=.' },
+                });
             }
         }
 

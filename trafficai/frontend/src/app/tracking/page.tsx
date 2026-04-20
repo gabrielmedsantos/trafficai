@@ -350,14 +350,15 @@ function SourceDetail({ source, onClose, onEdit }: {
                     </div>
                 </Section>
 
-                <Section title="Webhook para CRM">
+                <Section title="Webhook para CRM (Kommo, RD Station)">
                     <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
-                        Configure no Kommo/RD Station para disparar em Lead, Qualificação, Agendamento e Venda.
-                        Envie o header <span className="mono">X-TAI-Signature</span> com HMAC-SHA256 do body
-                        usando o secret abaixo.
+                        Configure no seu CRM para disparar em Lead, Qualificação, Agendamento e Venda.
+                        Aceita 3 formas de autenticação (escolhe a que seu CRM suportar).
                     </p>
+
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Endpoint:</div>
                     <CopyBlock value={webhookUrl} small />
+
                     <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Secret:</div>
@@ -368,6 +369,58 @@ function SourceDetail({ source, onClose, onEdit }: {
                             {rotating ? 'Rotacionando…' : 'Rotacionar'}
                         </button>
                     </div>
+
+                    {detail?.webhook_secret && (
+                        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                                    Opção 1 — Authorization Bearer (recomendado p/ Kommo)
+                                </div>
+                                <CopyBlock value={`Authorization: Bearer ${detail.webhook_secret}`} small />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                                    Opção 2 — URL com key (CRMs limitados)
+                                </div>
+                                <CopyBlock value={`${webhookUrl}?key=${detail.webhook_secret}`} small />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                                    Opção 3 — HMAC SHA-256 (mais seguro, exige middleware)
+                                </div>
+                                <CopyBlock value={`X-TAI-Signature: sha256(body, ${detail.webhook_secret.slice(0, 8)}…)`} small />
+                            </div>
+                        </div>
+                    )}
+
+                    <details style={{ marginTop: 14 }}>
+                        <summary style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 500 }}>
+                            Exemplo de payload p/ Kommo
+                        </summary>
+                        <pre className="mono" style={{
+                            marginTop: 8, padding: 12,
+                            background: 'var(--bg-surface-2)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-sm)',
+                            fontSize: 11, lineHeight: 1.5, color: 'var(--text-secondary)',
+                            overflow: 'auto', whiteSpace: 'pre',
+                        }}>{`{
+  "event": "Purchase",
+  "external_id": "kommo-lead-{{lead.id}}",
+  "value": {{deal.value}},
+  "currency": "BRL",
+  "user": {
+    "email": "{{contact.email}}",
+    "phone": "{{contact.phone}}",
+    "first_name": "{{contact.first_name}}",
+    "last_name": "{{contact.last_name}}"
+  },
+  "custom_data": {
+    "pipeline": "{{pipeline.name}}",
+    "stage": "{{status.name}}"
+  }
+}`}</pre>
+                    </details>
                 </Section>
 
                 {/* Breakdown */}
