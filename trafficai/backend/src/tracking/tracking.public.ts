@@ -189,7 +189,18 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
             }
         }
 
-        const b = req.body || {};
+        let b: any = req.body || {};
+
+        // ── Formato nativo Kommo ──────────────────────────────────────────
+        // Kommo envia form-encoded com chaves tipo:
+        //   leads[status][0][id], leads[status][0][status_id], leads[status][0][price]
+        //   contacts[update][0][custom_fields][0][values][0][value]  (email/phone)
+        // Quando detectamos esse formato, normalizamos para o JSON esperado.
+        if (b.leads && !b.event) {
+            const normalized = normalizeKommoPayload(b, String(req.query.event || ''));
+            if (normalized) b = normalized;
+        }
+
         const event: TrackingEventInput = {
             event_name: b.event || b.event_name,
             event_id: b.event_id,
@@ -225,6 +236,89 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
 });
 
 // ─── Pixel JS builder ───────────────────────────────────────────────────────
+
+// ─── Normalizador Kommo ──────────────────────────────────────────────────
+// Kommo envia webhook em form-encoded ou JSON aninhado com chaves
+// leads[status][0][id], leads[add][0][price], contacts[update][0][custom_fields]
+// etc. Essa função pega o primeiro lead+contato do payload e normaliza
+// para o formato esperado por trackEvent.
+//
+// O nome do evento vem via query string (?event=Lead|Contact|Schedule|Purchase)
+// ou é inferido pelo tipo de operação (add=Lead, status=Contact por default).
+function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | null {
+    try {
+        const leads = body.leads || {};
+        // Kommo envia tanto leads[status][0] (mudança de status) quanto
+        // leads[add][0] (lead criado) etc.
+        const leadBlocks = [
+            ...(leads.status ? Object.values(leads.status) : []),
+            ...(leads.add ? Object.values(leads.add) : []),
+            ...(leads.update ? Object.values(leads.update) : []),
+        ];
+        if (leadBlocks.length === 0) return null;
+        const lead: any = leadBlocks[0];
+
+        const contacts = body.contacts || {};
+        const contactBlocks = [
+            ...(contacts.update ? Object.values(contacts.update) : []),
+            ...(contacts.add ? Object.values(contacts.add) : []),
+        ];
+        const contact: any = contactBlocks[0] || {};
+
+        // Extrai email e telefone dos custom_fields (cada CRM nomeia diferente).
+        // Custom fields no Kommo chegam como array: [{ name, values: [{ value }] }]
+        const extractField = (obj: any, needles: string[]): string | undefined => {
+            const fields = obj?.custom_fields || obj?.custom_fields_values || [];
+            for (const f of (Array.isArray(fields) ? fields : Object.values(fields))) {
+                const fname = String((f as any).name || (f as any).field_name || '').toLowerCase();
+                if (needles.some(n => fname.includes(n))) {
+                    const values = (f as any).values || (f as any).value;
+                    if (Array.isArray(values)) return String(values[0]?.value || '').trim() || undefined;
+                    return String(values || '').trim() || undefined;
+                }
+            }
+            return undefined;
+        };
+
+        const email = extractField(contact, ['email', 'e-mail']) || extractField(lead, ['email']);
+        const phone = extractField(contact, ['telefone', 'phone', 'celular', 'whatsapp']) || extractField(lead, ['phone', 'telefone']);
+        const firstName = String(contact.first_name || contact.name || '').split(' ')[0] || undefined;
+        const lastName = String(contact.last_name || contact.name || '').split(' ').slice(1).join(' ') || undefined;
+
+        // Evento: vem da query (?event=Purchase) OU inferido
+        // - Se tem price > 0 e status mudou → Purchase
+        // - Se veio de leads[add] → Lead
+        // - Caso contrário → Contact (qualificação)
+        let eventName = eventHintFromQuery.trim();
+        if (!eventName) {
+            const price = Number(lead.price || 0);
+            if (leads.add && leadBlocks.length > 0) eventName = 'Lead';
+            else if (price > 0) eventName = 'Purchase';
+            else eventName = 'Contact';
+        }
+
+        return {
+            event: eventName,
+            external_id: `kommo-${lead.id}`,
+            event_id: `kommo-${lead.id}-${eventName}-${Date.now()}`,
+            value: Number(lead.price || 0) || undefined,
+            currency: lead.price ? 'BRL' : undefined,
+            user: {
+                email, phone, first_name: firstName, last_name: lastName,
+            },
+            custom_data: {
+                kommo_lead_id: lead.id,
+                kommo_status_id: lead.status_id,
+                kommo_pipeline_id: lead.pipeline_id,
+                kommo_responsible_user_id: lead.responsible_user_id,
+                source: 'kommo',
+            },
+        };
+    } catch (err: any) {
+        logger.warn('tracking webhook: normalização Kommo falhou', { error: err.message });
+        return null;
+    }
+}
 
 function buildPixelScript(token: string, apiBase: string, pixelId: string | null): string {
     return `/* TrafficAI Pixel · token=${token} */
