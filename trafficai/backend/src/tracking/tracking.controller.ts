@@ -266,6 +266,98 @@ router.get('/sources/:id/events', async (req: Request, res: Response) => {
     }
 });
 
+// ─── GET /tracking/events/:eventId ──────────────────────────────────────────
+// Detalhe completo de um evento: reconstrói o payload Meta exato que foi
+// enviado e mostra a resposta. Para auditoria.
+router.get('/events/:eventId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { eventId } = req.params;
+
+        const rows = await query<any>(
+            `SELECT e.*, s.name AS source_name, s.pixel_id, s.test_event_code,
+                    s.user_id
+             FROM tracking_events e
+             JOIN tracking_sources s ON e.source_id = s.id
+             WHERE e.id = $1 AND s.user_id = $2`,
+            [eventId, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Evento não encontrado' } });
+        const ev = rows[0];
+
+        // Reconstrói o payload enviado para Meta CAPI
+        const sentPayload: any = {
+            event_name: ev.event_name,
+            event_time: Number(ev.event_time),
+            event_id: ev.event_id,
+            action_source: ev.action_source,
+        };
+        if (ev.event_source_url) sentPayload.event_source_url = ev.event_source_url;
+        if (ev.user_data_hashed && Object.keys(ev.user_data_hashed).length > 0) {
+            sentPayload.user_data = ev.user_data_hashed;
+        }
+        if (ev.custom_data && Object.keys(ev.custom_data).length > 0) {
+            sentPayload.custom_data = ev.custom_data;
+        }
+
+        const metaRequest: any = {
+            method: 'POST',
+            url: `https://graph.facebook.com/v19.0/${ev.pixel_id || 'PIXEL_ID'}/events`,
+            query: { access_token: '***redacted***' },
+            body: { data: [sentPayload] },
+        };
+        if (ev.test_event_code) {
+            metaRequest.body.test_event_code = ev.test_event_code;
+        }
+
+        res.json({
+            success: true,
+            data: {
+                // Metadados
+                id: ev.id,
+                source_id: ev.source_id,
+                source_name: ev.source_name,
+                created_at: ev.created_at,
+                // Identificação do evento
+                event_name: ev.event_name,
+                event_id: ev.event_id,
+                event_time: Number(ev.event_time),
+                event_time_iso: new Date(Number(ev.event_time) * 1000).toISOString(),
+                action_source: ev.action_source,
+                event_source_url: ev.event_source_url,
+                external_id: ev.external_id,
+                // Valor
+                value: ev.value,
+                currency: ev.currency,
+                // Custom data
+                custom_data: ev.custom_data,
+                // PII (já hashada)
+                user_data_hashed: ev.user_data_hashed,
+                // Contexto técnico
+                client_ip: ev.client_ip,
+                client_user_agent: ev.client_user_agent,
+                city: ev.city,
+                state: ev.state,
+                country: ev.country,
+                zip: ev.zip,
+                fbp: ev.fbp,
+                fbc: ev.fbc,
+                // Resultado
+                emq_score: ev.emq_score,
+                meta_status: ev.meta_status,
+                meta_response: ev.meta_response,
+                meta_error: ev.meta_error,
+                meta_fbtrace_id: ev.meta_fbtrace_id,
+                // O que saiu pra Meta
+                meta_request: metaRequest,
+            },
+        });
+    } catch (err: any) {
+        logger.error('tracking: event detail falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
 // ─── GET /tracking/sources/:id/stats ────────────────────────────────────────
 router.get('/sources/:id/stats', async (req: Request, res: Response) => {
     try {

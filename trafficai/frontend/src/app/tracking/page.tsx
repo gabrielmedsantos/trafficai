@@ -295,6 +295,7 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [backfillRunning, setBackfillRunning] = useState(false);
     const [backfillResult, setBackfillResult] = useState<any>(null);
     const [crmTest, setCrmTest] = useState<any>(null);
+    const [inspectEventId, setInspectEventId] = useState<string | null>(null);
     const [crmTestErr, setCrmTestErr] = useState('');
 
     async function testCrm() {
@@ -673,7 +674,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </thead>
                                 <tbody>
                                     {events.slice(0, 15).map(e => (
-                                        <tr key={e.id}>
+                                        <tr key={e.id} onClick={() => setInspectEventId(e.id)} style={{ cursor: 'pointer' }}>
                                             <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
                                                 {e.event_name}
                                                 {e.value != null && (
@@ -727,6 +728,215 @@ function SourceDetail({ source, onClose, onEdit }: {
                     <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Fechar</button>
                 </div>
             </div>
+
+            {inspectEventId && (
+                <EventDetailModal
+                    eventId={inspectEventId}
+                    onClose={() => setInspectEventId(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+// ─── Event Detail Modal — auditoria completa ────────────────────────────────
+
+function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true); setError('');
+        api.getTrackingEvent(eventId)
+            .then((d) => { if (!cancelled) setData(d); })
+            .catch((e: any) => { if (!cancelled) setError(e.message || 'Falha ao carregar'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+
+        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handler);
+        return () => { cancelled = true; window.removeEventListener('keydown', handler); };
+    }, [eventId, onClose]);
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+            <div
+                className="modal-box"
+                style={{ maxWidth: 820, maxHeight: '92vh', overflowY: 'auto' }}
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="modal-header">
+                    <div style={{ minWidth: 0 }}>
+                        <div className="modal-title">Auditoria do evento</div>
+                        {data && (
+                            <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                <span className="mono">{data.event_name}</span>
+                                {' · '}
+                                <span className="mono">{data.event_id?.slice(0, 24)}{data.event_id?.length > 24 ? '…' : ''}</span>
+                            </div>
+                        )}
+                    </div>
+                    <button className="modal-close" onClick={onClose} type="button"><X size={16} /></button>
+                </div>
+
+                {loading && <div className="loading-spinner"><div className="spinner" /></div>}
+                {error && (
+                    <div style={{
+                        padding: '10px 12px',
+                        background: 'rgba(239,68,68,.08)',
+                        border: '1px solid rgba(239,68,68,.22)',
+                        borderRadius: 'var(--radius-sm)',
+                        color: '#fca5a5', fontSize: 13,
+                    }}>{error}</div>
+                )}
+
+                {data && (
+                    <>
+                        {/* Status bar */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+                            <MiniKpi label="Status" value={data.meta_status || '—'}
+                                color={data.meta_status === 'sent' ? 'var(--accent-green)' : 'var(--accent-red)'} />
+                            <MiniKpi label="EMQ" value={String(data.emq_score || 0)}
+                                color={data.emq_score >= 7 ? 'var(--accent-green)' : data.emq_score >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)'} />
+                            <MiniKpi label="Origem" value={data.action_source} />
+                            <MiniKpi label="Quando" value={fmtRelative(data.created_at)} />
+                        </div>
+
+                        {/* Identificação */}
+                        <AuditField label="event_name" value={data.event_name} />
+                        <AuditField label="event_id" value={data.event_id} mono />
+                        <AuditField label="event_time" value={`${data.event_time} (${data.event_time_iso})`} mono />
+                        {data.external_id && <AuditField label="external_id" value={data.external_id} mono />}
+                        {data.event_source_url && <AuditField label="event_source_url" value={data.event_source_url} />}
+                        {data.value != null && <AuditField label="valor" value={`${data.currency || 'R$'} ${Number(data.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />}
+
+                        {/* PII hashada */}
+                        {data.user_data_hashed && Object.keys(data.user_data_hashed).length > 0 && (
+                            <AuditSection title="user_data (PII hashada SHA-256)">
+                                <PayloadJson value={data.user_data_hashed} />
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                                    Campos: {Object.keys(data.user_data_hashed).join(', ')}.
+                                    {data.user_data_hashed.em && ' ✓ email'}
+                                    {data.user_data_hashed.ph && ' ✓ telefone'}
+                                    {data.user_data_hashed.fn && ' ✓ nome'}
+                                    {data.user_data_hashed.external_id && ' ✓ external_id'}
+                                </div>
+                            </AuditSection>
+                        )}
+
+                        {/* Custom data */}
+                        {data.custom_data && Object.keys(data.custom_data).length > 0 && (
+                            <AuditSection title="custom_data">
+                                <PayloadJson value={data.custom_data} />
+                            </AuditSection>
+                        )}
+
+                        {/* Contexto técnico */}
+                        {(data.client_ip || data.client_user_agent || data.country) && (
+                            <AuditSection title="Contexto técnico">
+                                {data.client_ip && <AuditField label="IP" value={data.client_ip} mono />}
+                                {data.client_user_agent && <AuditField label="User-Agent" value={data.client_user_agent} mono />}
+                                {data.country && <AuditField label="país" value={data.country} />}
+                                {data.fbp && <AuditField label="fbp" value={data.fbp} mono />}
+                                {data.fbc && <AuditField label="fbc" value={data.fbc} mono />}
+                            </AuditSection>
+                        )}
+
+                        {/* Payload completo enviado */}
+                        <AuditSection title="Payload enviado pra Meta CAPI">
+                            <div style={{
+                                fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, fontFamily: 'var(--font-mono)',
+                            }}>
+                                POST {data.meta_request?.url}
+                            </div>
+                            <PayloadJson value={data.meta_request?.body} />
+                        </AuditSection>
+
+                        {/* Resposta Meta */}
+                        <AuditSection title={data.meta_status === 'sent' ? 'Resposta Meta ✓' : 'Resposta Meta — falha'}>
+                            {data.meta_fbtrace_id && (
+                                <div style={{ fontSize: 12, marginBottom: 6 }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>fbtrace_id: </span>
+                                    <span className="mono" style={{ color: 'var(--text-primary)' }}>{data.meta_fbtrace_id}</span>
+                                </div>
+                            )}
+                            {data.meta_error && (
+                                <div style={{
+                                    padding: '8px 12px', background: 'rgba(239,68,68,.08)',
+                                    border: '1px solid rgba(239,68,68,.22)', borderRadius: 'var(--radius-sm)',
+                                    fontSize: 12.5, color: '#fca5a5', marginBottom: 8,
+                                }}>
+                                    {data.meta_error}
+                                </div>
+                            )}
+                            {data.meta_response && <PayloadJson value={data.meta_response} />}
+                        </AuditSection>
+
+                        <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+                            <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Fechar</button>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AuditField({ label, value, mono }: { label: string; value: any; mono?: boolean }) {
+    return (
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6, fontSize: 13 }}>
+            <span style={{ color: 'var(--text-muted)', minWidth: 120, fontSize: 12 }}>{label}</span>
+            <span className={mono ? 'mono' : ''} style={{
+                color: 'var(--text-primary)', wordBreak: 'break-all',
+                fontSize: mono ? 12 : 13,
+            }}>
+                {value}
+            </span>
+        </div>
+    );
+}
+
+function AuditSection({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+        <div style={{ marginTop: 18, marginBottom: 4 }}>
+            <div style={{
+                fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase',
+                letterSpacing: 0.6, fontWeight: 600, marginBottom: 8,
+            }}>
+                {title}
+            </div>
+            {children}
+        </div>
+    );
+}
+
+function PayloadJson({ value }: { value: any }) {
+    const [copied, setCopied] = useState(false);
+    const json = JSON.stringify(value, null, 2);
+    async function copy() {
+        try { await navigator.clipboard.writeText(json); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+    }
+    return (
+        <div style={{ position: 'relative' }}>
+            <pre className="mono" style={{
+                margin: 0, padding: 12, paddingRight: 40,
+                background: 'var(--bg-surface-2)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-sm)',
+                fontSize: 11.5, lineHeight: 1.5, color: 'var(--text-secondary)',
+                overflow: 'auto', whiteSpace: 'pre',
+                maxHeight: 300,
+            }}>{json}</pre>
+            <button
+                type="button"
+                onClick={copy}
+                className="btn btn-ghost btn-sm btn-icon"
+                style={{ position: 'absolute', top: 6, right: 6 }}
+                title={copied ? 'Copiado' : 'Copiar JSON'}
+            >
+                {copied ? <Check size={13} color="var(--accent-green)" /> : <Copy size={13} />}
+            </button>
         </div>
     );
 }

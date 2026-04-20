@@ -220,6 +220,9 @@ class ApiClient {
     async getTrackingStats(sourceId: string, days = 7) {
         return this.request<any>('GET', `/tracking/sources/${sourceId}/stats?days=${days}`);
     }
+    async getTrackingEvent(eventId: string) {
+        return this.request<any>('GET', `/tracking/events/${eventId}`);
+    }
     async testTrackingSource(id: string) {
         return this.request<any>('POST', `/tracking/sources/${id}/test`);
     }
