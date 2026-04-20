@@ -279,6 +279,11 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
                 country: b.user?.country,
                 external_id: b.external_id,
                 client_ip: extractClientContext(req).ip || undefined,
+                // Atribuição (Meta não hasha)
+                ctwa_clid: b.user?.ctwa_clid,
+                fbc: b.user?.fbc,
+                fbp: b.user?.fbp,
+                page_id: b.user?.page_id,
             },
         };
 
@@ -403,6 +408,30 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
         const firstName = String(contact.first_name || contact.name || '').split(' ')[0] || undefined;
         const lastName = String(contact.last_name || contact.name || '').split(' ').slice(1).join(' ') || undefined;
 
+        // Procura parâmetros de atribuição se o Kommo tiver custom_fields com esses nomes.
+        // Ajuda quando a agência automatiza o preenchimento via n8n/bot pra não depender
+        // só do fluxo do Evolution API.
+        const ctwaClid =
+            extractField(lead, ['ctwa_clid', 'ctwaclid', 'ctwa']) ||
+            extractField(contact, ['ctwa_clid', 'ctwaclid', 'ctwa']);
+        const fbclid =
+            extractField(lead, ['fbclid', 'fb_click']) ||
+            extractField(contact, ['fbclid', 'fb_click']);
+        const fbc =
+            extractField(lead, ['fbc', '_fbc']) ||
+            extractField(contact, ['fbc', '_fbc']);
+        const fbp =
+            extractField(lead, ['fbp', '_fbp']) ||
+            extractField(contact, ['fbp', '_fbp']);
+        const utmSource = extractField(lead, ['utm_source', 'utm source']);
+        const utmCampaign = extractField(lead, ['utm_campaign', 'utm campaign', 'campanha']);
+        const utmMedium = extractField(lead, ['utm_medium', 'utm medium']);
+        const utmContent = extractField(lead, ['utm_content', 'utm content']);
+        const utmTerm = extractField(lead, ['utm_term', 'utm term']);
+        const adSourceId =
+            extractField(lead, ['ad_id', 'adid', 'source_id', 'ad source id']) ||
+            extractField(contact, ['ad_id', 'adid', 'source_id']);
+
         // Evento: vem da query (?event=Purchase) OU inferido
         // - Se tem price > 0 e status mudou → Purchase
         // - Se veio de leads[add] → Lead
@@ -423,6 +452,10 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
             currency: lead.price ? 'BRL' : undefined,
             user: {
                 email, phone, first_name: firstName, last_name: lastName,
+                // Atribuição — propagam para user_data do Meta (não hashados)
+                ctwa_clid: ctwaClid,
+                fbc: fbc || (fbclid ? `fb.1.${Date.now()}.${fbclid}` : undefined),
+                fbp,
             },
             custom_data: {
                 kommo_lead_id: lead.id,
@@ -430,6 +463,12 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
                 kommo_pipeline_id: lead.pipeline_id,
                 kommo_responsible_user_id: lead.responsible_user_id,
                 source: 'kommo',
+                ...(utmSource   && { utm_source: utmSource }),
+                ...(utmCampaign && { utm_campaign: utmCampaign }),
+                ...(utmMedium   && { utm_medium: utmMedium }),
+                ...(utmContent  && { utm_content: utmContent }),
+                ...(utmTerm     && { utm_term: utmTerm }),
+                ...(adSourceId  && { ad_source_id: adSourceId }),
             },
         };
     } catch (err: any) {
