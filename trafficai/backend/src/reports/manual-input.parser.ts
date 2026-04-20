@@ -115,37 +115,48 @@ function parseNumber(value: string | undefined | null): number {
 
 // ─── Aliases de colunas (pt-BR + en-US + variações do Meta) ─────────────────
 
+// Os aliases devem ser únicos e específicos o suficiente pra não colidir
+// entre colunas — o match usa "starts with" (prefix) como fallback, não
+// "contains" genérico. Ex: "cliques" NÃO pode ser alias solto porque
+// "CTR (taxa de cliques no link)" contém essa palavra.
 const COLUMN_ALIASES: Record<string, string[]> = {
-    campaign_name: ['nome da campanha', 'campaign name', 'campanha', 'campaign'],
-    status: ['status', 'veiculação', 'delivery'],
-    spend: ['valor gasto', 'valor usado', 'amount spent', 'total spent', 'gasto', 'investimento', 'valor gasto (brl)', 'valor usado (brl)', 'amount spent (brl)'],
+    campaign_name: ['nome da campanha', 'campaign name', 'campanha', 'campaign', 'nome do anúncio', 'ad name', 'nome do conjunto de anúncios', 'ad set name'],
+    status: ['status de veiculação', 'status', 'delivery', 'ad delivery', 'ad status'],
+    spend: ['valor usado (brl)', 'valor gasto (brl)', 'amount spent (brl)', 'valor gasto', 'valor usado', 'amount spent', 'total spent', 'gasto', 'investimento'],
     impressions: ['impressões', 'impressions'],
     reach: ['alcance', 'reach'],
-    clicks: ['cliques no link', 'cliques (todos)', 'cliques', 'link clicks', 'clicks (all)', 'clicks'],
-    ctr: ['ctr', 'ctr (todos)', 'ctr (all)', 'taxa de cliques'],
-    cpc: ['cpc', 'cpc (todos)', 'cpc (all)', 'cpc (custo por clique no link)', 'cpc (cost per link click)', 'custo por clique'],
-    cpm: ['cpm', 'cpm (custo por 1.000 impressões)', 'cpm (cost per 1,000 impressions)'],
+    clicks: ['cliques no link', 'link clicks', 'cliques (todos)', 'clicks (all)', 'cliques no link exclusivos', 'unique link clicks'],
+    ctr: ['ctr (taxa de cliques no link)', 'ctr (link click-through rate)', 'ctr (todos)', 'ctr (all)', 'ctr'],
+    cpc: ['cpc (custo por clique no link)', 'cpc (cost per link click)', 'cpc (todos)', 'cpc (all)', 'cpc', 'custo por clique no link'],
+    cpm: ['cpm (custo por 1.000 impressões)', 'cpm (cost per 1,000 impressions)', 'cpm'],
     frequency: ['frequência', 'frequency'],
+    // Formato genérico do Meta: coluna "Resultados" + "Tipo de resultado" + "Custo por resultado"
+    results_count: ['resultados', 'results'],
+    result_type: ['tipo de resultado', 'result type', 'result indicator', 'indicador de resultado'],
+    cost_per_result: ['custo por resultado', 'cost per result', 'custo por resultados'],
+    // Formato específico por tipo
     purchases: ['compras', 'purchases', 'compras do site', 'website purchases'],
     leads: ['cadastros', 'leads', 'cadastros do site', 'website leads'],
-    messages: ['mensagens iniciadas', 'messaging conversations started', 'conversas iniciadas'],
+    messages: ['mensagens iniciadas', 'conversas iniciadas', 'conversas por mensagem iniciadas', 'messaging conversations started'],
     purchase_value: ['valor de conversão da compra', 'purchase conversion value', 'valor da compra'],
     roas: ['roas de compra', 'purchase roas', 'roas'],
     cost_per_purchase: ['custo por compra', 'cost per purchase'],
     cost_per_lead: ['custo por cadastro', 'custo por lead', 'cost per lead'],
-    date: ['dia', 'date', 'reporting starts', 'início do período'],
+    date: ['dia', 'date', 'início dos relatórios', 'reporting starts'],
 };
 
 function findColumn(header: string[], key: string): number {
     const aliases = COLUMN_ALIASES[key] || [];
     const lower = header.map(h => h.toLowerCase().replace(/\s+/g, ' ').trim());
+    // 1ª passada: match exato
     for (const alias of aliases) {
         const idx = lower.findIndex(h => h === alias);
         if (idx >= 0) return idx;
     }
-    // Fallback: procura qualquer header que CONTENHA o alias
+    // 2ª passada: header começa com alias (ex: "CTR" → "CTR (todos)")
     for (const alias of aliases) {
-        const idx = lower.findIndex(h => h.includes(alias));
+        if (alias.length < 3) continue;
+        const idx = lower.findIndex(h => h.startsWith(alias + ' ') || h.startsWith(alias + '(') || h.startsWith(alias + ':'));
         if (idx >= 0) return idx;
     }
     return -1;
@@ -186,19 +197,41 @@ export function parseMetaCsv(csv: string, hint?: { primary_action?: 'purchase' |
     const idxCostPur = col('cost_per_purchase');
     const idxCostLead = col('cost_per_lead');
     const idxPurchValue = col('purchase_value');
+    // Formato genérico "Resultados" + "Tipo de resultado"
+    const idxResults = col('results_count');
+    const idxResultType = col('result_type');
+    const idxCostResult = col('cost_per_result');
 
     if (idxSpend < 0) {
         throw new Error('Coluna de "Valor gasto" / "Amount spent" não encontrada no CSV');
     }
 
-    // Detecta ação principal
+    // ── Detecta ação principal e em qual coluna estão as conversões ──────
+    // Prioridade:
+    //   1. hint explícito do usuário
+    //   2. coluna específica (purchases/leads/messages) com dados > 0
+    //   3. coluna genérica "Resultados" + "Tipo de resultado" da primeira linha
     const hasPurchases = idxPurch >= 0 && rows.some(r => parseNumber(r[idxPurch]) > 0);
     const hasLeads = idxLeads >= 0 && rows.some(r => parseNumber(r[idxLeads]) > 0);
     const hasMessages = idxMsgs >= 0 && rows.some(r => parseNumber(r[idxMsgs]) > 0);
+    const hasResults = idxResults >= 0 && rows.some(r => parseNumber(r[idxResults]) > 0);
 
     let primaryActionLabel = 'Conversões';
     let conversionsCol = -1;
     let conversionCostCol = -1;
+
+    const labelFromResultType = (type: string | undefined): string => {
+        const t = (type || '').toLowerCase();
+        if (/compra|purchase/.test(t)) return 'Compras';
+        if (/lead|cadastr/.test(t)) return 'Leads';
+        if (/conversa|message|mensag/.test(t)) return 'Mensagens';
+        if (/agendament|schedule/.test(t)) return 'Agendamentos';
+        if (/clique|click/.test(t)) return 'Cliques no link';
+        if (/vídeo|video|view/.test(t)) return 'Visualizações';
+        if (/engaj/.test(t)) return 'Engajamentos';
+        return 'Resultados';
+    };
+
     if (hint?.primary_action === 'purchase' && idxPurch >= 0) {
         primaryActionLabel = 'Compras'; conversionsCol = idxPurch; conversionCostCol = idxCostPur;
     } else if (hint?.primary_action === 'lead' && idxLeads >= 0) {
@@ -211,6 +244,17 @@ export function parseMetaCsv(csv: string, hint?: { primary_action?: 'purchase' |
         primaryActionLabel = 'Leads'; conversionsCol = idxLeads; conversionCostCol = idxCostLead;
     } else if (hasMessages) {
         primaryActionLabel = 'Mensagens'; conversionsCol = idxMsgs;
+    } else if (hasResults) {
+        // Pega o tipo de resultado mais frequente entre as linhas
+        const types: Record<string, number> = {};
+        for (const r of rows) {
+            const t = idxResultType >= 0 ? (r[idxResultType] || '').trim() : '';
+            if (t) types[t] = (types[t] || 0) + 1;
+        }
+        const topType = Object.entries(types).sort((a, b) => b[1] - a[1])[0]?.[0];
+        primaryActionLabel = labelFromResultType(topType);
+        conversionsCol = idxResults;
+        conversionCostCol = idxCostResult;
     }
 
     // Se tem Data → granularidade por dia → agregamos também por campanha (se houver).
@@ -223,12 +267,19 @@ export function parseMetaCsv(csv: string, hint?: { primary_action?: 'purchase' |
     let totalSpend = 0, totalImp = 0, totalReach = 0, totalClicks = 0, totalConv = 0;
     let freqWeighted = 0, freqReach = 0;
     let totalPurchaseValue = 0;
+    // Se a coluna "Cliques" estiver ausente mas existir CTR + Impressões,
+    // estimamos clicks = Σ (CTR_row% × impressions_row / 100) por linha.
+    const deriveClicksFromCtr = idxClicks < 0 && idxCtr >= 0 && idxImp >= 0;
 
     for (const r of rows) {
         const spend = parseNumber(r[idxSpend]);
         const imp = idxImp >= 0 ? parseNumber(r[idxImp]) : 0;
         const reach = idxReach >= 0 ? parseNumber(r[idxReach]) : 0;
-        const clicks = idxClicks >= 0 ? parseNumber(r[idxClicks]) : 0;
+        let clicks = idxClicks >= 0 ? parseNumber(r[idxClicks]) : 0;
+        if (deriveClicksFromCtr) {
+            const ctrRow = parseNumber(r[idxCtr]);
+            clicks = Math.round((ctrRow * imp) / 100);
+        }
         const conv = conversionsCol >= 0 ? parseNumber(r[conversionsCol]) : 0;
         const freq = idxFreq >= 0 ? parseNumber(r[idxFreq]) : 0;
         const purchaseVal = idxPurchValue >= 0 ? parseNumber(r[idxPurchValue]) : 0;
@@ -278,7 +329,11 @@ export function parseMetaCsv(csv: string, hint?: { primary_action?: 'purchase' |
     const ctr = totalImp > 0 ? (totalClicks / totalImp) * 100 : 0;
     const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
     const cpm = totalImp > 0 ? (totalSpend / totalImp) * 1000 : 0;
-    const frequency = freqReach > 0 ? freqWeighted / freqReach : 0;
+    // Se não temos coluna de frequência explícita, estima = impressões / alcance
+    let frequency = freqReach > 0 ? freqWeighted / freqReach : 0;
+    if (frequency === 0 && totalReach > 0 && totalImp > 0) {
+        frequency = totalImp / totalReach;
+    }
     const roasAvg = totalSpend > 0 && totalPurchaseValue > 0
         ? totalPurchaseValue / totalSpend
         : 0;
