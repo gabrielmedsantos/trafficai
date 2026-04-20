@@ -82,6 +82,25 @@ export default function ReportsPage() {
   const [genForm, setGenForm] = useState<{ account_id: string; type: 'daily' | 'weekly' | 'monthly'; period_start: string; period_end: string; custom_period: boolean }>({
     account_id: '', type: 'weekly', period_start: '', period_end: '', custom_period: false,
   });
+
+  // Modo "manual": gera relatório de conta não conectada via CSV ou texto livre
+  const [genMode, setGenMode] = useState<'connected' | 'manual'>('connected');
+  const [manualForm, setManualForm] = useState<{
+    input_type: 'csv' | 'text';
+    client_name: string;
+    client_email: string;
+    client_phone: string;
+    account_id: string;
+    primary_action: '' | 'purchase' | 'lead' | 'message';
+    csv_data: string;
+    text_data: string;
+  }>({
+    input_type: 'csv',
+    client_name: '', client_email: '', client_phone: '',
+    account_id: '', primary_action: '',
+    csv_data: '', text_data: '',
+  });
+  const [manualError, setManualError] = useState('');
   const [settingsForm, setSettingsForm] = useState<ReportSettings>({
     client_name: '', client_email: '', client_phone: '',
     daily_enabled: false, weekly_enabled: true, monthly_enabled: true,
@@ -157,6 +176,60 @@ export default function ReportsPage() {
       else alert('Erro: ' + result.error?.message);
     } catch (e: any) { alert('Erro: ' + e.message); }
     finally { setGenerating(false); }
+  };
+
+  const generateManualReport = async () => {
+    setManualError('');
+    const payload: any = {
+      type: genForm.type,
+      client_name: manualForm.client_name.trim() || undefined,
+      client_email: manualForm.client_email.trim() || undefined,
+      client_phone: manualForm.client_phone.trim() || undefined,
+      account_id: manualForm.account_id || undefined,
+      primary_action: manualForm.primary_action || undefined,
+    };
+    if (manualForm.input_type === 'csv') {
+      if (!manualForm.csv_data.trim()) {
+        setManualError('Cole o CSV exportado do Gerenciador da Meta.');
+        return;
+      }
+      payload.csv_data = manualForm.csv_data;
+    } else {
+      if (!manualForm.text_data.trim()) {
+        setManualError('Descreva as métricas em texto livre.');
+        return;
+      }
+      payload.text_data = manualForm.text_data;
+    }
+    if (!payload.account_id && !payload.client_name) {
+      setManualError('Informe o nome do cliente OU selecione uma conta.');
+      return;
+    }
+    if (genForm.custom_period && genForm.period_start && genForm.period_end) {
+      payload.period_start = genForm.period_start;
+      payload.period_end = genForm.period_end;
+    }
+
+    try {
+      setGenerating(true);
+      const res = await fetch(`${API}/reports/generate-manual`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify(payload),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setShowGenModal(false);
+        setManualForm(f => ({ ...f, csv_data: '', text_data: '' }));
+        await loadReports();
+      } else {
+        setManualError(result.error?.message || 'Erro ao gerar relatório');
+      }
+    } catch (e: any) {
+      setManualError(e.message || 'Erro inesperado');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const sendReport = async (reportId: string, email?: string) => {
@@ -511,13 +584,31 @@ export default function ReportsPage() {
       {/* ── Modal: Gerar Relatório ── */}
       {showGenModal && (
         <Modal title="Gerar Relatório" onClose={() => setShowGenModal(false)}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-            <div>
-              <label style={labelStyle}>Conta do cliente *</label>
-              <AccountSelect accounts={accounts} value={genForm.account_id}
-                onChange={id => setGenForm(f => ({ ...f, account_id: id }))} placeholder="Selecione uma conta" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+            {/* Tabs */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, padding: 4, background: 'var(--bg-input)', borderRadius: 8 }}>
+              {[
+                { key: 'connected', label: 'Conta conectada', sub: 'Dados sincronizados automaticamente' },
+                { key: 'manual', label: 'Dados manuais', sub: 'CSV ou texto livre (sem sync Meta)' },
+              ].map((t: any) => (
+                <button
+                  key={t.key}
+                  onClick={() => { setGenMode(t.key); setManualError(''); }}
+                  style={{
+                    padding: '10px 12px', borderRadius: 6, cursor: 'pointer', border: 'none',
+                    background: genMode === t.key ? 'var(--bg-surface-2)' : 'transparent',
+                    color: genMode === t.key ? 'var(--text)' : 'var(--text-muted)',
+                    boxShadow: genMode === t.key ? 'var(--shadow-xs)' : 'none',
+                    textAlign: 'left', fontFamily: 'inherit',
+                  }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{t.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 400, marginTop: 2, opacity: 0.75 }}>{t.sub}</div>
+                </button>
+              ))}
             </div>
 
+            {/* Tipo + período (comum aos dois modos) */}
             <div>
               <label style={labelStyle}>Tipo de relatório *</label>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px' }}>
@@ -536,7 +627,6 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* Custom period toggle */}
             <div>
               <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', userSelect: 'none' }}>
                 <div
@@ -562,43 +652,145 @@ export default function ReportsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 <div>
                   <label style={labelStyle}>Data início *</label>
-                  <input
-                    type="date"
-                    value={genForm.period_start}
+                  <input type="date" value={genForm.period_start}
                     onChange={e => setGenForm(f => ({ ...f, period_start: e.target.value }))}
-                    style={{
-                      width: '100%', padding: '9px 12px', borderRadius: '8px', fontSize: '13px',
-                      background: 'var(--bg-input)', border: '1px solid var(--border)',
-                      color: 'var(--text)', outline: 'none', boxSizing: 'border-box',
-                    }}
-                  />
+                    className="form-input" style={{ minHeight: 36, fontSize: 13 }} />
                 </div>
                 <div>
                   <label style={labelStyle}>Data fim *</label>
-                  <input
-                    type="date"
-                    value={genForm.period_end}
+                  <input type="date" value={genForm.period_end}
                     onChange={e => setGenForm(f => ({ ...f, period_end: e.target.value }))}
                     min={genForm.period_start}
-                    style={{
-                      width: '100%', padding: '9px 12px', borderRadius: '8px', fontSize: '13px',
-                      background: 'var(--bg-input)', border: '1px solid var(--border)',
-                      color: 'var(--text)', outline: 'none', boxSizing: 'border-box',
-                    }}
-                  />
+                    className="form-input" style={{ minHeight: 36, fontSize: 13 }} />
                 </div>
               </div>
             )}
 
-            <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '12px 14px', borderRadius: '8px', lineHeight: 1.6, borderLeft: '3px solid rgba(99,102,241,.4)' }}>
-              {genForm.custom_period
-                ? 'O relatório será gerado para o período selecionado.'
-                : 'Relatório gerado com dados do período mais recente e análise via IA.'}
-            </div>
+            {/* ── Modo: Conta conectada ── */}
+            {genMode === 'connected' && (
+              <>
+                <div>
+                  <label style={labelStyle}>Conta do cliente *</label>
+                  <AccountSelect accounts={accounts} value={genForm.account_id}
+                    onChange={id => setGenForm(f => ({ ...f, account_id: id }))} placeholder="Selecione uma conta" />
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '12px 14px', borderRadius: '8px', lineHeight: 1.6, borderLeft: '3px solid rgba(99,102,241,.4)' }}>
+                  Sincroniza dados frescos da Meta API antes de gerar a análise via IA.
+                </div>
+              </>
+            )}
+
+            {/* ── Modo: Manual ── */}
+            {genMode === 'manual' && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={labelStyle}>Nome do cliente *</label>
+                    <input type="text" value={manualForm.client_name}
+                      onChange={e => setManualForm(f => ({ ...f, client_name: e.target.value }))}
+                      placeholder="Ex: Matheus Oliveira"
+                      className="form-input" style={{ minHeight: 36, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Ação principal</label>
+                    <select value={manualForm.primary_action}
+                      onChange={e => setManualForm(f => ({ ...f, primary_action: e.target.value as any }))}
+                      className="form-select" style={{ minHeight: 36, fontSize: 13 }}>
+                      <option value="">Auto-detectar</option>
+                      <option value="purchase">Compras</option>
+                      <option value="lead">Leads</option>
+                      <option value="message">Mensagens</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label style={labelStyle}>Email do cliente</label>
+                    <input type="email" value={manualForm.client_email}
+                      onChange={e => setManualForm(f => ({ ...f, client_email: e.target.value }))}
+                      placeholder="cliente@exemplo.com"
+                      className="form-input" style={{ minHeight: 36, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>WhatsApp do cliente</label>
+                    <input type="tel" value={manualForm.client_phone}
+                      onChange={e => setManualForm(f => ({ ...f, client_phone: e.target.value }))}
+                      placeholder="+55 11 99999-9999"
+                      className="form-input" style={{ minHeight: 36, fontSize: 13 }} />
+                  </div>
+                </div>
+
+                {/* Input type tabs */}
+                <div>
+                  <label style={labelStyle}>Origem dos dados *</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, padding: 4, background: 'var(--bg-input)', borderRadius: 8 }}>
+                    {[
+                      { k: 'csv', label: 'CSV do Meta' },
+                      { k: 'text', label: 'Texto livre' },
+                    ].map((t: any) => (
+                      <button key={t.k}
+                        onClick={() => setManualForm(f => ({ ...f, input_type: t.k }))}
+                        style={{
+                          padding: '7px 10px', borderRadius: 5, border: 'none', cursor: 'pointer',
+                          background: manualForm.input_type === t.k ? 'var(--bg-surface-2)' : 'transparent',
+                          color: manualForm.input_type === t.k ? 'var(--text)' : 'var(--text-muted)',
+                          fontSize: 12.5, fontWeight: 500, fontFamily: 'inherit',
+                        }}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {manualForm.input_type === 'csv' && (
+                  <>
+                    <textarea value={manualForm.csv_data}
+                      onChange={e => setManualForm(f => ({ ...f, csv_data: e.target.value }))}
+                      placeholder={`Cole aqui o CSV exportado do Gerenciador de Anúncios.\nColunas esperadas: Nome da campanha, Valor gasto, Impressões, Cliques, CTR, CPC, Compras/Leads, ROAS...\n\nExemplo:\n"Nome da campanha","Valor gasto","Impressões","Cliques","Compras"\n"Campanha 1","1500,00","45000","890","12"\n"Campanha 2","2000,00","60000","1100","20"`}
+                      rows={10}
+                      className="form-textarea mono"
+                      style={{ fontSize: 11.5, minHeight: 180, fontFamily: 'var(--font-mono)' }} />
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      No Gerenciador de Anúncios da Meta: <strong>Relatórios › Exportar › CSV</strong>.
+                      Aceita formato com vírgula, ponto-e-vírgula ou tab como separador.
+                    </div>
+                  </>
+                )}
+
+                {manualForm.input_type === 'text' && (
+                  <>
+                    <textarea value={manualForm.text_data}
+                      onChange={e => setManualForm(f => ({ ...f, text_data: e.target.value }))}
+                      placeholder={`Descreva as métricas do período em texto livre.\n\nExemplo:\nConta do Matheus Oliveira em abril de 2026. Investimento total R$ 14.000. Tivemos 8.306 cliques em 123.200 impressões (CTR 6.7%). Geramos 45 leads a CPL R$ 311. A campanha "Black Friday" foi a top com R$ 6.000 gastos e 20 leads. Frequência média 2.1x.`}
+                      rows={10}
+                      className="form-textarea"
+                      style={{ fontSize: 13, minHeight: 180 }} />
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                      A IA vai extrair as métricas do texto. Quanto mais específico (valores, datas, campanhas), melhor o relatório.
+                    </div>
+                  </>
+                )}
+
+                {manualError && (
+                  <div style={{
+                    padding: '10px 12px', background: 'rgba(239,68,68,.08)',
+                    border: '1px solid rgba(239,68,68,.22)', borderRadius: 8,
+                    color: '#fca5a5', fontSize: 12.5,
+                  }}>
+                    {manualError}
+                  </div>
+                )}
+              </>
+            )}
 
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', paddingTop: '4px' }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowGenModal(false)}>Cancelar</button>
-              <button className="btn btn-primary btn-sm" onClick={generateReport} disabled={generating || !genForm.account_id || (genForm.custom_period && (!genForm.period_start || !genForm.period_end))}>
+              <button className="btn btn-primary btn-sm"
+                onClick={genMode === 'connected' ? generateReport : generateManualReport}
+                disabled={generating
+                  || (genMode === 'connected' && !genForm.account_id)
+                  || (genForm.custom_period && (!genForm.period_start || !genForm.period_end))}>
                 {generating
                   ? <><div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} /> Gerando…</>
                   : <><Plus size={14} /> Gerar</>}

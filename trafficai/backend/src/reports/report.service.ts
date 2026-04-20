@@ -77,7 +77,146 @@ interface GeneratedReport {
     recommendations: string[];
 }
 
+import { parseMetaCsv, parseTextMetrics, ParsedMetrics } from './manual-input.parser';
+
+export interface ManualReportInput {
+    type: ReportType;
+    period_start: Date;
+    period_end: Date;
+    // Fonte — uma das duas
+    csv_data?: string;
+    text_data?: string;
+    // Opcional: vincular a conta existente; senão o relatório fica sem account_id
+    account_id?: string;
+    client_name?: string;
+    client_email?: string;
+    client_phone?: string;
+    primary_action?: 'purchase' | 'lead' | 'message';
+}
+
 export class ReportService {
+
+    /**
+     * Gera relatório a partir de dados manuais (CSV do Meta ou texto livre).
+     * Usado quando a conta NÃO está conectada ao perfil Meta do usuário.
+     * Pula o sync com a Meta API e os dados vêm direto do input.
+     */
+    async generateReportFromManualData(
+        userId: string,
+        input: ManualReportInput
+    ): Promise<string> {
+        // 1. Parseia input em métricas estruturadas
+        let parsed: ParsedMetrics;
+        let source: 'manual_csv' | 'manual_text';
+        let rawInput: string;
+
+        if (input.csv_data && input.csv_data.trim()) {
+            parsed = parseMetaCsv(input.csv_data, { primary_action: input.primary_action });
+            source = 'manual_csv';
+            rawInput = input.csv_data;
+        } else if (input.text_data && input.text_data.trim()) {
+            parsed = await parseTextMetrics(input.text_data, { primary_action: input.primary_action });
+            source = 'manual_text';
+            rawInput = input.text_data;
+        } else {
+            throw new Error('csv_data ou text_data é obrigatório');
+        }
+
+        if (parsed.total_spend <= 0 && parsed.total_impressions <= 0) {
+            throw new Error('Não consegui extrair métricas dos dados fornecidos. Verifique o formato.');
+        }
+
+        // 2. Monta ReportMetrics com campos extras zerados (sem comparação período anterior)
+        const metrics: ReportMetrics = {
+            total_spend: parsed.total_spend,
+            total_impressions: parsed.total_impressions,
+            total_clicks: parsed.total_clicks,
+            total_conversions: parsed.total_conversions,
+            primary_action_label: parsed.primary_action_label,
+            avg_ctr: parsed.avg_ctr,
+            avg_cpc: parsed.avg_cpc,
+            avg_cpm: parsed.avg_cpm,
+            avg_roas: parsed.avg_roas,
+            avg_frequency: parsed.avg_frequency,
+            cost_per_conversion: parsed.cost_per_conversion,
+            campaigns_active: parsed.campaigns_active,
+            campaigns_total: parsed.campaigns_total,
+            spend_change_pct: null,
+            conversions_change_pct: null,
+            roas_change_pct: null,
+            cpa_change_pct: null,
+            top_campaigns: parsed.top_campaigns,
+            top_ads: [],
+            daily_breakdown: parsed.daily_breakdown,
+        };
+
+        // 3. Resolve dados do cliente (conta vinculada OU input direto)
+        let accountData: any = {
+            account_name: input.client_name || 'Cliente',
+            client_name: input.client_name || null,
+            client_email: input.client_email || null,
+            client_phone: input.client_phone || null,
+            auto_send_email: false,
+        };
+
+        if (input.account_id) {
+            const rows = await query<any>(
+                `SELECT a.*, rs.client_name, rs.client_email, rs.client_phone, rs.agency_name, rs.auto_send_email
+                 FROM ad_accounts a
+                 LEFT JOIN report_settings rs ON rs.account_id = a.id
+                 WHERE a.id = $1 AND a.user_id = $2`,
+                [input.account_id, userId]
+            );
+            if (rows.length) {
+                accountData = {
+                    ...rows[0],
+                    client_name: input.client_name || rows[0].client_name,
+                    client_email: input.client_email || rows[0].client_email,
+                    client_phone: input.client_phone || rows[0].client_phone,
+                };
+            }
+        }
+
+        // 4. Gera análise com IA (reusa o mesmo prompt do fluxo normal)
+        const prevMetrics: ReportMetrics = { ...metrics };  // sem comparação
+        const { summary, ai_analysis, recommendations } = await this.generateAIAnalysis(
+            accountData, input.type, input.period_start, input.period_end, metrics, prevMetrics
+        );
+
+        const typeLabels: Record<ReportType, string> = { daily: 'Diário', weekly: 'Semanal', monthly: 'Mensal' };
+        const clientDisplay = accountData.client_name || accountData.account_name || 'Cliente';
+        const title = `Relatório ${typeLabels[input.type]} — ${clientDisplay} (${this.formatDateBR(input.period_start)} a ${this.formatDateBR(input.period_end)})`;
+
+        // 5. Persiste
+        const inserted = await query<{ id: string }>(
+            `INSERT INTO client_reports (
+                user_id, account_id, type, period_start, period_end,
+                title, summary, metrics, ai_analysis, recommendations, raw_insights,
+                client_name, client_email, client_phone, source
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            RETURNING id`,
+            [
+                userId,
+                input.account_id || null,
+                input.type,
+                input.period_start.toISOString().split('T')[0],
+                input.period_end.toISOString().split('T')[0],
+                title, summary,
+                JSON.stringify(metrics),
+                ai_analysis,
+                JSON.stringify(recommendations),
+                JSON.stringify({ source, raw_input: rawInput.slice(0, 50_000) }),
+                accountData.client_name || null,
+                accountData.client_email || null,
+                accountData.client_phone || null,
+                source,
+            ]
+        );
+
+        const reportId = inserted[0].id;
+        logger.info(`Relatório manual gerado: ${reportId} (${source})`);
+        return reportId;
+    }
 
     /**
      * Gera relatório para uma conta em um período

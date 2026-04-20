@@ -111,6 +111,62 @@ router.get('/:id', async (req: Request, res: Response) => {
     }
 });
 
+// POST /reports/generate-manual — gera relatório a partir de CSV do Meta ou texto livre
+// Para contas NÃO conectadas ao perfil Meta do usuário.
+router.post('/generate-manual', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const {
+            type, period_start, period_end,
+            csv_data, text_data,
+            account_id, client_name, client_email, client_phone,
+            primary_action,
+        } = req.body;
+
+        if (!type) {
+            return res.status(400).json({ success: false, error: { message: 'type é obrigatório' } });
+        }
+        if (!csv_data && !text_data) {
+            return res.status(400).json({ success: false, error: { message: 'Envie csv_data ou text_data' } });
+        }
+        if (!account_id && !client_name) {
+            return res.status(400).json({ success: false, error: { message: 'Informe account_id ou client_name' } });
+        }
+
+        let start: Date, end: Date;
+        if (period_start && period_end) {
+            start = new Date(period_start);
+            end = new Date(period_end);
+        } else {
+            const dates = ReportService.getPeriodDates(type as ReportType);
+            start = dates.start;
+            end = dates.end;
+        }
+
+        const reportId = await reportService.generateReportFromManualData(userId, {
+            type: type as ReportType,
+            period_start: start,
+            period_end: end,
+            csv_data, text_data,
+            account_id: account_id || undefined,
+            client_name, client_email, client_phone,
+            primary_action: primary_action || undefined,
+        });
+
+        const rows = await query(
+            `SELECT r.*, a.account_name
+             FROM client_reports r
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
+             WHERE r.id = $1`,
+            [reportId]
+        );
+        res.json({ success: true, data: rows[0] });
+    } catch (err: any) {
+        logger.error('Erro ao gerar relatório manual', { error: err.message });
+        res.status(400).json({ success: false, error: { message: err.message } });
+    }
+});
+
 // POST /reports/generate — gera relatório manualmente
 router.post('/generate', async (req: Request, res: Response) => {
     try {
