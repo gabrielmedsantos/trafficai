@@ -465,6 +465,61 @@ function SourceDetail({ source, onClose, onEdit }: {
                         </div>
                     )}
 
+                    {/* URLs prontas por estágio — só cola uma em cada bot do Kommo */}
+                    {detail?.webhook_secret && (
+                        <div style={{ marginTop: 18 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+                                URLs prontas por estágio do pipeline
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                                Copia uma URL por estágio e cola no Salesbot correspondente do Kommo.
+                                As 5 etapas padrão do funil são pré-configuradas abaixo.
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {[
+                                    { label: 'Lead entrou', event: 'Lead', color: 'var(--accent-blue)' },
+                                    { label: 'Qualificado', event: 'Contact', color: 'var(--primary)' },
+                                    { label: 'Agendou reunião', event: 'Schedule', color: 'var(--accent-cyan)' },
+                                    { label: 'Venda fechada', event: 'Purchase', color: 'var(--accent-green)' },
+                                    { label: 'Perdido / Desqualificado', event: 'Lead_Desqualificado', color: 'var(--accent-red)' },
+                                ].map(stage => (
+                                    <div key={stage.event} style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: '160px 1fr',
+                                        gap: 10,
+                                        alignItems: 'center',
+                                    }}>
+                                        <div style={{
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            fontSize: 12.5,
+                                            color: 'var(--text-primary)',
+                                            fontWeight: 500,
+                                        }}>
+                                            <span style={{
+                                                width: 6, height: 6, borderRadius: '50%',
+                                                background: stage.color, flexShrink: 0,
+                                            }} />
+                                            {stage.label}
+                                        </div>
+                                        <CopyBlock
+                                            value={`${webhookUrl}?key=${detail.webhook_secret}&event=${stage.event}`}
+                                            small
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                                <span>
+                                    No Kommo: <strong>Leads → Funis → ⚡ Automação → Adicionar Salesbot</strong>. Cria 1 bot por etapa,
+                                    gatilho "Mudança de status", ação <strong>Enviar um webhook</strong> com a URL correspondente.
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
                     <details style={{ marginTop: 14 }}>
                         <summary style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', fontWeight: 500 }}>
                             Exemplo de payload p/ Kommo
