@@ -21,6 +21,7 @@ import {
     Radio,
     ClipboardList,
     Activity,
+    KanbanSquare,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -69,7 +70,7 @@ const AREAS = [
         id: 'gestao',
         label: 'Gestão',
         icon: Building2,
-        routes: ['/clientes', '/financeiro', '/team'],
+        routes: ['/clientes', '/financeiro', '/team', '/board'],
         groups: [
             {
                 label: 'CRM & Financeiro',
@@ -82,6 +83,7 @@ const AREAS = [
                 label: 'Time',
                 items: [
                     { href: '/team',        label: 'Time',         icon: Users },
+                    { href: '/board',       label: 'Demandas',     icon: KanbanSquare },
                 ],
             },
         ],

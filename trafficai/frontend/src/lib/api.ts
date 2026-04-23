@@ -233,6 +233,32 @@ class ApiClient {
         const qs = q.toString();
         return this.request<any>('GET', `/tracking/sources/${sourceId}/dashboard${qs ? '?' + qs : ''}`);
     }
+
+    // Board (gerenciador de demandas)
+    async getBoardCards() {
+        return this.request<any[]>('GET', '/board');
+    }
+    async createBoardCard(data: {
+        title: string; description?: string; status?: string; priority?: string;
+        project?: string | null; due_date?: string | null; checklist?: any[];
+    }) {
+        return this.request<any>('POST', '/board', data);
+    }
+    async updateBoardCard(id: string, data: Partial<{
+        title: string; description: string; status: string; priority: string;
+        project: string | null; due_date: string | null; checklist: any[]; position: number;
+    }>) {
+        return this.request<any>('PATCH', `/board/${id}`, data);
+    }
+    async toggleBoardChecklist(cardId: string, itemId: string) {
+        return this.request<any>('POST', `/board/${cardId}/checklist/${itemId}/toggle`);
+    }
+    async reorderBoardCards(cards: { id: string; status: string; position: number }[]) {
+        return this.request<any>('POST', '/board/reorder', { cards });
+    }
+    async deleteBoardCard(id: string) {
+        return this.request<any>('DELETE', `/board/${id}`);
+    }
     async testTrackingSource(id: string) {
         return this.request<any>('POST', `/tracking/sources/${id}/test`);
     }

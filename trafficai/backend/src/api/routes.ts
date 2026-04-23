@@ -17,6 +17,7 @@ import { tasksController } from '../tasks/tasks.controller';
 import { teamController } from '../team/team.controller';
 import { trackingController } from '../tracking/tracking.controller';
 import { trackingPublicController } from '../tracking/tracking.public';
+import { boardController } from '../board/board.controller';
 
 const router = Router();
 
@@ -46,6 +47,7 @@ router.use('/clients', clientsController);
 router.use('/financial', financialController);
 router.use('/tasks', tasksController);
 router.use('/team', teamController);
+router.use('/board', boardController);
 
 // Tracking público (sem JWT) — pixel, ingest e webhook
 router.use('/track', trackingPublicController);
