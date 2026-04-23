@@ -51,7 +51,7 @@ const AREAS = [
                     { href: '/campaigns',    label: 'Campanhas',    icon: Megaphone },
                     { href: '/predictions',  label: 'Previsões',    icon: TrendingUp },
                     { href: '/rotina',       label: 'Rotina',       icon: CalendarDays },
-                    { href: '/otimizacoes',  label: 'Otimizações',  icon: ClipboardList },
+                    { href: '/otimizacoes',  label: 'Agenda',       icon: ClipboardList },
                     { href: '/alerts',       label: 'Alertas',      icon: Bell, showBadge: true },
                 ],
             },

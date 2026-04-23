@@ -22,6 +22,10 @@ import {
     Zap,
     Check,
     CalendarDays,
+    Circle,
+    Flag,
+    KanbanSquare,
+    AlertTriangle,
 } from 'lucide-react';
 
 // ─── Config ────────────────────────────────────────────────────────────────
@@ -557,6 +561,104 @@ function CalendarEventChip({ event, log, onClick }: { event: any; log?: any; onC
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
                     {timeLabel}
                     {log?.summary && <span style={{ marginLeft: 6, color: '#10b981' }}>· resumo salvo</span>}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function BoardCardChip({ card, onToggle, overdue }: {
+    card: any;
+    onToggle: () => void;
+    overdue?: boolean;
+}) {
+    const isDone = card.status === 'done';
+    const checklist = Array.isArray(card.checklist) ? card.checklist : [];
+    const doneCount = checklist.filter((i: any) => i.done).length;
+    const borderColor = isDone
+        ? '#10b981'
+        : overdue ? '#ef4444'
+        : card.priority === 'high' ? '#ef4444'
+        : '#a855f7';
+    const bgColor = isDone
+        ? 'rgba(16,185,129,.06)'
+        : overdue ? 'rgba(239,68,68,.08)'
+        : 'rgba(168,85,247,.06)';
+    const hoverColor = isDone
+        ? 'rgba(16,185,129,.12)'
+        : overdue ? 'rgba(239,68,68,.14)'
+        : 'rgba(168,85,247,.12)';
+
+    return (
+        <div
+            style={{
+                background: bgColor,
+                border: '1px solid var(--border)',
+                borderLeft: `3px solid ${borderColor}`,
+                borderRadius: 8,
+                padding: '7px 10px',
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
+                transition: 'background .15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = hoverColor)}
+            onMouseLeave={e => (e.currentTarget.style.background = bgColor)}
+        >
+            <button
+                type="button"
+                onClick={onToggle}
+                title={isDone ? 'Marcar como pendente' : 'Marcar como concluído'}
+                style={{
+                    background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                    color: isDone ? '#10b981' : 'var(--text-muted)',
+                    display: 'flex', alignItems: 'center', marginTop: 1, flexShrink: 0,
+                }}
+            >
+                {isDone ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+            </button>
+            <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{
+                    fontSize: 12, fontWeight: 600,
+                    color: isDone ? '#10b981' : 'var(--text)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    textDecoration: isDone ? 'line-through' : 'none',
+                    opacity: isDone ? 0.65 : 1,
+                }}>
+                    {card.title}
+                </div>
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2,
+                    flexWrap: 'wrap',
+                }}>
+                    {card.client_name && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                            <span style={{
+                                width: 7, height: 7, borderRadius: 4,
+                                background: card.client_avatar_color || '#6366f1',
+                                display: 'inline-block',
+                            }} />
+                            {card.client_name}
+                        </span>
+                    )}
+                    {!card.client_name && (
+                        <span style={{ fontStyle: 'italic' }}>Geral</span>
+                    )}
+                    {overdue && (
+                        <span style={{ color: '#ef4444', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                            <AlertTriangle size={9} /> atrasado
+                        </span>
+                    )}
+                    {card.priority === 'high' && !overdue && (
+                        <span style={{ color: '#ef4444', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                            <Flag size={9} /> alta
+                        </span>
+                    )}
+                    {checklist.length > 0 && (
+                        <span>{doneCount}/{checklist.length}</span>
+                    )}
                 </div>
             </div>
         </div>
@@ -1145,6 +1247,7 @@ export default function OtimizacoesPage() {
     const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
     const [meetingLogs, setMeetingLogs] = useState<any[]>([]);
     const [selectedMeeting, setSelectedMeeting] = useState<any | null>(null);
+    const [boardCards, setBoardCards] = useState<any[]>([]);
 
     // Derived
     const weekSunday = addDays(weekStart, 6);
@@ -1232,6 +1335,32 @@ export default function OtimizacoesPage() {
         };
         fetchCalendar();
     }, [weekStart]);
+
+    // Board cards da semana
+    const fetchBoardCards = useCallback(async () => {
+        try {
+            const all = await apiFetch('/board');
+            setBoardCards(Array.isArray(all) ? all : []);
+        } catch {
+            setBoardCards([]);
+        }
+    }, []);
+    useEffect(() => { fetchBoardCards(); }, [fetchBoardCards]);
+
+    // Toggle done de um card do board direto na agenda
+    async function toggleBoardCardDone(card: any) {
+        const newStatus = card.status === 'done' ? 'todo' : 'done';
+        setBoardCards(prev => prev.map(c => c.id === card.id ? { ...c, status: newStatus } : c));
+        try {
+            await apiFetch(`/board/${card.id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: newStatus }),
+            });
+        } catch {
+            // rollback
+            setBoardCards(prev => prev.map(c => c.id === card.id ? { ...c, status: card.status } : c));
+        }
+    }
 
     useEffect(() => {
         if (activeTab === 'history') {
@@ -1343,6 +1472,14 @@ export default function OtimizacoesPage() {
             return String(start).substring(0, 10) === dateStr;
         });
 
+    const boardCardsByDate = (dateStr: string) =>
+        boardCards.filter(c => c.due_date && String(c.due_date).substring(0, 10) === dateStr);
+
+    // Cards atrasados (prazo < hoje, não concluídos) — mostrados na seção de hoje
+    const overdueBoardCards = boardCards.filter(c =>
+        c.due_date && c.status !== 'done' && String(c.due_date).substring(0, 10) < todayStr
+    );
+
     const pendingCount = tasks.filter((t) => t.status === 'pending').length;
     const doneCount = tasks.filter((t) => t.status === 'done').length;
     const clientsWithPending = new Set(
@@ -1424,11 +1561,11 @@ export default function OtimizacoesPage() {
                                 <ClipboardList size={18} color="#6366f1" />
                             </div>
                             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>
-                                Otimizações & Workflow
+                                Agenda
                             </h1>
                         </div>
                         <p style={{ margin: 0, fontSize: 14, color: 'var(--text-muted)' }}>
-                            Gerencie análises, relatórios e check-ins com seus clientes
+                            Demandas, análises, relatórios e reuniões — tudo da semana num só lugar
                         </p>
                     </div>
 
@@ -1671,22 +1808,40 @@ export default function OtimizacoesPage() {
                                                 )}
                                             </div>
 
-                                            {/* Task cards + Calendar events */}
+                                            {/* Task cards + Calendar events + Board cards */}
                                             <div>
                                                 {(() => {
                                                     const dayCalEvs = calendarEventsByDate(dateStr);
-                                                    if (dayTasks.length === 0 && dayCalEvs.length === 0) return (
+                                                    const dayBoardCards = boardCardsByDate(dateStr);
+                                                    // Atrasados só aparecem no dia de hoje
+                                                    const overdueHere = isToday ? overdueBoardCards : [];
+                                                    if (dayTasks.length === 0 && dayCalEvs.length === 0 && dayBoardCards.length === 0 && overdueHere.length === 0) return (
                                                         <div style={{ padding: '20px 12px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, border: '1px dashed var(--border-light)', borderRadius: 10 }}>
                                                             Sem tarefas
                                                         </div>
                                                     );
                                                     return (
                                                         <>
+                                                            {overdueHere.map(c => (
+                                                                <BoardCardChip
+                                                                    key={'overdue-' + c.id}
+                                                                    card={c}
+                                                                    overdue
+                                                                    onToggle={() => toggleBoardCardDone(c)}
+                                                                />
+                                                            ))}
+                                                            {dayBoardCards.map(c => (
+                                                                <BoardCardChip
+                                                                    key={c.id}
+                                                                    card={c}
+                                                                    onToggle={() => toggleBoardCardDone(c)}
+                                                                />
+                                                            ))}
                                                             {dayTasks.map((task) => (
                                                                 <TaskCard key={task.id} task={task} onClick={() => handleOpenTask(task)} onTimerToggle={handleTimerToggle} />
                                                             ))}
                                                             {dayCalEvs.length > 0 && (
-                                                                <div style={{ marginTop: dayTasks.length > 0 ? 8 : 0 }}>
+                                                                <div style={{ marginTop: (dayTasks.length > 0 || dayBoardCards.length > 0) ? 8 : 0 }}>
                                                                     {dayCalEvs.map((ev, i) => {
                                                                         const log = meetingLogs.find(l => l.google_event_id === ev.id);
                                                                         return <CalendarEventChip key={ev.id || i} event={ev} log={log} onClick={() => setSelectedMeeting(ev)} />;
@@ -1706,7 +1861,9 @@ export default function OtimizacoesPage() {
                             {(() => {
                                 const satTasks = tasksByDate(toISO(weekDays[5]));
                                 const sunTasks = tasksByDate(toISO(weekDays[6]));
-                                const hasSatSun = satTasks.length > 0 || sunTasks.length > 0;
+                                const satBoard = boardCardsByDate(toISO(weekDays[5]));
+                                const sunBoard = boardCardsByDate(toISO(weekDays[6]));
+                                const hasSatSun = satTasks.length > 0 || sunTasks.length > 0 || satBoard.length > 0 || sunBoard.length > 0;
                                 if (!hasSatSun) return null;
 
                                 return (
@@ -1720,7 +1877,8 @@ export default function OtimizacoesPage() {
                                         {weekDays.slice(5).map((day) => {
                                             const dateStr = toISO(day);
                                             const dayTasks = tasksByDate(dateStr);
-                                            if (!dayTasks.length) return null;
+                                            const dayBoard = boardCardsByDate(dateStr);
+                                            if (!dayTasks.length && !dayBoard.length) return null;
                                             const isToday = dateStr === todayStr;
                                             const dayName = DAY_LABELS[day.getDay()];
                                             const dayNum = String(day.getDate()).padStart(2, '0');
@@ -1743,6 +1901,13 @@ export default function OtimizacoesPage() {
                                                             {dayName} {dayNum}
                                                         </span>
                                                     </div>
+                                                    {dayBoard.map(c => (
+                                                        <BoardCardChip
+                                                            key={c.id}
+                                                            card={c}
+                                                            onToggle={() => toggleBoardCardDone(c)}
+                                                        />
+                                                    ))}
                                                     {dayTasks.map((task) => (
                                                         <TaskCard
                                                             key={task.id}
