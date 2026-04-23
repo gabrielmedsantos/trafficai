@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import {
     Plus, X, Check, Trash2, Pencil, KanbanSquare, List as ListIcon,
     Circle, CheckCircle2, CircleDot, Flag, Calendar, Folder, Building2,
-    GripVertical, Users,
+    GripVertical, Users, ChevronDown, Search,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -807,18 +807,11 @@ function CardFormModal({
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
                         <Field label="Cliente">
-                            <select
+                            <ClientPicker
+                                clients={clients}
                                 value={clientId}
-                                onChange={e => setClientId(e.target.value)}
-                                style={inputStyle}
-                            >
-                                <option value="">— Sem cliente (geral) —</option>
-                                {clients.map(c => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.name}{c.company ? ` · ${c.company}` : ''}
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={setClientId}
+                            />
                         </Field>
                         <Field label="Prazo">
                             <input
@@ -984,6 +977,179 @@ function ClientBadge({ name, color }: { name: string; color: string }) {
         }}>
             <ClientAvatar name={name} color={color} size={13} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+        </div>
+    );
+}
+
+function ClientPicker({
+    clients, value, onChange,
+}: {
+    clients: ClientLite[];
+    value: string;
+    onChange: (v: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const boxRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!open) { setSearch(''); return; }
+        function onClick(e: MouseEvent) {
+            if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false);
+        }
+        function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setOpen(false); }
+        document.addEventListener('mousedown', onClick);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onClick);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [open]);
+
+    const selected = clients.find(c => c.id === value);
+    const q = search.trim().toLowerCase();
+    const filtered = q
+        ? clients.filter(c =>
+            c.name.toLowerCase().includes(q) ||
+            (c.company || '').toLowerCase().includes(q))
+        : clients;
+
+    return (
+        <div ref={boxRef} style={{ position: 'relative' }}>
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                style={{
+                    ...inputStyle,
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    cursor: 'pointer', textAlign: 'left',
+                    minHeight: 30,
+                }}
+            >
+                {selected ? (
+                    <>
+                        <ClientAvatar
+                            name={selected.name}
+                            color={selected.avatar_color || '#6366f1'}
+                            size={16}
+                        />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {selected.name}
+                            {selected.company && (
+                                <span style={{ color: 'var(--text-muted)' }}> · {selected.company}</span>
+                            )}
+                        </span>
+                    </>
+                ) : (
+                    <span style={{ flex: 1, color: 'var(--text-muted)' }}>— Sem cliente (geral) —</span>
+                )}
+                <ChevronDown size={13} color="var(--text-muted)" />
+            </button>
+
+            {open && (
+                <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                    zIndex: 50,
+                    background: 'var(--bg-surface-2)',
+                    border: '1px solid var(--border-strong)',
+                    borderRadius: 8,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                    maxHeight: 280, overflow: 'hidden',
+                    display: 'flex', flexDirection: 'column',
+                }}>
+                    <div style={{
+                        padding: 8, borderBottom: '1px solid var(--border)',
+                        display: 'flex', alignItems: 'center', gap: 6,
+                    }}>
+                        <Search size={12} color="var(--text-muted)" />
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Buscar cliente…"
+                            autoFocus
+                            style={{
+                                flex: 1, background: 'transparent', border: 'none',
+                                outline: 'none', fontSize: 12.5, color: 'var(--text-primary)',
+                            }}
+                        />
+                    </div>
+                    <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
+                        <PickerOption
+                            active={!value}
+                            onClick={() => { onChange(''); setOpen(false); }}
+                        >
+                            <div style={{
+                                width: 16, height: 16, borderRadius: 8,
+                                border: '1.5px dashed var(--border-strong)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                flexShrink: 0,
+                            }}>
+                                <Building2 size={9} color="var(--text-muted)" />
+                            </div>
+                            <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+                                Sem cliente (geral)
+                            </span>
+                        </PickerOption>
+                        {filtered.map(c => (
+                            <PickerOption
+                                key={c.id}
+                                active={c.id === value}
+                                onClick={() => { onChange(c.id); setOpen(false); }}
+                            >
+                                <ClientAvatar
+                                    name={c.name}
+                                    color={c.avatar_color || '#6366f1'}
+                                    size={16}
+                                />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{
+                                        fontSize: 12.5, color: 'var(--text-primary)',
+                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    }}>{c.name}</div>
+                                    {c.company && c.company !== c.name && (
+                                        <div style={{
+                                            fontSize: 10.5, color: 'var(--text-muted)',
+                                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                        }}>{c.company}</div>
+                                    )}
+                                </div>
+                                {c.id === value && <Check size={12} color="var(--accent-green)" />}
+                            </PickerOption>
+                        ))}
+                        {filtered.length === 0 && q && (
+                            <div style={{
+                                padding: 12, fontSize: 12, color: 'var(--text-muted)',
+                                textAlign: 'center',
+                            }}>
+                                Nenhum cliente encontrado
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function PickerOption({
+    active, onClick, children,
+}: {
+    active: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+    return (
+        <div
+            onClick={onClick}
+            style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 10px', cursor: 'pointer',
+                background: active ? 'var(--bg-active)' : 'transparent',
+                transition: 'background 0.08s',
+            }}
+            onMouseEnter={e => { if (!active) (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-hover)'; }}
+            onMouseLeave={e => { if (!active) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+        >
+            {children}
         </div>
     );
 }

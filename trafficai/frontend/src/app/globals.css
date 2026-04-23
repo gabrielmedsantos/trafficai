@@ -1269,3 +1269,18 @@ textarea.form-input,
   .card { break-inside: avoid; border-color: #ddd; }
   body { background: white; color: #000; }
 }
+
+/* ============================================================
+   Native <select> options — garantir contraste no dark theme
+   (browsers herdam do SO e deixam ilegível caso contrário)
+   ============================================================ */
+select option,
+select optgroup {
+  background-color: var(--bg-surface-2);
+  color: var(--text-primary);
+}
+select option:checked,
+select option:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
