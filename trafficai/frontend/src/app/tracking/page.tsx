@@ -5,7 +5,11 @@ import { api } from '@/lib/api';
 import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw,
     Zap, ShieldCheck, CircleAlert, Sparkles, Globe,
+    TrendingUp, TrendingDown, Users, UserCheck, Calendar, ShoppingCart, DollarSign, Target,
 } from 'lucide-react';
+import {
+    ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
@@ -299,6 +303,35 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [inspectEventId, setInspectEventId] = useState<string | null>(null);
     const [crmTestErr, setCrmTestErr] = useState('');
 
+    // Dashboard de performance
+    const [dashRange, setDashRange] = useState<'7d' | '14d' | '30d' | 'custom'>('30d');
+    const [dashSince, setDashSince] = useState('');
+    const [dashUntil, setDashUntil] = useState('');
+    const [dash, setDash] = useState<any>(null);
+    const [dashLoading, setDashLoading] = useState(false);
+
+    const loadDash = useCallback(async () => {
+        setDashLoading(true);
+        try {
+            let since = dashSince, until = dashUntil;
+            if (dashRange !== 'custom') {
+                const days = dashRange === '7d' ? 7 : dashRange === '14d' ? 14 : 30;
+                const end = new Date();
+                const start = new Date(end.getTime() - days * 86400000);
+                since = start.toISOString().slice(0, 10);
+                until = end.toISOString().slice(0, 10);
+            }
+            const d = await api.getTrackingDashboard(source.id, since, until);
+            setDash(d);
+        } catch {
+            setDash(null);
+        } finally {
+            setDashLoading(false);
+        }
+    }, [source.id, dashRange, dashSince, dashUntil]);
+
+    useEffect(() => { loadDash(); }, [loadDash]);
+
     async function testCrm() {
         setCrmTest(null); setCrmTestErr('');
         try {
@@ -384,6 +417,187 @@ function SourceDetail({ source, onClose, onEdit }: {
                         </span>
                     )}
                 </div>
+
+                {/* Performance do cliente */}
+                <Section title="Performance do cliente">
+                    <div style={{
+                        display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center',
+                    }}>
+                        {(['7d', '14d', '30d', 'custom'] as const).map(r => (
+                            <button
+                                key={r}
+                                type="button"
+                                className={`btn btn-sm ${dashRange === r ? 'btn-primary' : 'btn-ghost'}`}
+                                onClick={() => setDashRange(r)}
+                            >
+                                {r === '7d' ? '7 dias' : r === '14d' ? '14 dias' : r === '30d' ? '30 dias' : 'Personalizado'}
+                            </button>
+                        ))}
+                        {dashRange === 'custom' && (
+                            <>
+                                <input
+                                    type="date"
+                                    value={dashSince}
+                                    onChange={e => setDashSince(e.target.value)}
+                                    style={{
+                                        padding: '4px 8px', fontSize: 12,
+                                        background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                                        borderRadius: 6, color: 'var(--text-primary)',
+                                    }}
+                                />
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>até</span>
+                                <input
+                                    type="date"
+                                    value={dashUntil}
+                                    onChange={e => setDashUntil(e.target.value)}
+                                    style={{
+                                        padding: '4px 8px', fontSize: 12,
+                                        background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                                        borderRadius: 6, color: 'var(--text-primary)',
+                                    }}
+                                />
+                                <button type="button" className="btn btn-sm btn-secondary" onClick={loadDash}>
+                                    Aplicar
+                                </button>
+                            </>
+                        )}
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={loadDash} style={{ marginLeft: 'auto' }}>
+                            <RefreshCw size={12} /> Atualizar
+                        </button>
+                    </div>
+
+                    {dashLoading && !dash && (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                            Carregando performance…
+                        </div>
+                    )}
+
+                    {dash && (
+                        <>
+                            {!dash.source?.has_account_link && (
+                                <div style={{
+                                    padding: '8px 12px', marginBottom: 12, fontSize: 12,
+                                    background: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.3)',
+                                    borderRadius: 6, color: 'var(--accent-yellow)',
+                                }}>
+                                    <CircleAlert size={12} style={{ display: 'inline', marginRight: 4 }} />
+                                    Conta Meta não vinculada — CPL, CPA, ROI e gasto não serão exibidos. Vincule em "Editar credenciais".
+                                </div>
+                            )}
+
+                            {/* KPIs principais */}
+                            <div style={{
+                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10,
+                            }}>
+                                <BigKpi
+                                    icon={<Users size={14} />}
+                                    label="Leads"
+                                    value={dash.kpis.leads.toLocaleString('pt-BR')}
+                                    hint={`${dash.kpis.qualified_rate.toFixed(0)}% qualificados`}
+                                />
+                                <BigKpi
+                                    icon={<UserCheck size={14} />}
+                                    label="Qualificados"
+                                    value={dash.kpis.qualified.toLocaleString('pt-BR')}
+                                    hint={dash.kpis.disqualified > 0 ? `${dash.kpis.disqualified} desqualificados` : undefined}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={<Calendar size={14} />}
+                                    label="Agendados"
+                                    value={dash.kpis.scheduled.toLocaleString('pt-BR')}
+                                    color="var(--accent-blue)"
+                                />
+                                <BigKpi
+                                    icon={<ShoppingCart size={14} />}
+                                    label="Vendas"
+                                    value={dash.kpis.sales_count.toLocaleString('pt-BR')}
+                                    hint={`${dash.kpis.conversion_rate.toFixed(1)}% conversão`}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={<DollarSign size={14} />}
+                                    label="Faturamento"
+                                    value={`R$ ${Number(dash.kpis.sales_value).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                                    hint={dash.kpis.sales_count > 0 ? `ticket médio R$ ${Number(dash.kpis.avg_ticket).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : undefined}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={dash.kpis.roi_pct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                                    label="ROI"
+                                    value={dash.source?.has_account_link
+                                        ? (dash.kpis.ad_spend > 0 ? `${dash.kpis.roi_pct.toFixed(0)}%` : '—')
+                                        : '—'}
+                                    hint={dash.source?.has_account_link && dash.kpis.ad_spend > 0
+                                        ? `${dash.kpis.roas.toFixed(2)}x ROAS`
+                                        : undefined}
+                                    color={dash.kpis.roi_pct >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+                                />
+                            </div>
+
+                            {/* Métricas secundárias */}
+                            {dash.source?.has_account_link && dash.kpis.ad_spend > 0 && (
+                                <div style={{
+                                    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16,
+                                }}>
+                                    <SubKpi label="Investido" value={`R$ ${Number(dash.kpis.ad_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} />
+                                    <SubKpi label="CPL" value={dash.kpis.cpl > 0 ? `R$ ${Number(dash.kpis.cpl).toFixed(2)}` : '—'} />
+                                    <SubKpi label="CPA" value={dash.kpis.cpa > 0 ? `R$ ${Number(dash.kpis.cpa).toFixed(2)}` : '—'} />
+                                    <SubKpi
+                                        label="Lucro líquido"
+                                        value={`R$ ${Number(dash.kpis.revenue_minus_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                        color={dash.kpis.revenue_minus_spend >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Chart diário */}
+                            {dash.daily && dash.daily.length > 0 && (
+                                <div style={{
+                                    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                                    borderRadius: 8, padding: 12, marginBottom: 16,
+                                }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                                        Leads, vendas e investimento por dia
+                                    </div>
+                                    <ResponsiveContainer width="100%" height={220}>
+                                        <ComposedChart data={dash.daily} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.4} />
+                                            <XAxis
+                                                dataKey="date"
+                                                tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
+                                                tickFormatter={(v: string) => {
+                                                    const d = new Date(v + 'T00:00:00');
+                                                    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                                }}
+                                            />
+                                            <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                                                    borderRadius: 6, fontSize: 12,
+                                                }}
+                                            />
+                                            <Legend wrapperStyle={{ fontSize: 11 }} />
+                                            <Bar yAxisId="left" dataKey="leads" fill="var(--accent-blue)" name="Leads" />
+                                            <Bar yAxisId="left" dataKey="sales" fill="var(--accent-green)" name="Vendas" />
+                                            {dash.source?.has_account_link && (
+                                                <Line yAxisId="right" type="monotone" dataKey="spend" stroke="var(--accent-yellow)" name="Investido (R$)" strokeWidth={2} dot={false} />
+                                            )}
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+
+                            {/* Funil */}
+                            <div style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Funil de conversão</div>
+                                <Funnel kpis={dash.kpis} />
+                            </div>
+                        </>
+                    )}
+                </Section>
 
                 {/* Integration */}
                 <Section title="Instalação no site">
@@ -1049,6 +1263,95 @@ function MiniKpi({ label, value, color }: { label: string; value: string; color?
             <div className="num" style={{ fontSize: 17, fontWeight: 600, color: color || 'var(--text-primary)', marginTop: 2 }}>
                 {value}
             </div>
+        </div>
+    );
+}
+
+function BigKpi({ icon, label, value, hint, color }: {
+    icon: React.ReactNode; label: string; value: string; hint?: string; color?: string;
+}) {
+    return (
+        <div style={{
+            padding: '12px 14px',
+            background: 'var(--bg-surface-2)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            minHeight: 78,
+        }}>
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
+                color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600,
+            }}>
+                <span style={{ color: color || 'var(--text-muted)' }}>{icon}</span>
+                {label}
+            </div>
+            <div className="num" style={{
+                fontSize: 22, fontWeight: 700, color: color || 'var(--text-primary)', marginTop: 4, lineHeight: 1.15,
+            }}>
+                {value}
+            </div>
+            {hint && (
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>
+            )}
+        </div>
+    );
+}
+
+function SubKpi({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+        <div style={{
+            padding: '8px 10px',
+            background: 'var(--bg-tertiary)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+        }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                {label}
+            </div>
+            <div className="num" style={{ fontSize: 14, fontWeight: 600, color: color || 'var(--text-primary)', marginTop: 1 }}>
+                {value}
+            </div>
+        </div>
+    );
+}
+
+function Funnel({ kpis }: { kpis: any }) {
+    const steps = [
+        { label: 'Leads', value: kpis.leads, color: 'var(--accent-blue)' },
+        { label: 'Qualificados', value: kpis.qualified, color: 'var(--accent-cyan, #06b6d4)' },
+        { label: 'Agendados', value: kpis.scheduled, color: 'var(--accent-purple, #a855f7)' },
+        { label: 'Vendas', value: kpis.sales_count, color: 'var(--accent-green)' },
+    ];
+    const max = Math.max(...steps.map(s => s.value), 1);
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {steps.map((s, i) => {
+                const pct = (s.value / max) * 100;
+                const convFromPrev = i > 0 && steps[i - 1].value > 0
+                    ? ((s.value / steps[i - 1].value) * 100).toFixed(0) + '%'
+                    : null;
+                return (
+                    <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 110, fontSize: 12, color: 'var(--text-secondary)' }}>{s.label}</div>
+                        <div style={{
+                            flex: 1, height: 22, background: 'var(--bg-tertiary)',
+                            borderRadius: 4, overflow: 'hidden', position: 'relative',
+                        }}>
+                            <div style={{
+                                width: `${Math.max(pct, 1)}%`, height: '100%',
+                                background: s.color, transition: 'width 0.3s',
+                                display: 'flex', alignItems: 'center', paddingLeft: 8,
+                                fontSize: 11, fontWeight: 600, color: '#000', whiteSpace: 'nowrap',
+                            }}>
+                                {s.value.toLocaleString('pt-BR')}
+                            </div>
+                        </div>
+                        <div style={{ width: 60, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
+                            {convFromPrev || '—'}
+                        </div>
+                    </div>
+                );
+            })}
         </div>
     );
 }

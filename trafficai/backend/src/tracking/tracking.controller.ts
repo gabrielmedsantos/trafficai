@@ -467,6 +467,169 @@ router.get('/sources/:id/stats', async (req: Request, res: Response) => {
     }
 });
 
+// ─── GET /tracking/sources/:id/dashboard ────────────────────────────────────
+// Dashboard de performance do cliente (leads, qualificados, vendas, ROI).
+// Aceita ?since=YYYY-MM-DD&until=YYYY-MM-DD (default últimos 30 dias).
+// Se a fonte tem account_id vinculado, inclui ad_spend + ROI real.
+router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { since, until } = req.query as any;
+
+        const src = await query<any>(
+            `SELECT s.*, a.account_name AS meta_account_name
+             FROM tracking_sources s
+             LEFT JOIN ad_accounts a ON s.account_id = a.id
+             WHERE s.id = $1 AND s.user_id = $2`,
+            [id, userId]
+        );
+        if (!src.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const source = src[0];
+
+        // Default: últimos 30 dias
+        const now = new Date();
+        const endDate = until ? new Date(until + 'T23:59:59') : now;
+        const startDate = since ? new Date(since + 'T00:00:00')
+            : new Date(now.getTime() - 30 * 86400000);
+        const sinceStr = startDate.toISOString().split('T')[0];
+        const untilStr = endDate.toISOString().split('T')[0];
+
+        // KPIs agregados
+        const totals = await query<any>(
+            `SELECT
+                COUNT(*) FILTER (WHERE event_name IN ('Lead', 'LeadSubmitted')) AS leads,
+                COUNT(*) FILTER (WHERE event_name = 'Contact') AS qualified,
+                COUNT(*) FILTER (WHERE event_name = 'Lead_Desqualificado') AS disqualified,
+                COUNT(*) FILTER (WHERE event_name = 'Schedule') AS scheduled,
+                COUNT(*) FILTER (WHERE event_name = 'Purchase') AS sales_count,
+                COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase'), 0) AS sales_value,
+                COUNT(*) FILTER (WHERE meta_status = 'sent') AS events_sent,
+                COUNT(*) FILTER (WHERE meta_status = 'failed') AS events_failed,
+                COALESCE(AVG(emq_score), 0)::float AS avg_emq
+             FROM tracking_events
+             WHERE source_id = $1
+               AND created_at BETWEEN $2 AND $3`,
+            [id, startDate.toISOString(), endDate.toISOString()]
+        );
+        const t = totals[0];
+        const leadsNum = Number(t.leads) || 0;
+        const qualifiedNum = Number(t.qualified) || 0;
+        const salesCount = Number(t.sales_count) || 0;
+        const salesValue = Number(t.sales_value) || 0;
+
+        // Ad spend (se conta Meta vinculada)
+        let adSpend = 0;
+        if (source.account_id) {
+            const spendQ = await query<any>(
+                `SELECT COALESCE(SUM(ih.spend), 0) AS spend
+                 FROM insights_history ih
+                 JOIN campaigns c ON ih.campaign_id = c.id
+                 WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3`,
+                [source.account_id, sinceStr, untilStr]
+            );
+            adSpend = Number(spendQ[0]?.spend) || 0;
+        }
+
+        // Indicadores derivados
+        const cpl = leadsNum > 0 ? adSpend / leadsNum : 0;
+        const cpa = salesCount > 0 ? adSpend / salesCount : 0;
+        const conversionRate = leadsNum > 0 ? (salesCount / leadsNum) * 100 : 0;
+        const qualifiedRate = leadsNum > 0 ? (qualifiedNum / leadsNum) * 100 : 0;
+        const roiPct = adSpend > 0 ? ((salesValue - adSpend) / adSpend) * 100 : 0;
+        const revenueMinusSpend = salesValue - adSpend;
+        const roas = adSpend > 0 ? salesValue / adSpend : 0;
+        const avgTicket = salesCount > 0 ? salesValue / salesCount : 0;
+
+        // Breakdown diário (eventos)
+        const dailyEvents = await query<any>(
+            `SELECT DATE(created_at) AS date,
+                    COUNT(*) FILTER (WHERE event_name IN ('Lead','LeadSubmitted')) AS leads,
+                    COUNT(*) FILTER (WHERE event_name = 'Contact') AS qualified,
+                    COUNT(*) FILTER (WHERE event_name = 'Schedule') AS scheduled,
+                    COUNT(*) FILTER (WHERE event_name = 'Purchase') AS sales,
+                    COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase'), 0) AS sales_value
+             FROM tracking_events
+             WHERE source_id = $1
+               AND created_at BETWEEN $2 AND $3
+             GROUP BY DATE(created_at)
+             ORDER BY date ASC`,
+            [id, startDate.toISOString(), endDate.toISOString()]
+        );
+
+        // Daily spend (merge por data no front)
+        let dailySpend: any[] = [];
+        if (source.account_id) {
+            dailySpend = await query<any>(
+                `SELECT ih.date::text AS date, COALESCE(SUM(ih.spend), 0) AS spend
+                 FROM insights_history ih
+                 JOIN campaigns c ON ih.campaign_id = c.id
+                 WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3
+                 GROUP BY ih.date
+                 ORDER BY ih.date ASC`,
+                [source.account_id, sinceStr, untilStr]
+            );
+        }
+
+        // Merge daily events + spend
+        const byDate: Record<string, any> = {};
+        for (const r of dailyEvents) {
+            const d = new Date(r.date).toISOString().split('T')[0];
+            byDate[d] = {
+                date: d,
+                leads: Number(r.leads) || 0,
+                qualified: Number(r.qualified) || 0,
+                scheduled: Number(r.scheduled) || 0,
+                sales: Number(r.sales) || 0,
+                sales_value: Number(r.sales_value) || 0,
+                spend: 0,
+            };
+        }
+        for (const r of dailySpend) {
+            const d = String(r.date).slice(0, 10);
+            if (!byDate[d]) byDate[d] = { date: d, leads: 0, qualified: 0, scheduled: 0, sales: 0, sales_value: 0, spend: 0 };
+            byDate[d].spend = Number(r.spend) || 0;
+        }
+        const daily = Object.values(byDate).sort((a: any, b: any) => a.date.localeCompare(b.date));
+
+        res.json({
+            success: true,
+            data: {
+                source: {
+                    id: source.id,
+                    name: source.name,
+                    meta_account_name: source.meta_account_name,
+                    has_account_link: !!source.account_id,
+                },
+                period: { since: sinceStr, until: untilStr },
+                kpis: {
+                    leads: leadsNum,
+                    qualified: qualifiedNum,
+                    disqualified: Number(t.disqualified) || 0,
+                    scheduled: Number(t.scheduled) || 0,
+                    sales_count: salesCount,
+                    sales_value: salesValue,
+                    ad_spend: adSpend,
+                    revenue_minus_spend: revenueMinusSpend,
+                    roi_pct: roiPct,
+                    roas,
+                    cpl, cpa,
+                    conversion_rate: conversionRate,
+                    qualified_rate: qualifiedRate,
+                    avg_ticket: avgTicket,
+                    events_sent: Number(t.events_sent) || 0,
+                    events_failed: Number(t.events_failed) || 0,
+                    avg_emq: t.avg_emq || 0,
+                },
+                daily,
+            },
+        });
+    } catch (err: any) {
+        logger.error('tracking: dashboard falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
 // ─── POST /tracking/sources/:id/test ───────────────────────────────────────
 // Dispara um evento de teste server-side para validar credenciais.
 router.post('/sources/:id/test', async (req: Request, res: Response) => {

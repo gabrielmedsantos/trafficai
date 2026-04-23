@@ -226,6 +226,13 @@ class ApiClient {
     async getTrackingWhatsAppLeads(sourceId: string) {
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/whatsapp-leads`);
     }
+    async getTrackingDashboard(sourceId: string, since?: string, until?: string) {
+        const q = new URLSearchParams();
+        if (since) q.set('since', since);
+        if (until) q.set('until', until);
+        const qs = q.toString();
+        return this.request<any>('GET', `/tracking/sources/${sourceId}/dashboard${qs ? '?' + qs : ''}`);
+    }
     async testTrackingSource(id: string) {
         return this.request<any>('POST', `/tracking/sources/${id}/test`);
     }
