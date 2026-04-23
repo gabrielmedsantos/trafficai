@@ -30,19 +30,34 @@ function sanitizeChecklist(input: any): { id: string; text: string; done: boolea
 
 // ─── GET /board ─────────────────────────────────────────────────────────────
 // Lista todos os cards do usuário (ordenados por status + position).
+// Aceita ?client_id=<uuid> ou ?client_id=none (cards sem cliente).
 router.get('/', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
+        const { client_id } = req.query as any;
+
+        let clientFilter = '';
+        const params: any[] = [userId];
+        if (client_id === 'none') {
+            clientFilter = 'AND bc.client_id IS NULL';
+        } else if (client_id && typeof client_id === 'string') {
+            params.push(client_id);
+            clientFilter = `AND bc.client_id = $${params.length}`;
+        }
+
         const rows = await query<any>(
-            `SELECT id, title, description, status, priority, project, due_date,
-                    position, checklist, completed_at, created_at, updated_at
-             FROM board_cards
-             WHERE user_id = $1
+            `SELECT bc.id, bc.title, bc.description, bc.status, bc.priority, bc.project, bc.due_date,
+                    bc.position, bc.checklist, bc.completed_at, bc.created_at, bc.updated_at,
+                    bc.client_id,
+                    cl.name AS client_name, cl.company AS client_company, cl.avatar_color AS client_avatar_color
+             FROM board_cards bc
+             LEFT JOIN clients cl ON bc.client_id = cl.id
+             WHERE bc.user_id = $1 ${clientFilter}
              ORDER BY
-                CASE status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
-                position ASC,
-                created_at DESC`,
-            [userId]
+                CASE bc.status WHEN 'doing' THEN 0 WHEN 'todo' THEN 1 ELSE 2 END,
+                bc.position ASC,
+                bc.created_at DESC`,
+            params
         );
         res.json({ success: true, data: rows });
     } catch (err: any) {
@@ -51,17 +66,55 @@ router.get('/', async (req: Request, res: Response) => {
     }
 });
 
+// ─── GET /board/clients-summary ─────────────────────────────────────────────
+// Retorna contagem de cards por cliente (pra chips no topo).
+router.get('/clients-summary', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const rows = await query<any>(
+            `SELECT
+                bc.client_id,
+                cl.name AS client_name,
+                cl.company AS client_company,
+                cl.avatar_color,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE bc.status <> 'done') AS open_count
+             FROM board_cards bc
+             LEFT JOIN clients cl ON bc.client_id = cl.id
+             WHERE bc.user_id = $1
+             GROUP BY bc.client_id, cl.name, cl.company, cl.avatar_color
+             ORDER BY cl.name NULLS LAST`,
+            [userId]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('board: clients-summary falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
 // ─── POST /board ────────────────────────────────────────────────────────────
 router.post('/', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { title, description, status, priority, project, due_date, checklist } = req.body;
+        const { title, description, status, priority, project, client_id, due_date, checklist } = req.body;
 
         if (!title || typeof title !== 'string' || title.trim().length === 0) {
             return res.status(400).json({ success: false, error: { message: 'Título obrigatório' } });
         }
         const statusV = VALID_STATUS.includes(status) ? status : 'todo';
         const priorityV = VALID_PRIORITY.includes(priority) ? priority : 'normal';
+
+        // Valida client_id (se fornecido, precisa pertencer ao user)
+        let clientIdV: string | null = null;
+        if (client_id && typeof client_id === 'string') {
+            const cl = await query<any>(
+                `SELECT id FROM clients WHERE id = $1 AND user_id = $2`,
+                [client_id, userId]
+            );
+            if (!cl.length) return res.status(400).json({ success: false, error: { message: 'Cliente inválido' } });
+            clientIdV = client_id;
+        }
 
         // position = próxima posição na coluna
         const posQ = await query<any>(
@@ -73,9 +126,9 @@ router.post('/', async (req: Request, res: Response) => {
 
         const row = await query<any>(
             `INSERT INTO board_cards
-                (user_id, title, description, status, priority, project, due_date, position, checklist)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-             RETURNING *`,
+                (user_id, title, description, status, priority, project, client_id, due_date, position, checklist)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+             RETURNING id`,
             [
                 userId,
                 String(title).trim().slice(0, 300),
@@ -83,12 +136,21 @@ router.post('/', async (req: Request, res: Response) => {
                 statusV,
                 priorityV,
                 project ? String(project).slice(0, 100) : null,
+                clientIdV,
                 due_date || null,
                 position,
                 JSON.stringify(sanitizeChecklist(checklist)),
             ]
         );
-        res.json({ success: true, data: row[0] });
+
+        // Retorna com dados do cliente já mergeados
+        const full = await query<any>(
+            `SELECT bc.*, cl.name AS client_name, cl.company AS client_company, cl.avatar_color AS client_avatar_color
+             FROM board_cards bc LEFT JOIN clients cl ON bc.client_id = cl.id
+             WHERE bc.id = $1`,
+            [row[0].id]
+        );
+        res.json({ success: true, data: full[0] });
     } catch (err: any) {
         logger.error('board: create falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
@@ -100,7 +162,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
-        const { title, description, status, priority, project, due_date, checklist, position } = req.body;
+        const { title, description, status, priority, project, client_id, due_date, checklist, position } = req.body;
 
         const fields: string[] = [];
         const values: any[] = [];
@@ -120,6 +182,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
             fields.push(`priority = $${i++}`); values.push(priority);
         }
         if (project !== undefined) { fields.push(`project = $${i++}`); values.push(project ? String(project).slice(0, 100) : null); }
+        if (client_id !== undefined) {
+            let clientIdV: string | null = null;
+            if (client_id) {
+                const cl = await query<any>(
+                    `SELECT id FROM clients WHERE id = $1 AND user_id = $2`,
+                    [client_id, userId]
+                );
+                if (!cl.length) return res.status(400).json({ success: false, error: { message: 'Cliente inválido' } });
+                clientIdV = client_id;
+            }
+            fields.push(`client_id = $${i++}`); values.push(clientIdV);
+        }
         if (due_date !== undefined) { fields.push(`due_date = $${i++}`); values.push(due_date || null); }
         if (checklist !== undefined) { fields.push(`checklist = $${i++}::jsonb`); values.push(JSON.stringify(sanitizeChecklist(checklist))); }
         if (position !== undefined) { fields.push(`position = $${i++}`); values.push(Number(position) || 0); }
@@ -131,11 +205,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
         const row = await query<any>(
             `UPDATE board_cards SET ${fields.join(', ')}
              WHERE id = $${i++} AND user_id = $${i++}
-             RETURNING *`,
+             RETURNING id`,
             values
         );
         if (!row.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
-        res.json({ success: true, data: row[0] });
+
+        const full = await query<any>(
+            `SELECT bc.*, cl.name AS client_name, cl.company AS client_company, cl.avatar_color AS client_avatar_color
+             FROM board_cards bc LEFT JOIN clients cl ON bc.client_id = cl.id
+             WHERE bc.id = $1`,
+            [row[0].id]
+        );
+        res.json({ success: true, data: full[0] });
     } catch (err: any) {
         logger.error('board: update falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });

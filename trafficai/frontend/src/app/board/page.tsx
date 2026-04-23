@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import {
     Plus, X, Check, Trash2, Pencil, KanbanSquare, List as ListIcon,
-    Circle, CheckCircle2, CircleDot, Flag, Calendar, Folder,
-    GripVertical,
+    Circle, CheckCircle2, CircleDot, Flag, Calendar, Folder, Building2,
+    GripVertical, Users,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,12 +22,32 @@ interface Card {
     status: Status;
     priority: Priority;
     project: string | null;
+    client_id: string | null;
+    client_name: string | null;
+    client_company: string | null;
+    client_avatar_color: string | null;
     due_date: string | null;
     position: number;
     checklist: ChecklistItem[];
     completed_at: string | null;
     created_at: string;
     updated_at: string;
+}
+
+interface ClientLite {
+    id: string;
+    name: string;
+    company: string | null;
+    avatar_color: string | null;
+}
+
+interface ClientSummary {
+    client_id: string | null;
+    client_name: string | null;
+    client_company: string | null;
+    avatar_color: string | null;
+    total: number | string;
+    open_count: number | string;
 }
 
 const COLUMNS: { status: Status; label: string; color: string }[] = [
@@ -54,13 +74,22 @@ export default function BoardPage() {
     const [view, setView] = useState<'list' | 'kanban'>('kanban');
     const [editing, setEditing] = useState<Card | null>(null);
     const [showCreate, setShowCreate] = useState(false);
-    const [projectFilter, setProjectFilter] = useState<string>('');
+    // 'all' = todos, 'none' = sem cliente (geral), <uuid> = cliente específico
+    const [clientFilter, setClientFilter] = useState<'all' | 'none' | string>('all');
+    const [clients, setClients] = useState<ClientLite[]>([]);
+    const [clientsSummary, setClientsSummary] = useState<ClientSummary[]>([]);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await api.getBoardCards();
+            const [data, summary, cls] = await Promise.all([
+                api.getBoardCards(),
+                api.getBoardClientsSummary().catch(() => []),
+                api.getClientsList().catch(() => []),
+            ]);
             setCards(Array.isArray(data) ? data : []);
+            setClientsSummary(Array.isArray(summary) ? summary : []);
+            setClients(Array.isArray(cls) ? cls : []);
         } catch {
             setCards([]);
         } finally {
@@ -70,11 +99,11 @@ export default function BoardPage() {
 
     useEffect(() => { load(); }, [load]);
 
-    const filtered = projectFilter
-        ? cards.filter(c => (c.project || '').toLowerCase() === projectFilter.toLowerCase())
-        : cards;
-
-    const projects = Array.from(new Set(cards.map(c => c.project).filter(Boolean) as string[])).sort();
+    const filtered = cards.filter(c => {
+        if (clientFilter === 'all') return true;
+        if (clientFilter === 'none') return !c.client_id;
+        return c.client_id === clientFilter;
+    });
 
     // Optimistic update helper
     const patch = (id: string, data: Partial<Card>) => {
@@ -159,9 +188,9 @@ export default function BoardPage() {
                 </div>
             </div>
 
-            {/* View toggle + filter */}
+            {/* View toggle */}
             <div style={{
-                display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap',
+                display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap',
             }}>
                 <div style={{
                     display: 'inline-flex', background: 'var(--bg-secondary)',
@@ -184,24 +213,19 @@ export default function BoardPage() {
                         <ListIcon size={13} /> Lista
                     </button>
                 </div>
-                {projects.length > 0 && (
-                    <select
-                        value={projectFilter}
-                        onChange={e => setProjectFilter(e.target.value)}
-                        style={{
-                            padding: '6px 10px', fontSize: 12,
-                            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                            borderRadius: 6, color: 'var(--text-primary)',
-                        }}
-                    >
-                        <option value="">Todos os projetos</option>
-                        {projects.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                )}
                 <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>
                     {filtered.length} {filtered.length === 1 ? 'card' : 'cards'}
                 </div>
             </div>
+
+            {/* Client chips */}
+            <ClientChipBar
+                value={clientFilter}
+                onChange={setClientFilter}
+                allCount={cards.length}
+                allOpenCount={cards.filter(c => c.status !== 'done').length}
+                summary={clientsSummary}
+            />
 
             {loading ? (
                 <div className="loading-spinner"><div className="spinner" /></div>
@@ -242,6 +266,8 @@ export default function BoardPage() {
             {showCreate && (
                 <CardFormModal
                     mode="create"
+                    clients={clients}
+                    defaultClientId={clientFilter !== 'all' && clientFilter !== 'none' ? clientFilter : null}
                     onClose={() => setShowCreate(false)}
                     onSaved={() => { setShowCreate(false); load(); }}
                 />
@@ -251,6 +277,7 @@ export default function BoardPage() {
                 <CardFormModal
                     mode="edit"
                     card={editing}
+                    clients={clients}
                     onClose={() => setEditing(null)}
                     onSaved={() => { setEditing(null); load(); }}
                     onDelete={async () => {
@@ -414,7 +441,13 @@ function KanbanCard({
                 {card.priority === 'high' && (
                     <Badge icon={<Flag size={10} />} color={PRIORITY_COLOR.high} label="Alta" />
                 )}
-                {card.project && (
+                {card.client_name && (
+                    <ClientBadge
+                        name={card.client_name}
+                        color={card.client_avatar_color || '#6366f1'}
+                    />
+                )}
+                {!card.client_name && card.project && (
                     <Badge icon={<Folder size={10} />} color="var(--text-secondary)" label={card.project} />
                 )}
                 {card.due_date && (
@@ -652,10 +685,12 @@ function ListRow({
 // ─── Card Form Modal ──────────────────────────────────────────────────────────
 
 function CardFormModal({
-    mode, card, onClose, onSaved, onDelete,
+    mode, card, clients, defaultClientId, onClose, onSaved, onDelete,
 }: {
     mode: 'create' | 'edit';
     card?: Card;
+    clients: ClientLite[];
+    defaultClientId?: string | null;
     onClose: () => void;
     onSaved: () => void;
     onDelete?: () => void;
@@ -664,7 +699,7 @@ function CardFormModal({
     const [description, setDescription] = useState(card?.description || '');
     const [status, setStatus] = useState<Status>(card?.status || 'todo');
     const [priority, setPriority] = useState<Priority>(card?.priority || 'normal');
-    const [project, setProject] = useState(card?.project || '');
+    const [clientId, setClientId] = useState<string>(card?.client_id || defaultClientId || '');
     const [dueDate, setDueDate] = useState(card?.due_date ? card.due_date.slice(0, 10) : '');
     const [checklist, setChecklist] = useState<ChecklistItem[]>(card?.checklist || []);
     const [newItem, setNewItem] = useState('');
@@ -680,7 +715,7 @@ function CardFormModal({
                 description: description.trim() || undefined,
                 status,
                 priority,
-                project: project.trim() || null,
+                client_id: clientId || null,
                 due_date: dueDate || null,
                 checklist,
             };
@@ -771,14 +806,19 @@ function CardFormModal({
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-                        <Field label="Projeto / cliente">
-                            <input
-                                type="text"
-                                value={project}
-                                onChange={e => setProject(e.target.value)}
-                                placeholder="Ex: TrafficAI, Duana"
+                        <Field label="Cliente">
+                            <select
+                                value={clientId}
+                                onChange={e => setClientId(e.target.value)}
                                 style={inputStyle}
-                            />
+                            >
+                                <option value="">— Sem cliente (geral) —</option>
+                                {clients.map(c => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.name}{c.company ? ` · ${c.company}` : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </Field>
                         <Field label="Prazo">
                             <input
@@ -908,6 +948,138 @@ function Badge({ icon, color, label }: { icon: React.ReactNode; color: string; l
         }}>
             {icon}
             {label}
+        </div>
+    );
+}
+
+function ClientAvatar({ name, color, size = 18 }: { name: string; color: string; size?: number }) {
+    const initials = (name || '?')
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(p => p[0])
+        .join('')
+        .toUpperCase();
+    return (
+        <div style={{
+            width: size, height: size, borderRadius: size / 2,
+            background: color, color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: Math.floor(size * 0.48), fontWeight: 700,
+            flexShrink: 0,
+        }}>
+            {initials}
+        </div>
+    );
+}
+
+function ClientBadge({ name, color }: { name: string; color: string }) {
+    return (
+        <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 10.5, color: 'var(--text-secondary)',
+            background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+            padding: '1px 7px 1px 3px', borderRadius: 10, fontWeight: 500,
+            whiteSpace: 'nowrap', maxWidth: 140,
+        }}>
+            <ClientAvatar name={name} color={color} size={13} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+        </div>
+    );
+}
+
+function ClientChipBar({
+    value, onChange, allCount, allOpenCount, summary,
+}: {
+    value: 'all' | 'none' | string;
+    onChange: (v: 'all' | 'none' | string) => void;
+    allCount: number;
+    allOpenCount: number;
+    summary: ClientSummary[];
+}) {
+    const withClient = summary.filter(s => s.client_id);
+    const noneSummary = summary.find(s => !s.client_id);
+
+    function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '5px 10px', fontSize: 12, fontWeight: 500,
+                    background: active ? 'var(--accent-blue)' : 'var(--bg-secondary)',
+                    color: active ? '#fff' : 'var(--text-secondary)',
+                    border: `1px solid ${active ? 'var(--accent-blue)' : 'var(--border)'}`,
+                    borderRadius: 20,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'background 0.12s, border 0.12s',
+                }}
+            >
+                {children}
+            </button>
+        );
+    }
+
+    function CountBadge({ value, active }: { value: number; active: boolean }) {
+        if (!value) return null;
+        return (
+            <span style={{
+                fontSize: 10, fontWeight: 600,
+                padding: '0 5px', borderRadius: 8,
+                background: active ? 'rgba(255,255,255,0.22)' : 'var(--bg-tertiary)',
+                color: active ? '#fff' : 'var(--text-muted)',
+                minWidth: 16, textAlign: 'center',
+            }}>
+                {value}
+            </span>
+        );
+    }
+
+    return (
+        <div style={{
+            display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center',
+        }}>
+            <Chip active={value === 'all'} onClick={() => onChange('all')}>
+                <Users size={12} />
+                Todos
+                <CountBadge value={allOpenCount} active={value === 'all'} />
+            </Chip>
+
+            <Chip active={value === 'none'} onClick={() => onChange('none')}>
+                <Building2 size={12} />
+                Geral
+                <CountBadge
+                    value={noneSummary ? Number(noneSummary.open_count) : 0}
+                    active={value === 'none'}
+                />
+            </Chip>
+
+            {withClient.length > 0 && (
+                <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />
+            )}
+
+            {withClient.map(s => (
+                <Chip
+                    key={s.client_id}
+                    active={value === s.client_id}
+                    onClick={() => onChange(s.client_id!)}
+                >
+                    <ClientAvatar
+                        name={s.client_name || '?'}
+                        color={s.avatar_color || '#6366f1'}
+                        size={14}
+                    />
+                    <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {s.client_name}
+                    </span>
+                    <CountBadge
+                        value={Number(s.open_count)}
+                        active={value === s.client_id}
+                    />
+                </Chip>
+            ))}
         </div>
     );
 }

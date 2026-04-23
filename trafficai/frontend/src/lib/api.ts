@@ -235,18 +235,27 @@ class ApiClient {
     }
 
     // Board (gerenciador de demandas)
-    async getBoardCards() {
-        return this.request<any[]>('GET', '/board');
+    async getBoardCards(clientId?: string | 'none') {
+        const qs = clientId ? `?client_id=${encodeURIComponent(clientId)}` : '';
+        return this.request<any[]>('GET', `/board${qs}`);
+    }
+    async getBoardClientsSummary() {
+        return this.request<any[]>('GET', '/board/clients-summary');
+    }
+    async getClientsList() {
+        return this.request<any[]>('GET', '/clients');
     }
     async createBoardCard(data: {
         title: string; description?: string; status?: string; priority?: string;
-        project?: string | null; due_date?: string | null; checklist?: any[];
+        project?: string | null; client_id?: string | null;
+        due_date?: string | null; checklist?: any[];
     }) {
         return this.request<any>('POST', '/board', data);
     }
     async updateBoardCard(id: string, data: Partial<{
         title: string; description: string; status: string; priority: string;
-        project: string | null; due_date: string | null; checklist: any[]; position: number;
+        project: string | null; client_id: string | null;
+        due_date: string | null; checklist: any[]; position: number;
     }>) {
         return this.request<any>('PATCH', `/board/${id}`, data);
     }
