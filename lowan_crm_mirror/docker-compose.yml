@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wablast_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: whatsapp_blast
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: wablast_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  api:
+    build:
+      context: /root/whatsapp-blast
+      dockerfile: Dockerfile
+    container_name: wablast_api
+    env_file: /root/whatsapp-blast/.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    volumes:
+      - /root/wablast-uploads:/app/uploads
+
+  worker:
+    build:
+      context: /root/whatsapp-blast
+      dockerfile: Dockerfile.worker
+    container_name: wablast_worker
+    env_file: /root/whatsapp-blast/.env
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: /root/whatsapp-blast-frontend
+      dockerfile: Dockerfile
+    container_name: wablast_frontend
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  unofficial:
+    build:
+      context: /root/unofficial
+      dockerfile: Dockerfile
+    container_name: wablast_unofficial
+    env_file: /root/unofficial/.env
+    ports:
+      - "127.0.0.1:3002:3002"
+    volumes:
+      - unofficial_sessions:/data/sessions
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  unofficial_sessions:

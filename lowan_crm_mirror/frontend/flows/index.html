@@ -1,0 +1,2514 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxos — CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f8fafc;--surface:#ffffff;--surface2:#f1f5f9;--surface3:#e2e8f0;
+  --border:#e2e8f0;--border2:#cbd5e1;
+  --text:#0f172a;--text-2:#64748b;--text-3:#94a3b8;
+  --accent:#4f46e5;--accent-h:#4338ca;
+  --blue:#3b82f6;--blue-h:#2563eb;
+  --amber:#d97706;--amber-h:#b45309;
+  --violet:#8b5cf6;--violet-h:#7c3aed;
+  --orange:#ea580c;--orange-h:#c2410c;
+  --red:#dc2626;
+  --radius:8px;--radius-lg:12px;
+  --shadow:0 4px 12px rgba(15,23,42,0.08);
+}
+body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden}
+button{font-family:inherit;cursor:pointer;border:none;outline:none}
+input,textarea,select{font-family:inherit;outline:none}
+a{color:inherit;text-decoration:none}
+
+/* ─── Layout ─────────────────────────────────────────────── */
+#app{display:flex;flex-direction:column;height:100vh}
+
+/* ─── List View ──────────────────────────────────────────── */
+#list-view{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.list-header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;background:var(--surface)}
+.list-header-left{display:flex;align-items:center;gap:14px}
+.back-link{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2);padding:6px 10px;border-radius:6px;transition:.15s}
+.back-link:hover{background:var(--surface3);color:var(--text)}
+.list-header h1{font-size:18px;font-weight:600;color:var(--text)}
+.list-header p{font-size:12px;color:var(--text-2);margin-top:2px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:var(--radius);font-size:13px;font-weight:500;transition:.15s;cursor:pointer}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:var(--accent-h)}
+.btn-ghost{background:transparent;color:var(--text-2);border:1px solid var(--border)}.btn-ghost:hover{background:var(--surface3);color:var(--text)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-danger{background:transparent;color:var(--red);border:1px solid var(--red)}.btn-danger:hover{background:rgba(218,54,51,.1)}
+
+.list-body{flex:1;overflow-y:auto;padding:28px}
+.flows-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.flow-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;transition:.15s;cursor:default}
+.flow-card:hover{border-color:var(--border2);background:var(--surface2)}
+.flow-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.flow-card-title{font-size:14px;font-weight:600;color:var(--text);line-height:1.3}
+.flow-card-desc{font-size:12px;color:var(--text-2);margin-top:3px;line-height:1.5}
+.flow-card-meta{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border2)}
+.flow-card-trigger{font-size:11px;color:var(--text-2);display:flex;align-items:center;gap:5px}
+.flow-card-actions{display:flex;align-items:center;gap:6px}
+.icon-btn{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:transparent;color:var(--text-2);border:1px solid var(--border);transition:.15s}
+.icon-btn:hover{background:var(--surface3);color:var(--text)}
+.icon-btn.danger:hover{background:rgba(218,54,51,.12);color:var(--red);border-color:var(--red)}
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:500}
+.status-ACTIVE{background:rgba(46,160,67,.15);color:#3fb950}
+.status-PAUSED{background:rgba(210,153,34,.12);color:#e3b341}
+.status-DRAFT{background:rgba(139,148,158,.12);color:#8b949e}
+.status-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
+.empty-state{text-align:center;padding:80px 20px;color:var(--text-2)}
+.empty-state svg{margin:0 auto 16px;opacity:.4}
+.empty-state h3{font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px}
+.empty-state p{font-size:13px;margin-bottom:24px}
+
+/* ─── Toggle ──────────────────────────────────────────────── */
+.toggle{position:relative;width:36px;height:20px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0;position:absolute}
+.toggle-track{position:absolute;inset:0;background:var(--surface3);border-radius:20px;border:1px solid var(--border);transition:.2s;cursor:pointer}
+.toggle input:checked+.toggle-track{background:var(--accent);border-color:var(--accent)}
+.toggle-thumb{position:absolute;top:3px;left:3px;width:12px;height:12px;background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked~.toggle-thumb{left:19px}
+
+/* ─── Editor View ────────────────────────────────────────── */
+#editor-view{display:none;flex-direction:column;height:100vh}
+.editor-bar{height:52px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 16px;flex-shrink:0}
+.editor-bar-left{display:flex;align-items:center;gap:10px;min-width:0;flex:1}
+.editor-bar-center{display:flex;align-items:center;gap:8px}
+.editor-bar-right{display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end}
+.editor-name{font-size:14px;font-weight:600;border:none;background:transparent;color:var(--text);min-width:80px;max-width:280px;padding:4px 8px;border-radius:6px;border:1px solid transparent;transition:.15s}
+.editor-name:hover,.editor-name:focus{border-color:var(--border);background:var(--surface3)}
+
+.editor-main{display:flex;flex:1;overflow:hidden}
+
+/* ─── Block Palette ──────────────────────────────────────── */
+.palette{width:200px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+.palette-section{padding:12px 10px 6px;font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em}
+.palette-item{display:flex;align-items:center;gap:8px;padding:8px 10px;margin:2px 6px;border-radius:6px;font-size:12px;font-weight:500;color:var(--text-2);cursor:grab;transition:.15s;user-select:none;border:1px solid transparent}
+.palette-item:hover{background:var(--surface3);color:var(--text);border-color:var(--border)}
+.palette-item:active{cursor:grabbing}
+.pal-icon{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}
+.pal-trigger{background:rgba(46,160,67,.15);color:#3fb950}
+.pal-message{background:rgba(56,139,253,.15);color:#58a6ff}
+.pal-wait{background:rgba(210,153,34,.12);color:#e3b341}
+.pal-condition{background:rgba(137,87,229,.15);color:#a371f7}
+.pal-action{background:rgba(225,98,50,.15);color:#f0883e}
+.pal-end{background:rgba(139,148,158,.12);color:#8b949e}
+
+/* ─── Canvas ──────────────────────────────────────────────── */
+.canvas-wrap{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+.canvas-wrap::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,var(--border) 1px,transparent 1px);background-size:24px 24px;opacity:.35;pointer-events:none}
+#canvas{position:absolute;inset:0;transform-origin:0 0}
+#svg-layer{position:absolute;inset:0;pointer-events:none;overflow:visible}
+#svg-layer path{pointer-events:all;cursor:pointer}
+.canvas-controls{position:absolute;bottom:16px;right:16px;display:flex;flex-direction:column;gap:6px}
+.canvas-ctrl-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text-2);display:flex;align-items:center;justify-content:center;transition:.15s}
+.canvas-ctrl-btn:hover{background:var(--surface3);color:var(--text)}
+
+/* ─── Nodes ───────────────────────────────────────────────── */
+.flow-node{position:absolute;min-width:220px;max-width:260px;background:var(--surface);border:2px solid var(--border);border-radius:var(--radius-lg);cursor:move;user-select:none;transition:border-color .15s,box-shadow .15s}
+.flow-node:hover{border-color:var(--border2)}
+.flow-node.selected{border-color:var(--blue);box-shadow:0 0 0 3px rgba(56,139,253,.15)}
+.flow-node.type-trigger{border-left:3px solid #3fb950}
+.flow-node.type-message{border-left:3px solid #58a6ff}
+.flow-node.type-wait{border-left:3px solid #e3b341}
+.flow-node.type-condition{border-left:3px solid #a371f7}
+.flow-node.type-action{border-left:3px solid #f0883e}
+.flow-node.type-end{border-left:3px solid #484f58}
+.flow-node.type-interactive_message{border-left:3px solid #f0883e;min-width:240px}
+
+/* ─── Interactive Message Node ────────────────────────────── */
+.inode-msg{padding:8px 12px;font-size:11px;color:var(--text-2);border-bottom:1px solid var(--border2);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.inode-btn-list{display:flex;flex-direction:column;padding:6px 10px 8px}
+.inode-btn-row{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:default}
+.inode-btn-row:hover .inode-btn-chip{background:rgba(56,139,253,.25)}
+.inode-btn-chip{flex:1;font-size:10px;font-weight:500;background:rgba(56,139,253,.15);color:#58a6ff;padding:4px 8px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.inode-other-label,.inode-noreply-label{flex:1;font-size:10px;color:var(--text-3)}
+.inode-other-label{color:var(--amber-h)}
+.inode-sep{height:1px;background:var(--border2);margin:4px 0}
+.port-dot.port-btn{border-color:#388bfd;background:rgba(56,139,253,.15)}
+.port-dot.port-other{border-color:var(--amber);background:rgba(210,153,34,.15)}
+.port-dot.port-noreply{border-color:var(--text-3);background:var(--bg)}
+.edge-path.edge-btn{stroke:#388bfd}
+.edge-path.edge-other{stroke:var(--amber)}
+.edge-path.edge-noreply{stroke:var(--text-3)}
+/* Panel interactive buttons */
+.im-btn-item{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;background:var(--surface3);border:1px solid var(--border);border-radius:6px;padding:8px}
+.im-btn-row1{display:flex;align-items:center;gap:6px}
+.im-btn-text{flex:1;background:transparent;border:none;color:var(--text);padding:2px 0;font-size:12px;font-weight:500}
+.im-btn-text:focus{outline:1px solid var(--blue);border-radius:3px;outline-offset:2px}
+.im-btn-del{background:transparent;border:none;color:var(--text-3);cursor:pointer;padding:2px 4px;border-radius:3px;font-size:13px}
+.im-btn-del:hover{color:var(--red);background:rgba(218,54,51,.1)}
+.im-syn-input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text-2);padding:3px 7px;font-size:10px}
+.im-syn-input::placeholder{color:var(--text-3)}
+.im-add-btn{width:100%;padding:6px;font-size:11px;color:var(--text-2);background:transparent;border:1px dashed var(--border);border-radius:6px;cursor:pointer;margin-top:2px}
+.im-add-btn:hover{background:var(--surface3);color:var(--text);border-color:var(--text-3)}
+
+/* ─── Add-next buttons ────────────────────────────────────── */
+.add-next-wrap{display:flex;flex-direction:column;align-items:center;gap:0;padding:0 12px 8px}
+.add-next-line{width:1px;height:10px;background:var(--border);margin:0 auto}
+.add-next-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;background:transparent;border:1.5px dashed var(--border);color:var(--text-3);font-size:10px;font-weight:500;cursor:pointer;transition:.15s;white-space:nowrap;font-family:inherit}
+.add-next-btn:hover{background:var(--surface3);color:var(--text);border-color:var(--blue);border-style:solid}
+.add-branch-btn{width:18px;height:18px;border-radius:50%;background:var(--surface3);border:1.5px solid var(--border);color:var(--text-3);font-size:12px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:.15s;flex-shrink:0;font-family:inherit;padding:0}
+.add-branch-btn:hover{background:var(--blue);border-color:var(--blue);color:#fff}
+/* Node picker popup */
+#add-node-picker{position:fixed;z-index:9999;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:6px;box-shadow:0 12px 40px rgba(1,4,9,.6);display:none;min-width:210px}
+.picker-title{font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;padding:4px 8px 6px;font-weight:600}
+.picker-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer;transition:.1s;font-size:12px;color:var(--text)}
+.picker-item:hover{background:var(--surface3)}
+.pi-icon{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.picker-sep{height:1px;background:var(--border);margin:4px 0}
+
+.node-header{display:flex;align-items:center;gap:8px;padding:10px 12px 8px;border-bottom:1px solid var(--border2)}
+.node-icon{width:22px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.node-type-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2)}
+.node-delete{margin-left:auto;width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text-3);transition:.15s;background:transparent;border:none;cursor:pointer}
+.node-delete:hover{background:rgba(218,54,51,.12);color:var(--red)}
+.node-body{padding:10px 12px}
+.node-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
+.node-preview{font-size:11px;color:var(--text-2);line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.node-footer{padding:6px 12px 10px;display:flex;align-items:center;gap:6px}
+.node-port{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-3)}
+.port-dot{width:10px;height:10px;border-radius:50%;border:2px solid;cursor:crosshair;transition:.15s;flex-shrink:0}
+.port-dot:hover{transform:scale(1.3)}
+.port-out{border-color:var(--text-3);background:var(--bg)}
+.port-yes{border-color:#3fb950;background:rgba(46,160,67,.15)}
+.port-no{border-color:var(--red);background:rgba(218,54,51,.15)}
+.port-in{border-color:var(--text-3);background:var(--bg);position:absolute;top:50%;left:-6px;transform:translateY(-50%)}
+
+/* ─── Edges ───────────────────────────────────────────────── */
+.edge-path{fill:none;stroke:var(--border2);stroke-width:2;transition:.15s}
+.edge-path:hover{stroke:var(--blue)}
+.edge-path.edge-yes{stroke:#3fb950}
+.edge-path.edge-no{stroke:var(--red)}
+.edge-selected{stroke:var(--blue)!important}
+.edge-delete-btn{display:none;cursor:pointer}
+
+/* ─── Right Panel ─────────────────────────────────────────── */
+.right-panel{width:0;background:var(--surface);border-left:1px solid var(--border);overflow:hidden;transition:width .2s;flex-shrink:0}
+.right-panel.open{width:300px}
+.panel-inner{width:300px;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.panel-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.panel-header h3{font-size:13px;font-weight:600}
+.panel-close{width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:4px;color:var(--text-2);background:transparent;border:none;cursor:pointer;transition:.15s}
+.panel-close:hover{background:var(--surface3);color:var(--text)}
+.panel-body{flex:1;overflow-y:auto;padding:16px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--text-2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em}
+.field input,.field textarea,.field select{width:100%;background:var(--surface3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:12px;transition:.15s}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--blue);background:var(--surface2)}
+.field textarea{resize:vertical;min-height:70px}
+.field select option{background:var(--surface2)}
+.field-hint{font-size:11px;color:var(--text-2);margin-top:4px;line-height:1.4}
+.panel-footer{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px}
+.panel-footer .btn{flex:1;justify-content:center}
+
+/* ─── Modal ───────────────────────────────────────────────── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);min-width:400px;max-width:500px;width:100%;box-shadow:var(--shadow)}
+.modal-header{padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.modal-header h2{font-size:15px;font-weight:600}
+.modal-body{padding:20px}
+.modal-footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px}
+
+/* ─── Toast ───────────────────────────────────────────────── */
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-size:13px;color:var(--text);display:none;z-index:200;box-shadow:var(--shadow)}
+#toast.error{border-color:var(--red);color:#f47067}
+#toast.success{border-color:var(--accent);color:#3fb950}
+
+/* ─── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* ─── Loader ──────────────────────────────────────────────── */
+.spin{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* v2 — tag multiselect / condition / trigger config */
+.tag-multiselect{display:flex;flex-wrap:wrap;gap:4px;min-height:26px;padding:4px;border:1px solid var(--border);border-radius:6px;background:var(--surface)}
+.tag-chip{display:inline-flex;align-items:center;gap:4px;padding:2px 6px 2px 8px;background:var(--accent);color:#fff;border-radius:10px;font-size:11px;font-weight:500}
+.tag-chip button{background:transparent;border:none;color:#fff;opacity:.8;cursor:pointer;font-size:11px;padding:0 2px}
+.tag-chip button:hover{opacity:1}
+.tag-suggest{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;min-height:0}
+.tag-suggest-item{padding:3px 8px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);border-radius:10px;font-size:11px;cursor:pointer}
+.tag-suggest-item:hover{background:var(--surface3);color:var(--text);border-color:var(--accent)}
+.tag-suggest-item.tag-create{background:var(--accent);color:#fff;border-color:var(--accent)}
+.tag-suggest-item.tag-create:hover{background:var(--accent-h)}
+optgroup{font-weight:600;color:var(--text-3)}
+
+
+/* v3 UX */
+.node-header .node-label-edit{margin-left:auto;margin-right:4px;font-size:11px;color:var(--text-2);background:transparent;border:1px solid transparent;border-radius:4px;padding:1px 4px;outline:none;max-width:110px;min-width:0;text-align:right}
+.node-header .node-label-edit:hover, .node-header .node-label-edit:focus{border-color:var(--border);background:var(--surface)}
+.node-custom-label{font-size:11.5px;color:var(--accent);font-weight:600;padding:2px 8px;border-bottom:1px solid var(--border);background:var(--surface2)}
+.toolbar-divider{width:1px;height:20px;background:var(--border);margin:0 4px}
+
+/* v4: Note + Resize + Snap */
+.flow-node.type-note{background:#fef9c3;border:1px solid #fde047;box-shadow:0 2px 6px rgba(202,138,4,0.15);padding:0;overflow:hidden;min-width:180px;min-height:100px}
+.flow-node.type-note .note-header{background:#fef08a;padding:4px 8px;font-size:10px;font-weight:600;color:#854d0e;display:flex;align-items:center;justify-content:space-between;cursor:move}
+.flow-node.type-note .note-body{padding:8px 10px;height:calc(100% - 22px)}
+.flow-node.type-note textarea.note-textarea{width:100%;height:100%;background:transparent;border:none;outline:none;resize:none;font-size:12.5px;color:#713f12;font-family:inherit;line-height:1.45}
+.flow-node.type-note textarea.note-textarea::placeholder{color:#ca8a04;opacity:0.5}
+.node-resize-handle{position:absolute;right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;background:transparent;z-index:3}
+.node-resize-handle::after{content:'';position:absolute;right:2px;bottom:2px;width:10px;height:10px;border-right:2px solid var(--text-3);border-bottom:2px solid var(--text-3);opacity:.5}
+.node-resize-handle:hover::after{opacity:1;border-color:var(--accent)}
+.pal-note{background:rgba(234,179,8,0.15);color:#ca8a04}
+
+/* Note colors */
+.flow-node.type-note.note-color-yellow{background:#fef9c3;border-color:#fde047}
+.flow-node.type-note.note-color-yellow .note-header{background:#fef08a;color:#854d0e}
+.flow-node.type-note.note-color-yellow textarea{color:#713f12}
+.flow-node.type-note.note-color-yellow textarea::placeholder{color:#ca8a04;opacity:.5}
+
+.flow-node.type-note.note-color-pink{background:#fce7f3;border-color:#f9a8d4}
+.flow-node.type-note.note-color-pink .note-header{background:#fbcfe8;color:#9d174d}
+.flow-node.type-note.note-color-pink textarea{color:#831843}
+.flow-node.type-note.note-color-pink textarea::placeholder{color:#db2777;opacity:.5}
+
+.flow-node.type-note.note-color-blue{background:#dbeafe;border-color:#93c5fd}
+.flow-node.type-note.note-color-blue .note-header{background:#bfdbfe;color:#1e40af}
+.flow-node.type-note.note-color-blue textarea{color:#1e3a8a}
+.flow-node.type-note.note-color-blue textarea::placeholder{color:#2563eb;opacity:.5}
+
+.flow-node.type-note.note-color-green{background:#dcfce7;border-color:#86efac}
+.flow-node.type-note.note-color-green .note-header{background:#bbf7d0;color:#166534}
+.flow-node.type-note.note-color-green textarea{color:#14532d}
+.flow-node.type-note.note-color-green textarea::placeholder{color:#16a34a;opacity:.5}
+
+.flow-node.type-note.note-color-purple{background:#f3e8ff;border-color:#d8b4fe}
+.flow-node.type-note.note-color-purple .note-header{background:#e9d5ff;color:#6b21a8}
+.flow-node.type-note.note-color-purple textarea{color:#581c87}
+.flow-node.type-note.note-color-purple textarea::placeholder{color:#9333ea;opacity:.5}
+
+.flow-node.type-note.note-color-gray{background:#f1f5f9;border-color:#cbd5e1}
+.flow-node.type-note.note-color-gray .note-header{background:#e2e8f0;color:#334155}
+.flow-node.type-note.note-color-gray textarea{color:#0f172a}
+.flow-node.type-note.note-color-gray textarea::placeholder{color:#64748b;opacity:.5}
+
+.note-color-picker{position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px;display:flex;gap:4px;box-shadow:var(--shadow);z-index:100}
+.note-color-swatch{width:20px;height:20px;border-radius:6px;border:2px solid transparent;cursor:pointer;transition:.15s}
+.note-color-swatch:hover{transform:scale(1.15)}
+.note-color-swatch.active{border-color:var(--text)}
+
+/* v4.1: nota atrás + resize livre */
+.flow-node.type-note{z-index:1;max-width:none!important;min-width:160px;min-height:80px}
+.flow-node:not(.type-note){z-index:10}
+.flow-node.type-note.selected{z-index:2}
+#svg-layer{z-index:5}
+.flow-node[data-resized="1"]{max-width:none!important}
+
+/* Node metric badges */
+.node-metrics-bar {
+  display:flex;gap:6px;padding:4px 10px 6px;border-top:1px solid var(--border);
+  flex-wrap:wrap;align-items:center;font-size:10px;font-family:system-ui;
+}
+.node-metric {
+  display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:8px;
+  font-weight:600;white-space:nowrap;
+}
+.node-metric.sent { background:#dbeafe;color:#1e40af }
+.node-metric.ok { background:#dcfce7;color:#166534 }
+.node-metric.fail { background:#fee2e2;color:#991b1b }
+.node-metric.wait { background:#fef3c7;color:#92400e }
+.node-metric.pct { background:#f3e8ff;color:#6b21a8 }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- List View -->
+  <div id="list-view">
+    <div class="list-header">
+      <div class="list-header-left">
+        <a href="/leads/" class="back-link" target="_top">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          CRM
+        </a>
+        <div>
+          <h1>Fluxos</h1>
+          <p>Automação de conversas e ações</p>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="openCreateModal()">
+        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+        Novo fluxo
+      </button>
+    </div>
+    <div class="list-body">
+      <div id="flows-container"></div>
+    </div>
+  </div>
+
+  <!-- Editor View -->
+  <div id="editor-view">
+    <div class="editor-bar">
+      <div class="editor-bar-left">
+        <button class="btn btn-ghost btn-sm" onclick="exitEditor()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+          Fluxos
+        </button>
+        <input type="text" id="flow-name-input" class="editor-name" placeholder="Nome do fluxo" oninput="E.dirty=true">
+      </div>
+      <div class="editor-bar-center">
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('trigger')">⚡ Gatilho</button>
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('message')">💬 Msg</button>
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('interactive_message')">🗂 Interativa</button>
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('wait')">⏱ Espera</button>
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('condition')">🔀 Cond.</button>
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('action')">▶ Ação</button>
+        <button class="btn btn-ghost btn-sm" onclick="addNodeFromToolbar('end')">⬛ Fim</button>
+      </div>
+      <div class="editor-bar-right">
+        <span id="status-badge-bar" class="status-badge status-DRAFT">
+          <span class="status-dot"></span> Rascunho
+        </span>
+        <button class="btn btn-ghost btn-sm" onclick="openFlowAnalytics()" title="Ver métricas do fluxo" style="margin-right:4px">📈 Analytics</button>
+        <button class="btn btn-ghost btn-sm" onclick="openExecutionsModal()" title="Ver execuções recentes" style="margin-right:4px">📊 Execuções</button>
+        <button id="toggle-status-btn" class="btn btn-ghost btn-sm" onclick="toggleFlowStatus()">Ativar</button>
+        <button class="btn btn-ghost btn-sm" onclick="autoLayoutFlow()" title="Organizar automaticamente">🗺 Organizar</button>
+        <button class="btn btn-ghost btn-sm" onclick="fitToView()" title="Ajustar zoom à tela">🔍 Ajustar</button>
+        <div class="toolbar-divider"></div>
+        <button id="save-btn" class="btn btn-primary btn-sm" onclick="saveFlow()">
+          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+          Salvar
+        </button>
+      </div>
+    </div>
+    <div class="editor-main">
+      <!-- Palette -->
+      <div class="palette">
+        <div class="palette-section">Blocos</div>
+        <div class="palette-item" draggable="true" data-type="trigger"   ondragstart="onPaletteDragStart(event,'trigger')">  <div class="pal-icon pal-trigger">⚡</div>  Gatilho</div>
+        <div class="palette-item" draggable="true" data-type="message"   ondragstart="onPaletteDragStart(event,'message')">  <div class="pal-icon pal-message">💬</div>  Mensagem</div>
+        <div class="palette-item" draggable="true" data-type="interactive_message" ondragstart="onPaletteDragStart(event,'interactive_message')"><div class="pal-icon pal-action">🗂</div> Msg. Interativa</div>
+        <div class="palette-item" draggable="true" data-type="wait"      ondragstart="onPaletteDragStart(event,'wait')">     <div class="pal-icon pal-wait">⏱</div>     Espera</div>
+        <div class="palette-item" draggable="true" data-type="condition" ondragstart="onPaletteDragStart(event,'condition')"><div class="pal-icon pal-condition">🔀</div> Condição</div>
+        <div class="palette-item" draggable="true" data-type="action"    ondragstart="onPaletteDragStart(event,'action')">   <div class="pal-icon pal-action">▶</div>   Ação</div>
+        <div class="palette-item" draggable="true" data-type="end"       ondragstart="onPaletteDragStart(event,'end')">      <div class="pal-icon pal-end">⬛</div>      Fim</div>
+        <div class="palette-section" style="margin-top:8px">Documentação</div>
+        <div class="palette-item" draggable="true" data-type="note"      ondragstart="onPaletteDragStart(event,'note')">     <div class="pal-icon pal-note">📝</div>     Nota</div>
+        <div class="palette-section" style="margin-top:8px">Dica</div>
+        <div style="padding:8px 10px;font-size:11px;color:var(--text-3);line-height:1.5">Clique em <b style="color:var(--text-2)">+ Próximo passo</b> nos blocos, ou arraste da bolinha da porta para conectar manualmente.</div>
+      </div>
+
+      <!-- Canvas -->
+      <div class="canvas-wrap" id="canvas-wrap"
+        ondragover="onCanvasDragOver(event)"
+        ondrop="onCanvasDrop(event)">
+        <div id="canvas">
+          <svg id="svg-layer" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="canvas-controls">
+          <button class="canvas-ctrl-btn" onclick="zoomIn()" title="Zoom in">+</button>
+          <button class="canvas-ctrl-btn" onclick="zoomOut()" title="Zoom out">−</button>
+          <button class="canvas-ctrl-btn" onclick="resetZoom()" title="Centralizar" style="font-size:10px">⊡</button>
+        </div>
+      </div>
+
+      <!-- Right Panel -->
+      <div class="right-panel" id="right-panel">
+        <div class="panel-inner">
+          <div class="panel-header">
+            <h3 id="panel-title">Configurar bloco</h3>
+            <button class="panel-close" onclick="closePanel()">✕</button>
+          </div>
+          <div class="panel-body" id="panel-body"></div>
+          <div class="panel-footer">
+            <button class="btn btn-ghost btn-sm" onclick="closePanel()">Cancelar</button>
+            <button class="btn btn-primary btn-sm" onclick="applyPanel()">Aplicar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Flow Modal -->
+<div id="create-modal" class="modal-bg" style="display:none" onclick="if(event.target===this)closeCreateModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Novo fluxo</h2>
+      <button class="panel-close" onclick="closeCreateModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Nome *</label>
+        <input type="text" id="new-flow-name" placeholder="Ex: Boas-vindas">
+      </div>
+      <div class="field">
+        <label>Descrição</label>
+        <input type="text" id="new-flow-desc" placeholder="Opcional">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" onclick="closeCreateModal()">Cancelar</button>
+      <button class="btn btn-primary btn-sm" onclick="createFlow()">Criar e editar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+const API = '/api/v1/flows'
+const TOKEN_KEY = 'leads_jwt'
+const getToken = () => localStorage.getItem(TOKEN_KEY)
+
+const S = {
+  flows: [],
+  loading: false,
+}
+
+// Editor state
+const E = {
+  flowId: null,
+  flowName: '',
+  flowStatus: 'DRAFT',
+  nodes: [],         // { id, type, position:{x,y}, data:{} }
+  edges: [],         // { id, source, sourceHandle, target }
+  selectedNodeId: null,
+  selectedEdgeId: null,
+  dirty: false,
+  scale: 1,
+  panX: 0,
+  panY: 0,
+  meta: { stages: [], users: [], tags: [], templates: [] },
+}
+
+// Canvas interaction
+let _dragNode = null, _dragOffX = 0, _dragOffY = 0
+let _connecting = null  // { nodeId, handle, startX, startY }
+let _panning = false, _panStartX = 0, _panStartY = 0, _panStartPanX = 0, _panStartPanY = 0
+let _paletteDragType = null
+
+// ═══════════════════════════════════════════════════════════════
+// API HELPERS
+// ═══════════════════════════════════════════════════════════════
+async function api(path, opts = {}) {
+  const r = await fetch(API + path, {
+    ...opts,
+    headers: { ...(opts.body ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${getToken()}`, ...(opts.headers || {}) },
+  })
+  if (r.status === 204) return null
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(data.message || 'Erro desconhecido')
+  return data
+}
+
+function showToast(msg, type = 'info') {
+  const el = document.getElementById('toast')
+  el.textContent = msg
+  el.className = type
+  el.style.display = 'block'
+  clearTimeout(el._t)
+  el._t = setTimeout(() => el.style.display = 'none', 3000)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LIST VIEW
+// ═══════════════════════════════════════════════════════════════
+async function loadFlows() {
+  S.loading = true
+  renderList()
+  try {
+    S.flows = await api('/')
+  } catch(e) {
+    if (e.message?.includes('401') || e.message?.includes('Sessão')) {
+      (window.top || window).location.href = '/leads/'
+      return
+    }
+    showToast(e.message, 'error')
+  }
+  S.loading = false
+  renderList()
+}
+
+function renderList() {
+  const c = document.getElementById('flows-container')
+  if (S.loading) {
+    c.innerHTML = `<div style="text-align:center;padding:60px;color:var(--text-2)">
+      <svg class="spin" width="24" height="24" fill="none" viewBox="0 0 24 24" style="margin:0 auto 12px;display:block">
+        <circle style="opacity:.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path style="opacity:.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+      </svg>Carregando…</div>`
+    return
+  }
+  if (!S.flows.length) {
+    c.innerHTML = `<div class="empty-state">
+      <svg width="48" height="48" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      <h3>Nenhum fluxo criado</h3>
+      <p>Crie seu primeiro fluxo de automação</p>
+      <button class="btn btn-primary" onclick="openCreateModal()">Criar primeiro fluxo</button>
+    </div>`
+    return
+  }
+  const TRIGGER_LABELS = {
+    new_conversation:  '⚡ Nova conversa',
+    lead_created:      '👤 Lead criado',
+    message_any:       '💬 Qualquer mensagem',
+    message_exact:     '💬 Mensagem exata',
+    message_contains:  '💬 Mensagem contém',
+    message_regex:     '💬 Mensagem regex',
+    first_message:     '💬 Primeira mensagem',
+    message_received:  '💬 Mensagem recebida',
+    no_reply:          '🔕 Sem resposta',
+    stage_changed:     '🏷 Etapa mudada',
+    stage_entered:     '🏷 Entrou na etapa',
+    stage_exited:      '🏷 Saiu da etapa',
+    tag_added:         '🏷 Tag adicionada',
+    tag_removed:       '🏷 Tag removida',
+    button_clicked:    '🔘 Botão clicado',
+    redirect:          '↩ Redirecionado',
+  }
+  c.innerHTML = `<div class="flows-grid">${S.flows.map(f => {
+    const trig = TRIGGER_LABELS[f.trigger?.type] || '–'
+    const date = f.updatedAt ? new Date(f.updatedAt).toLocaleDateString('pt-BR') : ''
+    const isActive = f.status === 'ACTIVE'
+    return `<div class="flow-card">
+      <div class="flow-card-header">
+        <div>
+          <div class="flow-card-title">${esc(f.name)}</div>
+          ${f.description ? `<div class="flow-card-desc">${esc(f.description)}</div>` : ''}
+        </div>
+        <span class="status-badge status-${f.status}"><span class="status-dot"></span>${statusLabel(f.status)}</span>
+      </div>
+      <div class="flow-card-meta">
+        <div class="flow-card-trigger">${trig}</div>
+        <span style="color:var(--text-3);font-size:11px">${date}</span>
+        <div class="flow-card-actions" style="margin-left:auto">
+          <label class="toggle" title="${isActive ? 'Pausar' : 'Ativar'}">
+            <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleStatus('${f.id}',this.checked)">
+            <div class="toggle-track"></div>
+            <div class="toggle-thumb"></div>
+          </label>
+          <button class="icon-btn" title="Editar" onclick="openEditor('${f.id}')">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          </button>
+          <button class="icon-btn" title="Duplicar" onclick="duplicateFlow('${f.id}')">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          </button>
+          <button class="icon-btn danger" title="Excluir" onclick="deleteFlow('${f.id}','${esc(f.name)}')">
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>`
+  }).join('')}</div>`
+}
+
+function statusLabel(s) { return {ACTIVE:'Ativo',PAUSED:'Pausado',DRAFT:'Rascunho'}[s]||s }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+async function toggleStatus(id, active) {
+  try {
+    const status = active ? 'ACTIVE' : 'PAUSED'
+    await api(`/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) })
+    const f = S.flows.find(x => x.id === id)
+    if (f) f.status = status
+    renderList()
+    showToast(active ? 'Fluxo ativado' : 'Fluxo pausado', 'success')
+  } catch(e) { showToast(e.message, 'error'); renderList() }
+}
+
+async function duplicateFlow(id) {
+  try {
+    const f = await api(`/${id}/duplicate`, { method: 'POST' })
+    S.flows.unshift(f)
+    renderList()
+    showToast('Fluxo duplicado', 'success')
+  } catch(e) { showToast(e.message, 'error') }
+}
+
+async function deleteFlow(id, name) {
+  if (!confirm(`Excluir "${name}"?`)) return
+  try {
+    await api(`/${id}`, { method: 'DELETE' })
+    S.flows = S.flows.filter(f => f.id !== id)
+    renderList()
+    showToast('Fluxo excluído')
+  } catch(e) { showToast(e.message, 'error') }
+}
+
+// ─── Create Modal ─────────────────────────────────────────────
+function openCreateModal() { document.getElementById('create-modal').style.display = 'flex'; document.getElementById('new-flow-name').focus() }
+function closeCreateModal() { document.getElementById('create-modal').style.display = 'none' }
+
+async function createFlow() {
+  const name = document.getElementById('new-flow-name').value.trim()
+  const desc = document.getElementById('new-flow-desc').value.trim()
+  if (!name) { showToast('Nome obrigatório', 'error'); return }
+  try {
+    const f = await api('/', { method: 'POST', body: JSON.stringify({ name, description: desc || undefined }) })
+    closeCreateModal()
+    await openEditor(f.id)
+  } catch(e) { showToast(e.message, 'error') }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EDITOR
+// ═══════════════════════════════════════════════════════════════
+function showView(v) {
+  document.getElementById('list-view').style.display = v === 'list' ? 'flex' : 'none'
+  document.getElementById('editor-view').style.display = v === 'editor' ? 'flex' : 'none'
+}
+
+async function openEditor(id) {
+  showView('editor')
+  try {
+    const [flow, meta] = await Promise.all([
+      api(`/${id}`),
+      api('/meta'),
+    ])
+    E.flowId = flow.id
+    E.flowName = flow.name
+    E.flowStatus = flow.status
+    E.nodes = flow.nodes || []
+    E.edges = flow.edges || []
+    E.meta = meta || { stages: [], users: [], tags: [], templates: [] }
+    E.dirty = false
+    document.getElementById('flow-name-input').value = flow.name
+    updateStatusBar()
+    resetZoom()
+    renderEditor()
+    startMetricsRefresh()
+  } catch(e) {
+    showToast(e.message, 'error')
+    exitEditor()
+  }
+}
+
+function exitEditor() {
+  if (E.dirty && !confirm('Sair sem salvar?')) return
+  E.dirty = false
+  showView('list')
+  loadFlows()
+}
+
+function updateStatusBar() {
+  const badge = document.getElementById('status-badge-bar')
+  badge.className = `status-badge status-${E.flowStatus}`
+  badge.innerHTML = `<span class="status-dot"></span> ${statusLabel(E.flowStatus)}`
+  const btn = document.getElementById('toggle-status-btn')
+  btn.textContent = E.flowStatus === 'ACTIVE' ? 'Pausar' : 'Ativar'
+}
+
+async function toggleFlowStatus() {
+  const newStatus = E.flowStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE'
+  try {
+    await api(`/${E.flowId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) })
+    E.flowStatus = newStatus
+    updateStatusBar()
+    showToast(newStatus === 'ACTIVE' ? 'Fluxo ativado' : 'Fluxo pausado', 'success')
+  } catch(e) { showToast(e.message, 'error') }
+}
+
+async function saveFlow() {
+  const name = document.getElementById('flow-name-input').value.trim()
+  if (!name) { showToast('Nome obrigatório', 'error'); return }
+  const btn = document.getElementById('save-btn')
+  btn.disabled = true
+  btn.innerHTML = '<svg class="spin" width="13" height="13" fill="none" viewBox="0 0 24 24"><circle style="opacity:.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg> Salvando…'
+  try {
+    await api(`/${E.flowId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, nodes: E.nodes, edges: E.edges }),
+    })
+    E.flowName = name
+    E.dirty = false
+    showToast('Fluxo salvo', 'success')
+  } catch(e) { showToast(e.message, 'error') }
+  btn.disabled = false
+  btn.innerHTML = '<svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg> Salvar'
+}
+
+// ─── Zoom & Pan ───────────────────────────────────────────────
+function applyTransform() {
+  document.getElementById('canvas').style.transform = `translate(${E.panX}px,${E.panY}px) scale(${E.scale})`
+}
+function zoomIn()  { E.scale = Math.min(2, E.scale + .1); applyTransform() }
+function zoomOut() { E.scale = Math.max(.3, E.scale - .1); applyTransform() }
+function resetZoom() { E.scale = 1; E.panX = 60; E.panY = 60; applyTransform() }
+
+// ─── Canvas Drag (Pan) ────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const wrap = document.getElementById('canvas-wrap')
+  wrap.addEventListener('mousedown', e => {
+    if (e.target !== wrap && e.target.id !== 'canvas' && e.target.id !== 'svg-layer') return
+    _panning = true; _panStartX = e.clientX; _panStartY = e.clientY
+    _panStartPanX = E.panX; _panStartPanY = E.panY
+    wrap.style.cursor = 'grabbing'
+  })
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', onMouseUp)
+
+  wrap.addEventListener('wheel', e => {
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? -.08 : .08
+    E.scale = Math.min(2, Math.max(.3, E.scale + delta))
+    applyTransform()
+  }, { passive: false })
+
+  showView('list')
+  loadFlows()
+})
+
+function onMouseMove(e) {
+  if (_panning) {
+    E.panX = _panStartPanX + e.clientX - _panStartX
+    E.panY = _panStartPanY + e.clientY - _panStartY
+    applyTransform()
+  }
+  if (_dragNode) {
+    const node = E.nodes.find(n => n.id === _dragNode)
+    if (node) {
+      const rawX = (e.clientX - _dragOffX - E.panX) / E.scale
+      const rawY = (e.clientY - _dragOffY - E.panY) / E.scale
+      node.position.x = e.shiftKey ? rawX : snapToGrid(rawX)
+      node.position.y = e.shiftKey ? rawY : snapToGrid(rawY)
+      const el = document.getElementById('node-' + _dragNode)
+      if (el) {
+        el.style.left = node.position.x + 'px'
+        el.style.top  = node.position.y + 'px'
+      }
+      renderEdges()
+    }
+  }
+  if (_connecting) {
+    // Draw temp connection line
+    const svgEl = document.getElementById('connecting-temp')
+    const rect = document.getElementById('canvas-wrap').getBoundingClientRect()
+    const cx = (e.clientX - rect.left - E.panX) / E.scale
+    const cy = (e.clientY - rect.top  - E.panY) / E.scale
+    const d = bezier(_connecting.startX, _connecting.startY, cx, cy)
+    if (svgEl) svgEl.setAttribute('d', d)
+    else {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.id = 'connecting-temp'
+      path.setAttribute('class', 'edge-path')
+      path.setAttribute('stroke-dasharray', '5,4')
+      path.setAttribute('stroke', '#58a6ff')
+      path.setAttribute('d', d)
+      document.getElementById('svg-layer').appendChild(path)
+    }
+  }
+}
+
+function onMouseUp(e) {
+  if (_panning) { _panning = false; document.getElementById('canvas-wrap').style.cursor = '' }
+  if (_dragNode) { _dragNode = null; E.dirty = true; autoSaveFlowDebounced() }
+  if (_connecting) {
+    // Detect if dropped on a node port-in
+    const el = document.elementFromPoint(e.clientX, e.clientY)
+    // 1ª opção: soltou direto no port-in
+    let targetId = null
+    const portIn = el?.closest('[data-port-in]')
+    if (portIn) targetId = portIn.dataset.portIn
+    // 2ª opção: soltou em qualquer parte do corpo do node alvo
+    if (!targetId) {
+      const flowNode = el?.closest('.flow-node')
+      if (flowNode && flowNode.id && flowNode.id.startsWith('node-')) {
+        targetId = flowNode.id.slice(5)
+      }
+    }
+    if (targetId && targetId !== _connecting.nodeId) {
+      addEdge(_connecting.nodeId, _connecting.handle, targetId)
+    }
+    const tmp = document.getElementById('connecting-temp')
+    if (tmp) tmp.remove()
+    _connecting = null
+  }
+}
+
+// ─── Palette Drag ─────────────────────────────────────────────
+function onPaletteDragStart(e, type) {
+  _paletteDragType = type
+  e.dataTransfer.setData('text/plain', type)
+}
+
+function onCanvasDragOver(e) { e.preventDefault() }
+
+function onCanvasDrop(e) {
+  e.preventDefault()
+  const type = _paletteDragType || e.dataTransfer.getData('text/plain')
+  if (!type) return
+  const rect = document.getElementById('canvas-wrap').getBoundingClientRect()
+  const x = (e.clientX - rect.left - E.panX) / E.scale
+  const y = (e.clientY - rect.top  - E.panY) / E.scale
+  addNode(type, { x: Math.round(x), y: Math.round(y) })
+  _paletteDragType = null
+}
+
+function addNodeFromToolbar(type) {
+  addNode(type, { x: 120 + E.nodes.length * 40, y: 120 + E.nodes.length * 20 })
+}
+
+// ─── Node Management ──────────────────────────────────────────
+const NODE_DEFAULTS = {
+  trigger:   { triggerType: 'new_conversation', config: {} },
+  message:   { messageType: 'text', content: '', connectionId: 'auto' },
+  interactive_message: { content: '', buttons: [{ text: 'Opção 1', synonyms: [] }, { text: 'Opção 2', synonyms: [] }], timeoutMinutes: 60, connectionId: 'auto' },
+  wait:      { duration: 1, unit: 'hours' },
+  condition: { conditionType: 'has_replied', operator: 'is', value: '' },
+  action:    { actionType: 'add_tag', params: {} },
+  end:       { label: 'Fim' },
+  note:      { content: '' },
+}
+
+function addNode(type, position) {
+  const id = 'node_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+  const node = { id, type, position, data: { ...(NODE_DEFAULTS[type] || {}) } }
+  if (type === 'note') node.size = { width: 260, height: 160 }
+  E.nodes.push(node)
+  E.dirty = true
+  renderEditor()
+  if (type !== 'note') openNodePanel(id)
+}
+
+function deleteNode(id) {
+  E.nodes = E.nodes.filter(n => n.id !== id)
+  E.edges = E.edges.filter(e => e.source !== id && e.target !== id)
+  if (E.selectedNodeId === id) { E.selectedNodeId = null; closePanel() }
+  E.dirty = true
+  renderEditor()
+}
+
+function addEdge(source, sourceHandle, target) {
+  // Prevent duplicate
+  const dup = E.edges.find(e => e.source === source && e.sourceHandle === sourceHandle)
+  if (dup) E.edges = E.edges.filter(e => e !== dup)
+  const id = 'edge_' + Date.now()
+  E.edges.push({ id, source, sourceHandle: sourceHandle || 'default', target })
+  E.dirty = true
+  renderEdges()
+  autoSaveFlowDebounced()
+}
+
+function deleteEdge(id) {
+  E.edges = E.edges.filter(e => e.id !== id)
+  E.dirty = true
+  renderEdges()
+}
+
+// ─── Render ───────────────────────────────────────────────────
+const NODE_COLORS = { trigger:'#3fb950', message:'#58a6ff', interactive_message:'#f0883e', wait:'#e3b341', condition:'#a371f7', action:'#f0883e', end:'#484f58', note:'#ca8a04' }
+const NODE_ICONS  = { trigger:'⚡', message:'💬', interactive_message:'🗂', wait:'⏱', condition:'🔀', action:'▶', end:'⬛', note:'📝' }
+const NODE_LABELS = { trigger:'Gatilho', message:'Mensagem', interactive_message:'Msg. Interativa', wait:'Espera', condition:'Condição', action:'Ação', end:'Fim', note:'Nota' }
+
+function getNodePreview(node) {
+  const d = node.data || {}
+  const TRIGGER_L = { new_conversation:'Nova conversa', lead_created:'Lead criado', message_any:'Qualquer msg', message_exact:'Msg exata', message_contains:'Msg contém', message_regex:'Msg regex', first_message:'Primeira msg', message_received:'Msg recebida', no_reply:'Sem resposta', stage_changed:'Etapa mudada', stage_entered:'Entrou na etapa', stage_exited:'Saiu da etapa', tag_added:'Tag add', tag_removed:'Tag remov.', button_clicked:'Botão clicado' }
+  const COND_L    = { has_replied:'Respondeu?', has_tag:'Tem tag?', in_stage:'Está na etapa?', is_assigned:'Está atribuído?', assigned_to:'Atribuído a...' }
+  const ACTION_L  = { add_tag:'Adicionar tag', remove_tag:'Remover tag', change_stage:'Mudar etapa', assign_operator:'Atribuir operador', unassign:'Desatribuir' }
+  switch(node.type) {
+    case 'trigger':   return TRIGGER_L[d.triggerType] || d.triggerType || '–'
+    case 'message':   return d.documentUrl ? `📄 ${d.documentFilename || 'documento'}` : (d.content ? d.content.substring(0,60) : `[${d.messageType || 'texto'}]`)
+    case 'interactive_message': return d.content ? d.content.substring(0,50) : `[${(d.buttons||[]).length} botões]`
+    case 'wait':      return `${d.duration || 1} ${({minutes:'min',hours:'hora(s)',days:'dia(s)'})[d.unit]||d.unit}`
+    case 'condition': return COND_L[d.conditionType] || d.conditionType || '–'
+    case 'action':    return ACTION_L[d.actionType] || d.actionType || '–'
+    case 'end':       return d.label || 'Encerrar'
+    default:          return ''
+  }
+}
+
+function renderEditor() {
+  const canvas = document.getElementById('canvas')
+  // Remove old nodes (keep svg)
+  Array.from(canvas.children).forEach(c => { if (c.id !== 'svg-layer') c.remove() })
+
+  E.nodes.forEach(node => {
+    const div = document.createElement('div')
+    div.id = 'node-' + node.id
+    div.className = `flow-node type-${node.type}${E.selectedNodeId === node.id ? ' selected' : ''}`
+    const sizeStyle = node.size ? `width:${node.size.width}px;height:${node.size.height}px;max-width:none;` : ''
+    if (node.size) div.setAttribute('data-resized', '1')
+    div.style.cssText = `left:${node.position.x}px;top:${node.position.y}px;${sizeStyle}`
+
+    // ─── Nota (sticky) ───
+    if (node.type === 'note') {
+      const color = node.data?.color || 'yellow'
+      div.classList.add('note-color-' + color)
+      div.innerHTML = `
+        <div class="note-header" data-note-drag="${node.id}">
+          <span>📝 Nota</span>
+          <div style="display:flex;gap:4px;align-items:center">
+            <button class="node-delete" onclick="event.stopPropagation();openNoteColorPicker(event,'${node.id}')" title="Cor">🎨</button>
+            <button class="node-delete" onclick="event.stopPropagation();duplicateNode('${node.id}')" title="Duplicar">⧉</button>
+            <button class="node-delete" onclick="event.stopPropagation();deleteNode('${node.id}')" title="Excluir">✕</button>
+          </div>
+        </div>
+        <div class="note-body">
+          <textarea class="note-textarea" placeholder="Digite sua nota aqui..." onchange="setNoteContent('${node.id}', this.value)" onblur="setNoteContent('${node.id}', this.value)" onclick="event.stopPropagation()">${esc(node.data?.content || '')}</textarea>
+        </div>
+        <div class="node-resize-handle" onmousedown="startResize(event,'${node.id}')"></div>`
+
+      // Drag só pelo header (não interfere com textarea/botões)
+      const hdr = div.querySelector('[data-note-drag]')
+      if (hdr) {
+        hdr.addEventListener('mousedown', e => {
+          if (e.target.closest('.node-delete') || e.target.closest('.node-resize-handle')) return
+          e.preventDefault()
+          e.stopPropagation()
+          _dragNode = node.id
+          _dragOffX = e.clientX - div.getBoundingClientRect().left
+          _dragOffY = e.clientY - div.getBoundingClientRect().top
+        })
+      }
+      canvas.appendChild(div)
+      return
+    }
+    const color = NODE_COLORS[node.type] || '#8b949e'
+    const preview = getNodePreview(node)
+    const isCondition = node.type === 'condition'
+    const isInteractive = node.type === 'interactive_message'
+
+    const interactiveBtns = isInteractive ? (node.data?.buttons || []) : []
+
+    div.innerHTML = `
+      <div data-port-in="${node.id}" style="position:absolute;top:50%;left:-7px;transform:translateY(-50%);
+        width:12px;height:12px;border-radius:50%;border:2px solid var(--border);background:var(--bg);
+        cursor:crosshair;z-index:2" title="Entrada"></div>
+      <div class="node-header">
+        <div class="node-icon" style="background:${color}22;color:${color}">${NODE_ICONS[node.type]||'●'}</div>
+        <div class="node-type-label">${NODE_LABELS[node.type]||node.type}</div>
+        <input class="node-label-edit" placeholder="nomear..." value="${esc(node.label||'')}" onblur="setNodeLabel('${node.id}', this.value)" onkeydown="if(event.key==='Enter')this.blur()" onclick="event.stopPropagation()" title="Nome customizado deste bloco"/>
+        <button class="node-delete" onclick="event.stopPropagation();duplicateNode('${node.id}')" title="Duplicar" style="margin-right:2px">⧉</button>
+        <button class="node-delete" onclick="event.stopPropagation();deleteNode('${node.id}')" title="Excluir">✕</button>
+      </div>
+      ${node.label ? `<div class="node-custom-label">${esc(node.label)}</div>` : ''}
+      ${isInteractive ? `
+        <div class="inode-msg" onclick="selectNode('${node.id}')">${esc(node.data?.content || 'Clique para editar...')}</div>
+        <div class="inode-btn-list" onclick="selectNode('${node.id}')">
+          ${interactiveBtns.map((b,i) => `
+            <div class="inode-btn-row">
+              <div class="inode-btn-chip">${esc(b.text || `Botão ${i+1}`)}</div>
+              <div style="display:flex;align-items:center;gap:4px">
+                <button class="add-branch-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','btn_${i}')" title="Adicionar próximo bloco">+</button>
+                <div class="port-dot port-btn" data-port-out="${node.id}" data-handle="btn_${i}" title="${esc(b.text)}" onmousedown="startConnect(event,'${node.id}','btn_${i}')"></div>
+              </div>
+            </div>`).join('')}
+          <div class="inode-sep"></div>
+          <div class="inode-btn-row">
+            <span class="inode-other-label">Outra resposta</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <button class="add-branch-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','other_response')" title="Adicionar bloco">+</button>
+              <div class="port-dot port-other" data-port-out="${node.id}" data-handle="other_response" title="Outra resposta" onmousedown="startConnect(event,'${node.id}','other_response')"></div>
+            </div>
+          </div>
+          <div class="inode-btn-row">
+            <span class="inode-noreply-label">Sem resposta (timeout)</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <button class="add-branch-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','no_response')" title="Adicionar bloco">+</button>
+              <div class="port-dot port-noreply" data-port-out="${node.id}" data-handle="no_response" title="Sem resposta" onmousedown="startConnect(event,'${node.id}','no_response')"></div>
+            </div>
+          </div>
+        </div>
+      ` : `
+        <div class="node-body" onclick="selectNode('${node.id}')">
+          <div class="node-preview">${esc(preview)}</div>
+        </div>
+        <div class="node-footer">
+          ${isCondition ? `
+            <div class="node-port">
+              <div class="port-dot port-yes" data-port-out="${node.id}" data-handle="yes" title="Sim" onmousedown="startConnect(event,'${node.id}','yes')"></div>
+              <span>Sim</span>
+              <button class="add-branch-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','yes')" title="Adicionar bloco após Sim">+</button>
+            </div>
+            <div class="node-port" style="margin-left:auto">
+              <button class="add-branch-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','no')" title="Adicionar bloco após Não">+</button>
+              <span>Não</span>
+              <div class="port-dot port-no" data-port-out="${node.id}" data-handle="no" title="Não" onmousedown="startConnect(event,'${node.id}','no')"></div>
+            </div>
+          ` : node.type !== 'end' ? `
+            <div class="node-port" style="width:100%;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:5px">
+                <div class="port-dot port-out" data-port-out="${node.id}" data-handle="default" title="Saída" onmousedown="startConnect(event,'${node.id}','default')"></div>
+                <span>Próximo</span>
+              </div>
+              <button class="add-branch-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','default')" title="Adicionar próximo bloco">+</button>
+            </div>
+          ` : ''}
+        </div>
+        ${node.type !== 'end' && !isCondition ? `
+          <div class="add-next-wrap">
+            <div class="add-next-line"></div>
+            <button class="add-next-btn" onclick="event.stopPropagation();showAddNodePicker(event,'${node.id}','default')">
+              <svg width="11" height="11" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 5v14m7-7H5"/></svg>
+              Próximo passo
+            </button>
+          </div>
+        ` : ''}
+      `}`
+
+    // Drag
+    div.addEventListener('mousedown', e => {
+      if (e.target.closest('[data-port-out]') || e.target.closest('[data-port-in]') || e.target.closest('.node-delete') || e.target.closest('.add-branch-btn') || e.target.closest('.add-next-btn')) return
+      e.preventDefault()
+      _dragNode = node.id
+      const rect = div.getBoundingClientRect()
+      _dragOffX = (e.clientX - rect.left) * E.scale + (rect.left - document.getElementById('canvas-wrap').getBoundingClientRect().left) * (1 - E.scale)
+      _dragOffX = e.clientX - div.getBoundingClientRect().left
+      _dragOffY = e.clientY - div.getBoundingClientRect().top
+      // Simpler approach
+      _dragOffX = e.clientX - node.position.x * E.scale - E.panX
+      _dragOffY = e.clientY - node.position.y * E.scale - E.panY
+    })
+
+    // Resize handle (só nos que tem size: message, interactive_message)
+    if (['message','interactive_message'].includes(node.type)) {
+      const rh = document.createElement('div')
+      rh.className = 'node-resize-handle'
+      rh.onmousedown = (ev) => startResize(ev, node.id)
+      div.appendChild(rh)
+    }
+    canvas.appendChild(div)
+  })
+
+  renderEdges()
+}
+
+function renderEdges() {
+  const svg = document.getElementById('svg-layer')
+  // Clear edges
+  Array.from(svg.querySelectorAll('[data-edge]')).forEach(el => el.remove())
+
+  E.edges.forEach(edge => {
+    const srcEl = document.getElementById('node-' + edge.source)
+    const tgtEl = document.getElementById('node-' + edge.target)
+    if (!srcEl || !tgtEl) return
+
+    const portEl = srcEl.querySelector(`[data-port-out="${edge.source}"][data-handle="${edge.sourceHandle}"]`)
+    const portInEl = tgtEl.querySelector(`[data-port-in="${edge.target}"]`)
+    if (!portEl || !portInEl) return
+
+    const canvasRect = document.getElementById('canvas').getBoundingClientRect()
+    const pr = portEl.getBoundingClientRect()
+    const ir = portInEl.getBoundingClientRect()
+
+    const x1 = (pr.left + pr.width/2 - canvasRect.left) / E.scale
+    const y1 = (pr.top  + pr.height/2 - canvasRect.top)  / E.scale
+    const x2 = (ir.left + ir.width/2  - canvasRect.left) / E.scale
+    const y2 = (ir.top  + ir.height/2 - canvasRect.top)  / E.scale
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    path.setAttribute('data-edge', edge.id)
+    path.setAttribute('d', bezier(x1, y1, x2, y2))
+    let cls = 'edge-path'
+    if (edge.sourceHandle === 'yes') cls += ' edge-yes'
+    if (edge.sourceHandle === 'no') cls += ' edge-no'
+    if (edge.sourceHandle?.startsWith('btn_')) cls += ' edge-btn'
+    if (edge.sourceHandle === 'other_response') cls += ' edge-other'
+    if (edge.sourceHandle === 'no_response') cls += ' edge-noreply'
+    path.setAttribute('class', cls)
+    path.setAttribute('stroke-width', '2')
+    path.setAttribute('marker-end', 'url(#arrow)')
+    path.addEventListener('click', () => {
+      if (confirm('Remover conexão?')) deleteEdge(edge.id)
+    })
+
+    svg.appendChild(path)
+  })
+
+  // Arrow marker
+  if (!document.getElementById('arrow-marker')) {
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
+    defs.innerHTML = `<marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0,0 L0,10 L10,5 z" fill="#64748b"/>
+    </marker>`
+    svg.prepend(defs)
+  }
+}
+
+function bezier(x1, y1, x2, y2) {
+  const cx = Math.abs(x2 - x1) * .6
+  return `M${x1},${y1} C${x1+cx},${y1} ${x2-cx},${y2} ${x2},${y2}`
+}
+
+function startConnect(e, nodeId, handle) {
+  e.stopPropagation(); e.preventDefault()
+  const portEl = e.target
+  const canvasRect = document.getElementById('canvas').getBoundingClientRect()
+  const pr = portEl.getBoundingClientRect()
+  _connecting = {
+    nodeId, handle,
+    startX: (pr.left + pr.width/2 - canvasRect.left) / E.scale,
+    startY: (pr.top + pr.height/2 - canvasRect.top) / E.scale,
+  }
+}
+
+function selectNode(id) {
+  E.selectedNodeId = id
+  renderEditor()
+  openNodePanel(id)
+}
+
+// ─── Right Panel ──────────────────────────────────────────────
+function closePanel() {
+  E.selectedNodeId = null
+  document.getElementById('right-panel').classList.remove('open')
+  renderEditor()
+}
+
+function openNodePanel(id) {
+  const node = E.nodes.find(n => n.id === id)
+  if (!node) return
+  document.getElementById('panel-title').textContent = NODE_LABELS[node.type] || node.type
+  document.getElementById('panel-body').innerHTML = buildPanelForm(node)
+  document.getElementById('right-panel').classList.add('open')
+}
+
+function buildPanelForm(node) {
+  const d = node.data || {}
+  const cfg = d.config || {}
+  const p = d.params || {}
+
+  const stagesOpts = E.meta.stages.map(st => {
+    const sel = (p.stageId===st.id || d.value===st.id || cfg.stageId===st.id) ? 'selected' : ''
+    return `<option value="${st.id}" ${sel}>${esc(st.name)}</option>`
+  }).join('')
+  const usersOpts  = E.meta.users.map(u => {
+    const sel = (p.userId===u.id || d.value===u.id) ? 'selected' : ''
+    return `<option value="${u.id}" ${sel}>${esc(u.name)}</option>`
+  }).join('')
+  const tagsOptList = (sel) => (E.meta.tags||[]).map(t => `<option value="${esc(t)}" ${sel(t)?'selected':''}>${esc(t)}</option>`).join('')
+
+  const connectionsOpts = [`<option value="auto">Automático</option>`].concat(
+    (E.meta.connections||[]).map(c => `<option value="${c.id}" ${d.connectionId===c.id?'selected':''}>${esc(c.name||c.id)}</option>`)
+  ).join('')
+
+  switch(node.type) {
+    case 'trigger': {
+      const t = d.triggerType || 'new_conversation'
+      const cfgHtml = renderTriggerConfig(t, cfg)
+      return `
+        <div class="field"><label>Tipo de gatilho</label>
+          <select id="pf-triggerType" onchange="onTriggerTypeChange(this.value)">
+            <optgroup label="Mensagens">
+              <option value="message_any"      ${t==='message_any'?'selected':''}>Qualquer mensagem do lead</option>
+              <option value="message_exact"    ${t==='message_exact'?'selected':''}>Mensagem exata</option>
+              <option value="message_contains" ${t==='message_contains'?'selected':''}>Mensagem contém palavra-chave</option>
+              <option value="message_regex"    ${t==='message_regex'?'selected':''}>Mensagem corresponde a regex</option>
+              <option value="first_message"    ${t==='first_message'?'selected':''}>Primeira mensagem do lead</option>
+              <option value="new_conversation" ${t==='new_conversation'?'selected':''}>Nova conversa</option>
+            </optgroup>
+            <optgroup label="CRM">
+              <option value="lead_created"     ${t==='lead_created'?'selected':''}>Lead criado</option>
+              <option value="stage_entered"    ${t==='stage_entered'?'selected':''}>Lead entrou em uma etapa</option>
+              <option value="stage_exited"     ${t==='stage_exited'?'selected':''}>Lead saiu de uma etapa</option>
+              <option value="stage_changed"    ${t==='stage_changed'?'selected':''}>Lead mudou de etapa (qualquer)</option>
+              <option value="tag_added"        ${t==='tag_added'?'selected':''}>Tag adicionada</option>
+              <option value="tag_removed"      ${t==='tag_removed'?'selected':''}>Tag removida</option>
+            </optgroup>
+            <optgroup label="Comportamento">
+              <option value="no_reply"         ${t==='no_reply'?'selected':''}>Lead não respondeu em X tempo</option>
+              <option value="button_clicked"   ${t==='button_clicked'?'selected':''}>Lead clicou em um botão</option>
+            </optgroup>
+          </select>
+        </div>
+        <div id="pf-trig-config">${cfgHtml}</div>
+      `
+    }
+
+    case 'message':
+      return `
+        <div class="field"><label>Tipo de mensagem</label>
+          <select id="pf-msgType" onchange="updatePanelMsgType(this.value)">
+            <option value="text"${d.messageType==='text'?'selected':''}>Texto livre</option>
+            <option value="template"${d.messageType==='template'?'selected':''}>Template aprovado (Meta)</option>
+            <option value="document"${d.messageType==='document'?'selected':''}>📄 Documento (PDF/DOC)</option>
+          </select>
+        </div>
+        <div id="pf-text-area" class="field" ${d.messageType==='template'?'style="display:none"':''}>
+          <label>Conteúdo</label>
+          <textarea id="pf-content" rows="4" placeholder="Olá {{nome}}, como posso ajudar?">${esc(d.content||'')}</textarea>
+          <div class="field-hint">Variáveis: {{nome}}, {{telefone}}, {{email}}</div>
+        </div>
+        <div id="pf-tmpl-area" class="field" ${d.messageType!=='template'?'style="display:none"':''}>
+          <label>Template aprovado pela Meta</label>
+          <select id="pf-templateId" onchange="onTemplateSelect(this.value)">
+            <option value="">– selecione –</option>
+            ${(E.meta.templates||[]).map(t => {
+              const lang = t.language ? ' · ' + t.language : ''
+              const conn = t.connection_name ? ' — 📱 ' + t.connection_name : ''
+              return `<option value="${t.id}" ${d.templateId===t.id?'selected':''}>${esc(t.name)}${esc(lang)}${esc(conn)}</option>`
+            }).join('')}
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="syncMetaTemplates()" style="margin-top:6px" title="Buscar templates aprovados direto da Meta Graph API">🔄 Sincronizar da Meta</button>
+          ${(E.meta.templates||[]).length === 0 ? '<div class="field-hint" style="color:#d97706">⚠️ Nenhum template aprovado encontrado. Aprove em Meta Business → Templates.</div>' : ''}
+          <div id="pf-tmpl-preview" style="margin-top:10px"></div>
+        </div>
+        <div id="pf-doc-area" class="field" ${d.messageType!=='document'?'style="display:none"':''}>
+          <label>URL do documento</label>
+          <input type="url" id="pf-documentUrl" value="${esc(d.documentUrl||'')}" placeholder="https://exemplo.com/arquivo.pdf" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px">
+          <div class="field-hint" style="margin-top:4px">URL pública do PDF/documento</div>
+        </div>
+        <div id="pf-doc-filename-area" class="field" ${d.messageType!=='document'?'style="display:none"':''}>
+          <label>Nome do arquivo</label>
+          <input type="text" id="pf-documentFilename" value="${esc(d.documentFilename||'')}" placeholder="Material.pdf" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px">
+        </div>
+        <div id="pf-doc-caption-area" class="field" ${d.messageType!=='document'?'style="display:none"':''}>
+          <label>Caption (opcional)</label>
+          <textarea id="pf-doc-caption" rows="3" placeholder="Segue o material, {{nome}}..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;resize:vertical">${esc(d.messageType==='document' ? (d.content||'') : '')}</textarea>
+        </div>
+        <div class="field"><label>Conexão preferida</label>
+          <select id="pf-connId">${connectionsOpts}</select>
+        </div>`
+
+    case 'interactive_message':
+      return `
+        <div class="field"><label>Mensagem</label>
+          <textarea id="pf-im-content" rows="4" placeholder="Qual é sua disponibilidade?">${esc(d.content||'')}</textarea>
+          <div class="field-hint">Variáveis: {{nome}}, {{telefone}}</div>
+        </div>
+        <div class="field">
+          <label style="margin-bottom:8px;display:block">Botões de resposta</label>
+          <div id="pf-im-buttons">
+            ${(d.buttons||[]).map((b,i)=>`
+              <div class="im-btn-item">
+                <div class="im-btn-row1">
+                  <span style="font-size:10px;color:var(--text-3);width:16px;flex-shrink:0">${i+1}</span>
+                  <input type="text" class="im-btn-text" value="${esc(b.text||'')}" placeholder="Texto do botão">
+                  <button class="im-btn-del" onclick="this.closest('.im-btn-item').remove();updateImNumbers()" title="Remover">✕</button>
+                </div>
+                <input type="text" class="im-syn-input" value="${esc((b.synonyms||[]).join(', '))}" placeholder="Sinônimos (separados por vírgula)">
+              </div>`).join('')}
+          </div>
+          <button class="im-add-btn" onclick="addImBtn()">+ Adicionar botão</button>
+        </div>
+        <div class="field"><label>Timeout sem resposta (minutos)</label>
+          <input type="number" id="pf-im-timeout" value="${d.timeoutMinutes||60}" min="1">
+          <div class="field-hint">Se o lead não responder nesse prazo → rota "Sem resposta"</div>
+        </div>`
+
+    case 'wait': {
+      const mode = d.mode || 'duration'
+      return `
+        <div class="field"><label>Modo de espera</label>
+          <select id="pf-wait-mode" onchange="updateWaitFields(this.value)">
+            <option value="duration"       ${mode==='duration'?'selected':''}>Esperar tempo fixo</option>
+            <option value="until_reply"    ${mode==='until_reply'?'selected':''}>Esperar o lead responder</option>
+            <option value="until_datetime" ${mode==='until_datetime'?'selected':''}>Esperar até data/hora específica</option>
+          </select>
+        </div>
+        <div id="pf-wait-duration" class="field" ${mode!=='duration'?'style="display:none"':''}>
+          <label>Aguardar</label>
+          <div style="display:flex;gap:8px">
+            <input type="number" id="pf-duration" value="${d.duration||1}" min="1" style="flex:1">
+            <select id="pf-unit" style="flex:1.5">
+              <option value="minutes"${d.unit==='minutes'?'selected':''}>Minutos</option>
+              <option value="hours"  ${!d.unit || d.unit==='hours'?'selected':''}>Horas</option>
+              <option value="days"   ${d.unit==='days'?'selected':''}>Dias</option>
+            </select>
+          </div>
+        </div>
+        <div id="pf-wait-reply" class="field" ${mode!=='until_reply'?'style="display:none"':''}>
+          <label>Timeout (minutos, opcional)</label>
+          <input type="number" id="pf-reply-timeout" value="${d.timeoutMinutes||0}" min="0">
+          <div class="field-hint">0 = esperar indefinidamente. Se timeout, avança por padrão.</div>
+        </div>
+        <div id="pf-wait-datetime" class="field" ${mode!=='until_datetime'?'style="display:none"':''}>
+          <label>Data e hora</label>
+          <input type="datetime-local" id="pf-datetime" value="${d.datetime||''}">
+        </div>
+      `
+    }
+
+    case 'condition': {
+      const field = d.field || d.conditionType || 'name'
+      const op = d.operator || 'contains'
+      const fieldHtml = renderConditionField(field, op, d.value, stagesOpts, usersOpts, tagsOptList)
+      return `
+        <div class="field"><label>Campo</label>
+          <select id="pf-cond-field" onchange="onCondFieldChange(this.value)">
+            <optgroup label="Dados do lead">
+              <option value="name"         ${field==='name'?'selected':''}>Nome</option>
+              <option value="phone"        ${field==='phone'?'selected':''}>Telefone</option>
+              <option value="email"        ${field==='email'?'selected':''}>E-mail</option>
+              <option value="origin"       ${field==='origin'?'selected':''}>Origem</option>
+              <option value="notes"        ${field==='notes'?'selected':''}>Notas</option>
+            </optgroup>
+            <optgroup label="CRM">
+              <option value="has_tag"      ${field==='has_tag'||field==='tag'?'selected':''}>Tag</option>
+              <option value="in_stage"     ${field==='in_stage'||field==='stage'?'selected':''}>Etapa</option>
+              <option value="assigned_to"  ${field==='assigned_to'?'selected':''}>Atribuído a (usuário)</option>
+              <option value="is_assigned"  ${field==='is_assigned'?'selected':''}>Está atribuído?</option>
+              <option value="has_replied"  ${field==='has_replied'?'selected':''}>Lead respondeu?</option>
+            </optgroup>
+            <optgroup label="Contexto do disparo">
+              <option value="message_text" ${field==='message_text'?'selected':''}>Texto da mensagem (gatilho)</option>
+            </optgroup>
+          </select>
+        </div>
+        <div id="pf-cond-body">${fieldHtml}</div>
+      `
+    }
+
+    case 'action': {
+      const at = d.actionType || 'add_tag'
+      const tagsValue = Array.isArray(p.tags) ? p.tags : (p.tag ? [p.tag] : [])
+      return `
+        <div class="field"><label>Ação</label>
+          <select id="pf-actionType" onchange="updateActionFields(this.value)">
+            <option value="add_tag"          ${at==='add_tag'?'selected':''}>Adicionar tag(s)</option>
+            <option value="remove_tag"       ${at==='remove_tag'?'selected':''}>Remover tag(s)</option>
+            <option value="change_stage"     ${at==='change_stage'?'selected':''}>Mudar etapa</option>
+            <option value="assign_operator"  ${at==='assign_operator'?'selected':''}>Atribuir operador</option>
+            <option value="unassign"         ${at==='unassign'?'selected':''}>Desatribuir</option>
+          </select>
+        </div>
+        <div id="pf-act-tag" class="field" ${!['add_tag','remove_tag'].includes(at)?'style="display:none"':''}>
+          <label>Tags</label>
+          <div id="pf-act-tag-box" class="tag-multiselect">${renderTagChips(tagsValue)}</div>
+          <input type="text" id="pf-act-tag-input" placeholder="Digite para filtrar ou criar nova tag..."
+            oninput="onTagInput(this.value)" onkeydown="onTagKeydown(event)"
+            style="margin-top:6px;width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;background:var(--surface);color:var(--text)">
+          <div id="pf-act-tag-suggest" class="tag-suggest"></div>
+        </div>
+        <div id="pf-act-stage" class="field" ${at!=='change_stage'?'style="display:none"':''}>
+          <label>Etapa</label>
+          <select id="pf-act-stage-val"><option value="">–</option>${stagesOpts}</select>
+        </div>
+        <div id="pf-act-user" class="field" ${at!=='assign_operator'?'style="display:none"':''}>
+          <label>Operador</label>
+          <select id="pf-act-user-val"><option value="">–</option>${usersOpts}</select>
+        </div>
+      `
+    }
+
+    case 'end':
+      return `
+        <div class="field"><label>Rótulo</label>
+          <input type="text" id="pf-label" value="${esc(d.label||'Fim')}" placeholder="Fim">
+        </div>`
+    default:
+      return '<p style="font-size:12px;color:var(--text-2)">Sem configurações disponíveis.</p>'
+  }
+}
+
+// ─── Trigger config (por tipo) ────────────────────────────────
+function renderTriggerConfig(type, cfg) {
+  cfg = cfg || {}
+  const stagesOpts = E.meta.stages.map(st => `<option value="${st.id}" ${cfg.stageId===st.id?'selected':''}>${esc(st.name)}</option>`).join('')
+  const tagsOpts   = (E.meta.tags||[]).map(t => `<option value="${esc(t)}" ${cfg.tag===t?'selected':''}>${esc(t)}</option>`).join('')
+  switch(type) {
+    case 'message_exact':
+      return `<div class="field"><label>Mensagem exata</label>
+        <input type="text" id="pf-trig-text" value="${esc(cfg.text||'')}" placeholder="ex: Oi">
+        <div class="field-hint">Comparação case-insensitive</div>
+      </div>`
+    case 'message_contains':
+      return `<div class="field"><label>Palavra-chave</label>
+        <input type="text" id="pf-trig-keyword" value="${esc(cfg.keyword||'')}" placeholder="ex: preço">
+        <div class="field-hint">Case-insensitive</div>
+      </div>`
+    case 'message_regex':
+      return `<div class="field"><label>Padrão regex</label>
+        <input type="text" id="pf-trig-pattern" value="${esc(cfg.pattern||'')}" placeholder="ex: ^(sim|ok)$">
+      </div>
+      <div class="field"><label>Flags</label>
+        <input type="text" id="pf-trig-flags" value="${esc(cfg.flags||'i')}" placeholder="i">
+      </div>`
+    case 'stage_entered':
+    case 'stage_exited':
+      return `<div class="field"><label>Etapa</label>
+        <select id="pf-trig-stage"><option value="">– selecione –</option>${stagesOpts}</select>
+      </div>`
+    case 'tag_added':
+    case 'tag_removed':
+      return `<div class="field"><label>Tag específica (opcional)</label>
+        <select id="pf-trig-tag"><option value="">Qualquer tag</option>${tagsOpts}</select>
+      </div>`
+    case 'no_reply':
+      return `<div class="field"><label>Sem resposta por</label>
+        <div style="display:flex;gap:8px">
+          <input type="number" id="pf-trig-minutes" value="${cfg.minutes||60}" min="5" style="flex:1">
+          <span style="font-size:12px;color:var(--text-2);align-self:center">minutos</span>
+        </div>
+        <div class="field-hint">Dispara pra leads sem resposta após o último outbound</div>
+      </div>`
+    case 'button_clicked':
+      return `<div class="field"><label>Texto do botão (opcional)</label>
+        <input type="text" id="pf-trig-buttonText" value="${esc(cfg.buttonText||'')}" placeholder="ex: Sim">
+        <div class="field-hint">Deixe vazio para disparar em qualquer clique. Case-insensitive.</div>
+      </div>
+      <div class="field"><label>Nome do template (opcional)</label>
+        <input type="text" id="pf-trig-templateName" value="${esc(cfg.templateName||'')}" placeholder="ex: welcome_v1">
+      </div>`
+    default:
+      return '<div class="field-hint" style="padding:4px 0">Sem configuração adicional.</div>'
+  }
+}
+
+function onTriggerTypeChange(v) {
+  const el = document.getElementById('pf-trig-config')
+  if (el) el.innerHTML = renderTriggerConfig(v, {})
+}
+
+// ─── Condition field renderer ─────────────────────────────────
+function renderConditionField(field, op, value, stagesOpts, usersOpts, tagsOptList) {
+  const textOps = [
+    ['is','é igual a'], ['is_not','não é'], ['contains','contém'], ['not_contains','não contém'],
+    ['starts_with','começa com'], ['ends_with','termina com'],
+    ['is_empty','está vazio'], ['is_not_empty','não está vazio'],
+  ]
+  const enumOps = [['is','é'], ['is_not','não é'], ['is_empty','está vazio'], ['is_not_empty','não está vazio']]
+  const boolOps = [['true','sim'], ['false','não']]
+
+  const opSel = (options, current) => options.map(([v,lbl]) => `<option value="${v}" ${current===v?'selected':''}>${esc(lbl)}</option>`).join('')
+
+  const textValueField = (val, placeholder) => `<div class="field"><label>Valor</label>
+    <input type="text" id="pf-cond-value" value="${esc(val||'')}" placeholder="${esc(placeholder||'')}"></div>`
+
+  if (['name','phone','email','origin','notes','message_text'].includes(field)) {
+    const showValue = !['is_empty','is_not_empty'].includes(op)
+    return `
+      <div class="field"><label>Operador</label>
+        <select id="pf-cond-op" onchange="onCondOpChange(this.value)">${opSel(textOps, op||'contains')}</select>
+      </div>
+      ${showValue ? textValueField(value, 'valor') : ''}
+    `
+  }
+  if (field === 'has_tag' || field === 'tag') {
+    return `
+      <div class="field"><label>Operador</label>
+        <select id="pf-cond-op">${opSel([['is','tem a tag'], ['is_not','não tem a tag'], ['is_empty','sem tags'], ['is_not_empty','tem alguma tag']], op||'is')}</select>
+      </div>
+      <div class="field" id="pf-cond-tag-wrap"><label>Tag</label>
+        <select id="pf-cond-value"><option value="">–</option>${tagsOptList(t => value===t)}</select>
+      </div>
+    `
+  }
+  if (field === 'in_stage' || field === 'stage') {
+    return `
+      <div class="field"><label>Operador</label>
+        <select id="pf-cond-op">${opSel(enumOps, op||'is')}</select>
+      </div>
+      <div class="field"><label>Etapa</label>
+        <select id="pf-cond-value"><option value="">–</option>${stagesOpts}</select>
+      </div>
+    `
+  }
+  if (field === 'assigned_to') {
+    return `
+      <div class="field"><label>Operador</label>
+        <select id="pf-cond-op">${opSel(enumOps, op||'is')}</select>
+      </div>
+      <div class="field"><label>Usuário</label>
+        <select id="pf-cond-value"><option value="">–</option>${usersOpts}</select>
+      </div>
+    `
+  }
+  if (field === 'is_assigned' || field === 'has_replied') {
+    return `
+      <div class="field"><label>Resultado esperado</label>
+        <select id="pf-cond-op">${opSel(boolOps, op||'true')}</select>
+      </div>
+    `
+  }
+  return ''
+}
+
+function onCondFieldChange(v) {
+  const body = document.getElementById('pf-cond-body')
+  if (!body) return
+  const stagesOpts = E.meta.stages.map(st => `<option value="${st.id}">${esc(st.name)}</option>`).join('')
+  const usersOpts  = E.meta.users.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')
+  const tagsOptList = (sel) => (E.meta.tags||[]).map(t => `<option value="${esc(t)}" ${sel(t)?'selected':''}>${esc(t)}</option>`).join('')
+  body.innerHTML = renderConditionField(v, '', '', stagesOpts, usersOpts, tagsOptList)
+}
+
+function onCondOpChange(op) {
+  // Esconde valor se operador é is_empty / is_not_empty
+  const vEl = document.getElementById('pf-cond-value')
+  if (!vEl) return
+  const field = vEl.closest('.field')
+  if (!field) return
+  if (['is_empty','is_not_empty'].includes(op)) field.style.display = 'none'
+  else field.style.display = ''
+}
+
+// ─── Wait field toggles ──────────────────────────────────────
+function updateWaitFields(v) {
+  document.getElementById('pf-wait-duration').style.display = v==='duration'       ? '' : 'none'
+  document.getElementById('pf-wait-reply').style.display    = v==='until_reply'    ? '' : 'none'
+  document.getElementById('pf-wait-datetime').style.display = v==='until_datetime' ? '' : 'none'
+}
+
+// ─── Tags multi-select (action) ──────────────────────────────
+function renderTagChips(tags) {
+  return (tags||[]).map(t => `<span class="tag-chip">${esc(t)}<button onclick="removeActionTag('${esc(t).replace(/'/g,"\\'")}')">✕</button></span>`).join('')
+}
+
+function getActionTags() {
+  const box = document.getElementById('pf-act-tag-box')
+  if (!box) return []
+  return Array.from(box.querySelectorAll('.tag-chip')).map(el => el.firstChild.textContent)
+}
+
+function setActionTags(tags) {
+  const box = document.getElementById('pf-act-tag-box')
+  if (box) box.innerHTML = renderTagChips(tags)
+}
+
+function addActionTag(tag) {
+  tag = (tag||'').trim()
+  if (!tag) return
+  const cur = getActionTags()
+  if (cur.includes(tag)) return
+  setActionTags([...cur, tag])
+  // Também adiciona à meta local se for nova
+  if (!(E.meta.tags||[]).includes(tag)) (E.meta.tags = E.meta.tags||[]).push(tag)
+}
+
+function removeActionTag(tag) {
+  const cur = getActionTags()
+  setActionTags(cur.filter(t => t !== tag))
+}
+
+function onTagInput(v) {
+  const q = (v||'').trim().toLowerCase()
+  const suggest = document.getElementById('pf-act-tag-suggest')
+  if (!suggest) return
+  if (!q) { suggest.innerHTML = ''; return }
+  const cur = getActionTags()
+  const items = (E.meta.tags||[]).filter(t => t.toLowerCase().includes(q) && !cur.includes(t)).slice(0,6)
+  const canCreate = q.length >= 2 && !(E.meta.tags||[]).some(t => t.toLowerCase() === q)
+  let html = items.map(t => `<button class="tag-suggest-item" onclick="addActionTag('${esc(t).replace(/'/g,"\\'")}');document.getElementById('pf-act-tag-input').value='';onTagInput('')">${esc(t)}</button>`).join('')
+  if (canCreate) {
+    html += `<button class="tag-suggest-item tag-create" onclick="createAndAddTag('${esc(q).replace(/'/g,"\\'")}');document.getElementById('pf-act-tag-input').value='';onTagInput('')">+ Criar "${esc(q)}"</button>`
+  }
+  suggest.innerHTML = html || '<div style="padding:6px 10px;font-size:11px;color:var(--text-3)">Sem sugestões. Digite pra criar nova.</div>'
+}
+
+function onTagKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    const v = e.target.value.trim()
+    if (!v) return
+    const exists = (E.meta.tags||[]).some(t => t.toLowerCase() === v.toLowerCase())
+    if (exists) {
+      const real = (E.meta.tags||[]).find(t => t.toLowerCase() === v.toLowerCase())
+      addActionTag(real)
+    } else {
+      createAndAddTag(v)
+    }
+    e.target.value = ''
+    onTagInput('')
+  }
+}
+
+async function createAndAddTag(tag) {
+  try {
+    await api('/meta/tags', { method: 'POST', body: JSON.stringify({ tag }) })
+    addActionTag(tag)
+    showToast(`Tag "${tag}" criada`, 'success')
+  } catch (e) { showToast(e.message || 'Falha ao criar tag', 'error') }
+}
+
+function updatePanelMsgType(v) {
+  const show = (id, cond) => { const el = document.getElementById(id); if (el) el.style.display = cond ? '' : 'none' }
+  show('pf-text-area',         v === 'text')
+  show('pf-tmpl-area',         v === 'template')
+  show('pf-doc-area',          v === 'document')
+  show('pf-doc-filename-area', v === 'document')
+  show('pf-doc-caption-area',  v === 'document')
+}
+
+function updateCondFields(v) {
+  document.getElementById('pf-cond-tag').style.display   = v==='has_tag'    ? '' : 'none'
+  document.getElementById('pf-cond-stage').style.display = v==='in_stage'   ? '' : 'none'
+  document.getElementById('pf-cond-user').style.display  = v==='assigned_to'? '' : 'none'
+}
+
+function updateActionFields(v) {
+  document.getElementById('pf-act-tag').style.display   = ['add_tag','remove_tag'].includes(v) ? '' : 'none'
+  document.getElementById('pf-act-stage').style.display = v==='change_stage'    ? '' : 'none'
+  document.getElementById('pf-act-user').style.display  = v==='assign_operator' ? '' : 'none'
+}
+
+function applyPanel() {
+  if (!E.selectedNodeId) return
+  const node = E.nodes.find(n => n.id === E.selectedNodeId)
+  if (!node) return
+  const g = id => document.getElementById(id)
+  const val = id => g(id)?.value || ''
+
+  switch(node.type) {
+    case 'trigger': {
+      const t = val('pf-triggerType')
+      const config = {}
+      if (t === 'message_exact')    config.text    = val('pf-trig-text')
+      if (t === 'message_contains') config.keyword = val('pf-trig-keyword')
+      if (t === 'message_regex')   { config.pattern = val('pf-trig-pattern'); config.flags = val('pf-trig-flags') || 'i' }
+      if (t === 'stage_entered' || t === 'stage_exited') config.stageId = val('pf-trig-stage')
+      if (t === 'tag_added' || t === 'tag_removed')      config.tag = val('pf-trig-tag')
+      if (t === 'no_reply')         config.minutes = parseInt(val('pf-trig-minutes'), 10) || 60
+      if (t === 'button_clicked') { config.buttonText = val('pf-trig-buttonText'); config.templateName = val('pf-trig-templateName') }
+      node.data = { triggerType: t, config }
+      break
+    }
+    case 'message': {
+      const msgType = val('pf-msgType')
+      const templateVars = {}
+      document.querySelectorAll('[data-tmpl-var]').forEach(el => { templateVars[el.dataset.tmplVar] = el.value })
+      const isDoc = msgType === 'document'
+      node.data = {
+        messageType: msgType,
+        content: isDoc ? (val('pf-doc-caption') || '') : val('pf-content'),
+        connectionId: val('pf-connId') || 'auto',
+        templateId: val('pf-templateId'),
+        templateVars,
+        documentUrl: isDoc ? val('pf-documentUrl') : (node.data?.documentUrl || undefined),
+        documentFilename: isDoc ? val('pf-documentFilename') : (node.data?.documentFilename || undefined),
+      }
+      break
+    }
+    case 'wait': {
+      const mode = val('pf-wait-mode') || 'duration'
+      const data = { mode }
+      if (mode === 'duration') { data.duration = parseInt(val('pf-duration'))||1; data.unit = val('pf-unit') }
+      if (mode === 'until_reply') { data.timeoutMinutes = parseInt(val('pf-reply-timeout'))||0 }
+      if (mode === 'until_datetime') { data.datetime = val('pf-datetime') }
+      node.data = data
+      break
+    }
+    case 'condition': {
+      const field = val('pf-cond-field')
+      const op = val('pf-cond-op')
+      const value = val('pf-cond-value')
+      node.data = { field, conditionType: field, operator: op, value }
+      break
+    }
+    case 'action': {
+      const at = val('pf-actionType')
+      let params = {}
+      if (['add_tag','remove_tag'].includes(at)) { params.tags = getActionTags() }
+      if (at === 'change_stage')    params.stageId = val('pf-act-stage-val')
+      if (at === 'assign_operator') params.userId  = val('pf-act-user-val')
+      node.data = { actionType: at, params }
+      break
+    }
+    case 'interactive_message': {
+      const content = val('pf-im-content')
+      const timeout = parseInt(document.getElementById('pf-im-timeout')?.value) || 60
+      const btnItems = document.querySelectorAll('#pf-im-buttons .im-btn-item')
+      const buttons = Array.from(btnItems).map(item => ({
+        text: (item.querySelector('.im-btn-text')?.value || '').trim(),
+        synonyms: (item.querySelector('.im-syn-input')?.value || '').split(',').map(s => s.trim()).filter(Boolean),
+      })).filter(b => b.text)
+      node.data = { content, buttons, timeoutMinutes: timeout, connectionId: 'auto' }
+      break
+    }
+    case 'end':
+      node.data = { label: val('pf-label') || 'Fim' }
+      break
+  }
+
+  E.dirty = true
+  renderEditor()
+  showToast('Bloco aplicado ✓', 'success')
+  // Persiste imediatamente no backend
+  autoSaveFlowDebounced(200)
+  console.log('[flow] applyPanel →', node.id, node.type, node.data)
+}
+
+
+function addImBtn() {
+  const list = document.getElementById('pf-im-buttons')
+  if (!list) return
+  const i = list.children.length + 1
+  const div = document.createElement('div')
+  div.className = 'im-btn-item'
+  div.innerHTML = `
+    <div class="im-btn-row1">
+      <span style="font-size:10px;color:var(--text-3);width:16px;flex-shrink:0">${i}</span>
+      <input type="text" class="im-btn-text" placeholder="Texto do botão ${i}">
+      <button class="im-btn-del" onclick="this.closest('.im-btn-item').remove();updateImNumbers()" title="Remover">✕</button>
+    </div>
+    <input type="text" class="im-syn-input" placeholder="Sinônimos: ex. nunca, zero, 0 (separados por vírgula)">`
+  list.appendChild(div)
+  div.querySelector('.im-btn-text').focus()
+}
+
+function updateImNumbers() {
+  const items = document.querySelectorAll('#pf-im-buttons .im-btn-item')
+  items.forEach((item, i) => {
+    const num = item.querySelector('span')
+    if (num) num.textContent = i + 1
+  })
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+// ─── Node Picker (Quick Add) ──────────────────────────────────
+let _pickerCtx = null // { sourceNodeId, handle }
+
+function showAddNodePicker(e, sourceNodeId, handle) {
+  e.stopPropagation()
+  _pickerCtx = { sourceNodeId, handle }
+  const picker = document.getElementById('add-node-picker')
+  picker.style.display = 'block'
+  const x = Math.min(e.clientX + 8, window.innerWidth - 230)
+  const y = Math.min(e.clientY + 8, window.innerHeight - 340)
+  picker.style.left = x + 'px'
+  picker.style.top  = y + 'px'
+}
+
+function hideAddNodePicker() {
+  const picker = document.getElementById('add-node-picker')
+  if (picker) picker.style.display = 'none'
+  _pickerCtx = null
+}
+
+function pickAndAdd(type, extraData = {}) {
+  if (!_pickerCtx) return
+  const { sourceNodeId, handle } = _pickerCtx
+  hideAddNodePicker()
+
+  const sourceNode = E.nodes.find(n => n.id === sourceNodeId)
+  if (!sourceNode) return
+
+  // Positioning: new node to the right, offset vertically per branch
+  const NODE_W = 260
+  const GAP_X  = 120
+  const GAP_Y  = 140
+
+  let x = sourceNode.position.x + NODE_W + GAP_X
+  let y = sourceNode.position.y
+
+  if (handle === 'no') y += GAP_Y
+  if (handle === 'other_response') y += GAP_Y
+  if (handle === 'no_response') y += GAP_Y * 2
+  if (handle?.startsWith('btn_')) {
+    const idx = parseInt(handle.replace('btn_', '')) || 0
+    y += idx * GAP_Y
+  }
+
+  // Nudge down if another node occupies approximately this spot
+  let attempts = 0
+  while (attempts < 10 && E.nodes.some(n => Math.abs(n.position.x - x) < 60 && Math.abs(n.position.y - y) < 80)) {
+    y += GAP_Y
+    attempts++
+  }
+
+  const id = 'n_' + Date.now()
+  const data = { ...(NODE_DEFAULTS[type] || {}), ...extraData }
+  E.nodes.push({ id, type, position: { x, y }, data })
+
+  const edgeId = 'e_' + Date.now()
+  E.edges.push({ id: edgeId, source: sourceNodeId, sourceHandle: handle, target: id, targetHandle: 'default' })
+
+  E.dirty = true
+  renderEditor()
+  // Open panel for new node after render
+  setTimeout(() => selectNode(id), 30)
+}
+
+// Close picker when clicking outside
+document.addEventListener('click', e => {
+  const picker = document.getElementById('add-node-picker')
+  if (picker && picker.style.display !== 'none' && !picker.contains(e.target)) {
+    hideAddNodePicker()
+  }
+}, true)
+
+// Check auth
+if (!getToken()) (window.top || window).location.href = '/leads/'
+
+// ─── Execuções / Logs ─────────────────────────────────────
+async function openExecutionsModal() {
+  if (!E.flowId) { showToast('Salve o fluxo primeiro','error'); return }
+  try {
+    const list = await api(`/${E.flowId}/executions?limit=50`)
+    renderExecutionsModal(list || [])
+  } catch (e) { showToast(e.message||'Falha ao carregar execuções','error') }
+}
+
+function renderExecutionsModal(list) {
+  const statusLabel = s => ({RUNNING:'Executando', WAITING:'Aguardando', WAITING_REPLY:'Aguardando resposta', COMPLETED:'Concluído', FAILED:'Falhou', CANCELLED:'Cancelado'})[s] || s
+  const statusColor = s => ({RUNNING:'#4f46e5', WAITING:'#d97706', WAITING_REPLY:'#8b5cf6', COMPLETED:'#059669', FAILED:'#dc2626', CANCELLED:'#64748b'})[s] || '#475569'
+  const rows = list.map(ex => {
+    const when = new Date(ex.startedAt).toLocaleString('pt-BR')
+    return `<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="showExecutionLogs('${ex.id}')">
+      <td style="padding:8px 12px;font-size:12px"><span style="display:inline-block;min-width:90px;padding:2px 8px;border-radius:10px;font-weight:600;font-size:10.5px;color:#fff;background:${statusColor(ex.status)}">${statusLabel(ex.status)}</span></td>
+      <td style="padding:8px 12px;font-size:12.5px;color:var(--text)">${esc(ex.leadName||'–')} <span style="color:var(--text-3);font-size:11px">${esc(ex.leadPhone||'')}</span></td>
+      <td style="padding:8px 12px;font-size:11.5px;color:var(--text-2)">${esc(when)}</td>
+    </tr>`
+  }).join('')
+  const html = `
+    <div id="exec-modal-backdrop" style="position:fixed;inset:0;background:rgba(15,23,42,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this)closeExecutionsModal()">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:820px;width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:var(--shadow)">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <h3 style="margin:0;font-size:15px;font-weight:600;color:var(--text)">Execuções do fluxo</h3>
+          <button onclick="closeExecutionsModal()" style="background:transparent;border:none;color:var(--text-2);cursor:pointer;font-size:18px">✕</button>
+        </div>
+        <div style="overflow-y:auto;flex:1" id="exec-modal-body">
+          ${list.length === 0 ? `<div style="padding:40px 20px;text-align:center;color:var(--text-3);font-size:13px">Nenhuma execução registrada ainda. Ative o fluxo para começar.</div>` :
+          `<table style="width:100%;border-collapse:collapse"><thead><tr style="background:var(--surface2)"><th style="text-align:left;padding:10px 12px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em">Status</th><th style="text-align:left;padding:10px 12px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em">Lead</th><th style="text-align:left;padding:10px 12px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em">Iniciado em</th></tr></thead><tbody>${rows}</tbody></table>`}
+        </div>
+        <div style="padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-3)">Clique em uma linha para ver o log detalhado.</div>
+      </div>
+    </div>`
+  const root = document.getElementById('exec-modal-root') || (() => { const d = document.createElement('div'); d.id = 'exec-modal-root'; document.body.appendChild(d); return d })()
+  root.innerHTML = html
+}
+
+function closeExecutionsModal() {
+  const root = document.getElementById('exec-modal-root')
+  if (root) root.innerHTML = ''
+}
+
+async function showExecutionLogs(execId) {
+  try {
+    const data = await api(`/executions/${execId}/logs`)
+    if (!data) { showToast('Execução não encontrada','error'); return }
+    const ex = data.execution
+    const logs = data.logs || []
+    const body = document.getElementById('exec-modal-body')
+    if (!body) return
+    const statusLabel = s => ({RUNNING:'Executando', WAITING:'Aguardando', WAITING_REPLY:'Aguardando resposta', COMPLETED:'Concluído', FAILED:'Falhou', CANCELLED:'Cancelado'})[s] || s
+    const nodeIcon = t => ({trigger:'⚡', message:'💬', interactive_message:'🗂', wait:'⏱', condition:'🔀', action:'▶', end:'⬛', error:'⚠️'})[t] || '•'
+    body.innerHTML = `
+      <div style="padding:16px 20px">
+        <button onclick="openExecutionsModal()" style="background:transparent;border:none;color:var(--accent);cursor:pointer;font-size:12px;margin-bottom:12px">← voltar</button>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:14px">
+          <div style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Status</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${statusLabel(ex.status)}</div>
+          ${ex.context && ex.context.error ? `<div style="margin-top:6px;font-size:11px;color:#dc2626">Erro: ${esc(ex.context.error)}</div>` : ''}
+          <div style="margin-top:6px;font-size:11px;color:var(--text-3)">Iniciado: ${esc(new Date(ex.started_at).toLocaleString('pt-BR'))}${ex.finished_at ? ` · Terminou: ${esc(new Date(ex.finished_at).toLocaleString('pt-BR'))}` : ''}</div>
+        </div>
+        <h4 style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Timeline</h4>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${logs.length === 0 ? `<div style="color:var(--text-3);font-size:12px">Sem logs</div>` :
+          logs.map(l => `<div style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-radius:6px;background:${l.status==='FAILED'?'#fef2f2':'var(--surface2)'};border:1px solid ${l.status==='FAILED'?'#fecaca':'var(--border)'}">
+            <span style="font-size:14px">${nodeIcon(l.node_type)}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12.5px;font-weight:500;color:var(--text)">${esc(l.node_type)} <span style="font-weight:400;color:var(--text-3);font-size:11px">· ${esc(l.node_id)}</span></div>
+              <div style="font-size:11px;color:${l.status==='FAILED'?'#dc2626':'var(--text-2)'};margin-top:2px">${l.status} · ${esc(new Date(l.created_at).toLocaleString('pt-BR'))}</div>
+              ${l.details ? `<pre style="margin-top:4px;font-size:10.5px;color:var(--text-3);background:var(--bg);padding:6px 8px;border-radius:4px;overflow-x:auto">${esc(JSON.stringify(l.details, null, 0))}</pre>` : ''}
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>`
+  } catch (e) { showToast(e.message||'Falha ao carregar logs','error') }
+}
+
+
+
+// ─── UX v3: Labels, Duplicar, Auto-layout, Fit-to-view ────────
+function setNodeLabel(nodeId, value) {
+  const n = E.nodes.find(x => x.id === nodeId)
+  if (!n) return
+  const v = (value || '').trim().slice(0, 40)
+  if ((n.label || '') === v) return
+  n.label = v || undefined
+  E.dirty = true
+  renderEditor()
+  autoSaveFlowDebounced()
+}
+
+function duplicateNode(nodeId) {
+  const src = E.nodes.find(n => n.id === nodeId)
+  if (!src) return
+  const id = 'node_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+  const copy = {
+    id,
+    type: src.type,
+    position: { x: (src.position?.x || 0) + 40, y: (src.position?.y || 0) + 40 },
+    data: JSON.parse(JSON.stringify(src.data || {})),
+  }
+  if (src.label) copy.label = src.label + ' (cópia)'
+  E.nodes.push(copy)
+  E.selectedNodeId = id
+  E.dirty = true
+  renderEditor()
+  openNodePanel(id)
+  showToast('Bloco duplicado', 'success')
+}
+
+function autoLayoutFlow() {
+  if (!E.nodes.length) return
+  // Layer assignment via BFS a partir dos triggers
+  const inDeg = new Map()
+  E.nodes.forEach(n => inDeg.set(n.id, 0))
+  E.edges.forEach(e => inDeg.set(e.target, (inDeg.get(e.target) || 0) + 1))
+
+  const layers = new Map() // nodeId -> layer index
+  const queue = []
+  E.nodes.forEach(n => { if ((inDeg.get(n.id) || 0) === 0) { layers.set(n.id, 0); queue.push(n.id) } })
+  if (queue.length === 0 && E.nodes.length) { layers.set(E.nodes[0].id, 0); queue.push(E.nodes[0].id) }
+
+  while (queue.length) {
+    const id = queue.shift()
+    const myLayer = layers.get(id) || 0
+    const outs = E.edges.filter(e => e.source === id)
+    for (const e of outs) {
+      const cur = layers.get(e.target)
+      const newLayer = myLayer + 1
+      if (cur === undefined || cur < newLayer) {
+        layers.set(e.target, newLayer)
+        queue.push(e.target)
+      }
+    }
+  }
+  // Nós sem layer (desconectados): colocar na layer 0
+  E.nodes.forEach(n => { if (!layers.has(n.id)) layers.set(n.id, 0) })
+
+  // Agrupa por layer
+  const byLayer = new Map()
+  for (const n of E.nodes) {
+    const L = layers.get(n.id) || 0
+    if (!byLayer.has(L)) byLayer.set(L, [])
+    byLayer.get(L).push(n)
+  }
+
+  const COL_W = 280, ROW_H = 160
+  const startX = 80, startY = 80
+  const maxCount = Math.max(...Array.from(byLayer.values()).map(arr => arr.length))
+  for (const [L, arr] of byLayer.entries()) {
+    const count = arr.length
+    const offsetY = ((maxCount - count) * ROW_H) / 2
+    arr.forEach((n, i) => {
+      n.position = { x: startX + L * COL_W, y: startY + offsetY + i * ROW_H }
+    })
+  }
+  E.dirty = true
+  renderEditor()
+  setTimeout(fitToView, 30)
+  showToast('Fluxo organizado', 'success')
+}
+
+function fitToView() {
+  if (!E.nodes.length) { resetZoom(); return }
+  const wrap = document.getElementById('canvas-wrap')
+  if (!wrap) return
+  const NW = 240, NH = 100 // aprox
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const n of E.nodes) {
+    const x = n.position?.x || 0, y = n.position?.y || 0
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x + NW > maxX) maxX = x + NW
+    if (y + NH > maxY) maxY = y + NH
+  }
+  const boxW = maxX - minX + 120
+  const boxH = maxY - minY + 120
+  const vpW = wrap.clientWidth, vpH = wrap.clientHeight
+  const scaleX = vpW / boxW, scaleY = vpH / boxH
+  E.scale = Math.min(1, Math.max(0.3, Math.min(scaleX, scaleY)))
+  E.panX = (vpW - boxW * E.scale) / 2 - minX * E.scale
+  E.panY = (vpH - boxH * E.scale) / 2 - minY * E.scale
+  applyTransform()
+}
+
+// Wheel zoom (ctrl+scroll ou scroll no canvas)
+document.addEventListener('DOMContentLoaded', () => {
+  const wrap = document.getElementById('canvas-wrap')
+  if (!wrap) return
+  wrap.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? -0.1 : 0.1
+    E.scale = Math.max(0.3, Math.min(2, E.scale + delta))
+    applyTransform()
+  }, { passive: false })
+}, { once: true })
+
+
+
+// ─── Template preview + variáveis ────────────────────────────
+function onTemplateSelect(templateId) {
+  const node = E.nodes.find(n => n.id === E.selectedNodeId)
+  if (!node) return
+  const tmpl = (E.meta.templates || []).find(t => t.id === templateId)
+  const preview = document.getElementById('pf-tmpl-preview')
+  if (!preview) return
+  if (!tmpl) { preview.innerHTML = ''; return }
+
+  const vars = Array.isArray(tmpl.variables) ? tmpl.variables : []
+  const saved = (node.data && node.data.templateVars) || {}
+  const body = tmpl.body || ''
+
+  const header = tmpl.header_content ? `<div style="font-weight:600;color:var(--text);margin-bottom:4px">${esc(tmpl.header_content)}</div>` : ''
+  const footer = tmpl.footer ? `<div style="color:var(--text-3);font-size:11px;margin-top:6px">${esc(tmpl.footer)}</div>` : ''
+
+  // Gera input por variável (suporta {{1}}, {{2}} ou {{nome}})
+  const varPlaceholders = [...body.matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)].map(m => m[1])
+  const uniqueVars = [...new Set([...vars, ...varPlaceholders])]
+
+  const inputs = uniqueVars.map(v => `
+    <div class="field" style="margin-top:8px">
+      <label style="font-size:11px">Variável <code>{{${esc(v)}}}</code></label>
+      <input type="text" data-tmpl-var="${esc(v)}" value="${esc(saved[v] || '')}" placeholder="{{nome}}, {{telefone}}, texto literal..." style="width:100%">
+    </div>`).join('')
+
+  preview.innerHTML = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+      ${header}
+      <div style="white-space:pre-wrap;font-size:12.5px;color:var(--text);line-height:1.5">${esc(body)}</div>
+      ${footer}
+    </div>
+    ${inputs ? `<div style="margin-top:8px"><div class="field-hint">Preencha as variáveis. Use <code>{{nome}}</code> para interpolar dados do lead.</div>${inputs}</div>` : ''}
+  `
+}
+
+// Hook: quando painel abre com template já selecionado, renderiza preview
+const _origBuildPanelForm = buildPanelForm
+buildPanelForm = function(node) {
+  const html = _origBuildPanelForm(node)
+  if (node.type === 'message' && node.data?.messageType === 'template' && node.data?.templateId) {
+    setTimeout(() => { try { onTemplateSelect(node.data.templateId) } catch {} }, 0)
+  }
+  return html
+}
+
+
+
+// ─── Sync templates da Meta ───────────────────────────────────
+async function syncMetaTemplates() {
+  showToast('Buscando templates da Meta...', 'info')
+  try {
+    const r = await api('/meta/templates/sync', { method: 'POST' })
+    const synced = r.synced || 0
+    if (synced > 0) {
+      showToast(`${synced} template(s) sincronizados`, 'success')
+      // Recarrega meta
+      try {
+        const meta = await api('/meta')
+        E.meta = meta
+        // Re-renderiza painel atual
+        if (E.selectedNodeId) openNodePanel(E.selectedNodeId)
+      } catch {}
+    } else if (r.errors && r.errors.length) {
+      showToast('Erro: ' + (r.errors[0] || ''), 'error')
+    } else {
+      showToast('Nenhum template novo', 'info')
+    }
+  } catch (e) { showToast(e.message || 'Falha ao sincronizar', 'error') }
+}
+
+
+
+// ─── v4: Note, Resize, Auto-save, Snap ──────────────────────
+
+function setNoteContent(nodeId, value) {
+  const n = E.nodes.find(x => x.id === nodeId)
+  if (!n) return
+  if ((n.data?.content || '') === value) return
+  n.data = { ...(n.data||{}), content: value }
+  E.dirty = true
+  autoSaveFlowDebounced()
+}
+
+// Resize de nodes
+let _resizing = null // { id, startX, startY, startW, startH }
+function startResize(e, nodeId) {
+  e.stopPropagation(); e.preventDefault()
+  const el = document.getElementById('node-' + nodeId)
+  if (!el) return
+  const n = E.nodes.find(x => x.id === nodeId)
+  if (!n) return
+  const rect = el.getBoundingClientRect()
+  _resizing = {
+    id: nodeId,
+    startX: e.clientX, startY: e.clientY,
+    startW: rect.width / E.scale, startH: rect.height / E.scale,
+  }
+}
+document.addEventListener('mousemove', (e) => {
+  if (!_resizing) return
+  const dx = (e.clientX - _resizing.startX) / E.scale
+  const dy = (e.clientY - _resizing.startY) / E.scale
+  const w = Math.max(180, _resizing.startW + dx)
+  const h = Math.max(100, _resizing.startH + dy)
+  const n = E.nodes.find(x => x.id === _resizing.id)
+  if (!n) return
+  n.size = { width: Math.round(w), height: Math.round(h) }
+  const el = document.getElementById('node-' + _resizing.id)
+  if (el) { el.style.width = n.size.width + 'px'; el.style.height = n.size.height + 'px' }
+  renderEdges()
+})
+document.addEventListener('mouseup', () => {
+  if (_resizing) {
+    _resizing = null
+    E.dirty = true
+    autoSaveFlowDebounced()
+  }
+})
+
+// ─── Auto-save (debounced) ──────────────────────────────────
+let _autoSaveTimer = null
+function autoSaveFlowDebounced(delay = 1500) {
+  if (!E.flowId) return
+  clearTimeout(_autoSaveTimer)
+  _autoSaveTimer = setTimeout(() => {
+    silentSaveFlow()
+  }, delay)
+}
+
+async function silentSaveFlow() {
+  if (!E.flowId) return
+  const name = (document.getElementById('flow-name-input')?.value || E.flowName || '').trim()
+  if (!name) return
+  try {
+    await api(`/${E.flowId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, nodes: E.nodes, edges: E.edges }),
+    })
+    E.flowName = name
+    E.dirty = false
+    // Feedback sutil: pisca o status bar
+    const bar = document.getElementById('status-badge-bar')
+    if (bar) {
+      const prev = bar.style.boxShadow
+      bar.style.boxShadow = '0 0 0 2px rgba(16,185,129,0.4)'
+      setTimeout(() => { bar.style.boxShadow = prev }, 600)
+    }
+  } catch (e) {
+    console.warn('silentSave failed', e.message)
+  }
+}
+
+// ─── Snap em grid (opcional, 20px) ──────────────────────────
+const SNAP_GRID = 20
+function snapToGrid(v) { return Math.round(v / SNAP_GRID) * SNAP_GRID }
+
+
+
+// ─── Note color picker ───────────────────────────────────────
+const NOTE_COLORS = [
+  { key: 'yellow', hex: '#fef9c3' },
+  { key: 'pink',   hex: '#fce7f3' },
+  { key: 'blue',   hex: '#dbeafe' },
+  { key: 'green',  hex: '#dcfce7' },
+  { key: 'purple', hex: '#f3e8ff' },
+  { key: 'gray',   hex: '#f1f5f9' },
+]
+
+function openNoteColorPicker(e, nodeId) {
+  e.stopPropagation()
+  // remove qualquer outro picker aberto
+  document.querySelectorAll('.note-color-picker').forEach(el => el.remove())
+  const n = E.nodes.find(x => x.id === nodeId)
+  if (!n) return
+  const current = n.data?.color || 'yellow'
+  const picker = document.createElement('div')
+  picker.className = 'note-color-picker'
+  picker.innerHTML = NOTE_COLORS.map(c =>
+    `<div class="note-color-swatch ${c.key===current?'active':''}" style="background:${c.hex}" onclick="setNoteColor('${nodeId}','${c.key}')"></div>`
+  ).join('')
+  document.body.appendChild(picker)
+  const rect = e.target.getBoundingClientRect()
+  picker.style.top = (rect.bottom + 4) + 'px'
+  picker.style.left = (rect.left - 80) + 'px'
+  // Fecha ao clicar fora
+  setTimeout(() => {
+    const closer = (ev) => {
+      if (!picker.contains(ev.target)) { picker.remove(); document.removeEventListener('mousedown', closer) }
+    }
+    document.addEventListener('mousedown', closer)
+  }, 0)
+}
+
+function setNoteColor(nodeId, color) {
+  const n = E.nodes.find(x => x.id === nodeId)
+  if (!n) return
+  n.data = { ...(n.data||{}), color }
+  E.dirty = true
+  renderEditor()
+  autoSaveFlowDebounced(500)
+  document.querySelectorAll('.note-color-picker').forEach(el => el.remove())
+}
+
+
+
+
+// ─── Node metrics badges on canvas ──────────────────────
+let _nodeMetricsCache = null
+let _nodeMetricsTimer = null
+
+async function fetchAndShowNodeMetrics() {
+  if (!E.flowId) return
+  try {
+    const data = await api('/' + E.flowId + '/node-metrics')
+    _nodeMetricsCache = data
+    applyNodeMetrics(data)
+  } catch(e) { console.warn('node-metrics:', e) }
+}
+
+function applyNodeMetrics(data) {
+  if (!data || !data.nodes) return
+  const total = data.totalExecutions || 1
+  const byId = {}
+  data.nodes.forEach(n => { byId[n.nodeId] = n })
+
+  E.nodes.forEach(node => {
+    const el = document.getElementById('node-' + node.id)
+    if (!el) return
+    // Remove old metrics bar
+    const old = el.querySelector('.node-metrics-bar')
+    if (old) old.remove()
+
+    const m = byId[node.id]
+    if (!m && node.type !== 'trigger') return
+
+    const bar = document.createElement('div')
+    bar.className = 'node-metrics-bar'
+
+    if (node.type === 'trigger') {
+      const cnt = total
+      bar.innerHTML = '<span class="node-metric sent">⚡ ' + cnt + ' disparos</span>'
+    } else if (node.type === 'message' || node.type === 'interactive_message') {
+      if (!m) return
+      const parts = []
+      if (m.passed) parts.push('<span class="node-metric ok">✓ ' + m.passed + ' enviados</span>')
+      if (m.failed) parts.push('<span class="node-metric fail">✕ ' + m.failed + '</span>')
+      if (m.waiting) parts.push('<span class="node-metric wait">⏳ ' + m.waiting + '</span>')
+      if (m.passed && total) {
+        const pct = Math.round((m.passed / total) * 100)
+        parts.push('<span class="node-metric pct">' + pct + '% passaram</span>')
+      }
+      if (!parts.length) return
+      bar.innerHTML = parts.join('')
+    } else if (node.type === 'wait') {
+      if (!m) return
+      const parts = []
+      if (m.passed) parts.push('<span class="node-metric ok">✓ ' + m.passed + ' completaram</span>')
+      if (m.waiting) parts.push('<span class="node-metric wait">⏳ ' + m.waiting + ' esperando</span>')
+      if (m.failed) parts.push('<span class="node-metric fail">✕ ' + m.failed + '</span>')
+      if (!parts.length) return
+      bar.innerHTML = parts.join('')
+    } else if (node.type === 'condition') {
+      if (!m) return
+      const parts = []
+      const yes = m.branches?.yes || 0
+      const no = m.branches?.no || 0
+      if (yes || no) {
+        parts.push('<span class="node-metric ok">✓ Sim: ' + yes + '</span>')
+        parts.push('<span class="node-metric fail">✕ Não: ' + no + '</span>')
+      } else {
+        if (m.passed) parts.push('<span class="node-metric ok">✓ ' + m.passed + ' passaram</span>')
+      }
+      if (m.waiting) parts.push('<span class="node-metric wait">⏳ ' + m.waiting + '</span>')
+      if (!parts.length) return
+      bar.innerHTML = parts.join('')
+    } else if (node.type === 'action') {
+      if (!m) return
+      const parts = []
+      if (m.passed) parts.push('<span class="node-metric ok">✓ ' + m.passed + '</span>')
+      if (m.failed) parts.push('<span class="node-metric fail">✕ ' + m.failed + '</span>')
+      if (!parts.length) return
+      bar.innerHTML = parts.join('')
+    } else if (node.type === 'end') {
+      if (!m) return
+      if (m.passed) bar.innerHTML = '<span class="node-metric ok">✓ ' + m.passed + ' finalizaram</span>'
+      else return
+    } else {
+      return
+    }
+
+    // Insert before footer/add-next-wrap or at end
+    const footer = el.querySelector('.node-footer') || el.querySelector('.add-next-wrap') || el.querySelector('.inode-btn-list')
+    if (footer) el.insertBefore(bar, footer)
+    else el.appendChild(bar)
+  })
+}
+
+// Refresh metrics every 30s while editor is open
+function startMetricsRefresh() {
+  if (_nodeMetricsTimer) clearInterval(_nodeMetricsTimer)
+  fetchAndShowNodeMetrics()
+  _nodeMetricsTimer = setInterval(fetchAndShowNodeMetrics, 30000)
+}
+
+// ─── Analytics do fluxo ─────────────────────────────────
+async function openFlowAnalytics() {
+  if (!E.flowId) { showToast('Salve o fluxo primeiro', 'error'); return }
+  try {
+    const data = await api('/' + E.flowId + '/analytics')
+    renderFlowAnalyticsModal(data)
+  } catch (e) { showToast(e.message || 'Falha', 'error') }
+}
+
+function renderFlowAnalyticsModal(data) {
+  const t = data.totals || {}
+  const avgMin = Math.round((data.avgDurationSec || 0) / 60)
+  const nodeIcon = (type) => ({trigger:'⚡', message:'💬', interactive_message:'🗂', wait:'⏱', condition:'🔀', action:'▶', end:'⬛', note:'📝'}[type] || '•')
+  // Mapa id → {type, label} pra mostrar onde cada lead está
+  const nodeMap = {}
+  ;(data.flowNodes || []).forEach(n => { nodeMap[n.id] = n })
+  const nodeBadge = (id) => {
+    if (!id) return '<span style="color:var(--text-3);font-size:11px">—</span>'
+    const n = nodeMap[id]
+    if (!n) return `<span style="color:var(--text-3);font-size:11px;font-family:monospace">${esc(id.slice(0,14))}…</span>`
+    return `<span title="${esc(id)}" style="display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:1px solid var(--border);padding:2px 8px;border-radius:10px;font-size:11px;color:var(--text)"><span>${nodeIcon(n.type)}</span>${esc(n.label || n.type)}</span>`
+  }
+  const formatWait = (iso) => {
+    if (!iso) return ''
+    const d = new Date(iso), now = new Date()
+    const diffMin = Math.round((d - now) / 60000)
+    if (diffMin <= 0) return 'liberando…'
+    if (diffMin < 60) return `em ${diffMin}min`
+    if (diffMin < 1440) return `em ${Math.round(diffMin/60)}h`
+    return `em ${Math.round(diffMin/1440)}d`
+  }
+
+  const nodeStatsRows = (data.nodeStats || []).map(n => {
+    const m = nodeMap[n.nodeId]
+    const label = m ? (m.label || m.type) : n.nodeType
+    return `
+    <tr style="border-top:1px solid var(--border)">
+      <td style="padding:8px 12px;font-size:12.5px"><span style="margin-right:6px">${nodeIcon(m?.type || n.nodeType)}</span>${esc(label)}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text-3);font-family:monospace">${esc(n.nodeId)}</td>
+      <td style="padding:8px 12px;text-align:right;color:#059669;font-weight:600">${n.passed}</td>
+      <td style="padding:8px 12px;text-align:right;color:${n.failed ? '#dc2626' : 'var(--text-3)'};font-weight:600">${n.failed || 0}</td>
+    </tr>`}).join('')
+
+  // Distribuição atual — onde leads ativos estão parados
+  const dist = data.currentDistribution || []
+  const distRows = dist.map(d => {
+    const m = nodeMap[d.nodeId]
+    const label = m ? (m.label || m.type) : '(node removido)'
+    const icon = nodeIcon(m?.type)
+    const parts = []
+    if (d.running) parts.push(`<span style="color:#1e40af">${d.running} rodando</span>`)
+    if (d.waiting) parts.push(`<span style="color:#92400e">${d.waiting} aguardando</span>`)
+    if (d.waiting_reply) parts.push(`<span style="color:#6b21a8">${d.waiting_reply} aguard. resposta</span>`)
+    return `
+    <tr style="border-top:1px solid var(--border);font-size:12px">
+      <td style="padding:8px 12px"><span style="margin-right:6px">${icon}</span>${esc(label)}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text-3)">${parts.join(' · ') || '—'}</td>
+      <td style="padding:8px 12px;text-align:right;font-weight:700;color:var(--text)">${d.total}</td>
+    </tr>`
+  }).join('')
+
+  const statusPill = s => {
+    const map = {RUNNING:['#dbeafe','#1e40af'],WAITING:['#fef3c7','#92400e'],WAITING_REPLY:['#f3e8ff','#6b21a8'],COMPLETED:['#dcfce7','#166534'],FAILED:['#fee2e2','#991b1b'],CANCELLED:['#f1f5f9','#475569']}
+    const [bg,color] = map[s] || ['#f1f5f9','#475569']
+    return `<span style="background:${bg};color:${color};padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600">${s}</span>`
+  }
+  const recentRows = (data.recent || []).map(r => {
+    const isActive = r.status === 'RUNNING' || r.status === 'WAITING' || r.status === 'WAITING_REPLY'
+    const waitInfo = (r.status === 'WAITING' && r.waitUntil) ? ` <span style="color:var(--text-3);font-size:10.5px">(${formatWait(r.waitUntil)})</span>` : ''
+    return `
+    <tr style="border-top:1px solid var(--border);font-size:12px">
+      <td style="padding:6px 10px;white-space:nowrap">${statusPill(r.status)}</td>
+      <td style="padding:6px 10px">${esc(r.leadName || '—')}</td>
+      <td style="padding:6px 10px">${nodeBadge(r.currentNodeId)}${waitInfo}</td>
+      <td style="padding:6px 10px;color:var(--text-3);font-size:11px;white-space:nowrap">${esc(new Date(r.updatedAt || r.startedAt).toLocaleString('pt-BR'))}</td>
+    </tr>`}).join('')
+
+  const stat = (lbl, val, color) => `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:100px">
+      <div style="font-size:10.5px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;font-weight:600">${lbl}</div>
+      <div style="font-size:20px;font-weight:800;color:${color};margin-top:2px">${val}</div>
+    </div>`
+
+  const html = `
+  <div id="exec-modal-backdrop" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px" onclick="if(event.target===this)closeExecutionsModal()">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;max-width:920px;width:100%;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow)">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+        <h3 style="margin:0;font-size:15px;font-weight:600;color:var(--text)">📈 Analytics · ${esc(E.flowName || '')}</h3>
+        <button onclick="closeExecutionsModal()" style="background:transparent;border:none;color:var(--text-2);cursor:pointer;font-size:18px">✕</button>
+      </div>
+      <div style="padding:18px 20px;overflow-y:auto;flex:1">
+        <h4 style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Execuções</h4>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${stat('Total', t.total || 0, 'var(--text)')}
+          ${stat('Concluídas', t.completed || 0, '#10b981')}
+          ${stat('Aguardando', (t.waiting || 0) + (t.waiting_reply || 0), '#d97706')}
+          ${stat('Falhas', t.failed || 0, '#dc2626')}
+          ${stat('Conversão', (data.conversionRate || 0) + '%', '#6366f1')}
+          ${stat('Tempo médio', avgMin + ' min', '#64748b')}
+        </div>
+
+        <h4 style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">Funil por bloco</h4>
+        ${data.nodeStats && data.nodeStats.length > 0 ? `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--surface2);font-size:11px;color:var(--text-3);text-transform:uppercase">
+                <th style="padding:8px 12px;text-align:left">Bloco</th>
+                <th style="padding:8px 12px;text-align:left">ID</th>
+                <th style="padding:8px 12px;text-align:right;color:#059669">Passou</th>
+                <th style="padding:8px 12px;text-align:right;color:#dc2626">Falhou</th>
+              </tr></thead>
+              <tbody>${nodeStatsRows}</tbody>
+            </table>
+          </div>` : '<p style="color:var(--text-3);font-size:12px">Sem execuções registradas ainda.</p>'}
+
+        ${dist.length > 0 ? `
+          <h4 style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">Onde estão parados agora (${dist.reduce((a,b)=>a+b.total,0)} leads ativos)</h4>
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--surface2);font-size:11px;color:var(--text-3);text-transform:uppercase">
+                <th style="padding:8px 12px;text-align:left">Bloco atual</th>
+                <th style="padding:8px 12px;text-align:left">Detalhe</th>
+                <th style="padding:8px 12px;text-align:right">Leads</th>
+              </tr></thead>
+              <tbody>${distRows}</tbody>
+            </table>
+          </div>` : ''}
+
+        <h4 style="font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">Últimas execuções <span style="color:var(--text-3);font-weight:400;text-transform:none">— onde cada lead chegou</span></h4>
+        ${data.recent && data.recent.length > 0 ? `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--surface2);font-size:11px;color:var(--text-3);text-transform:uppercase">
+                <th style="padding:6px 10px;text-align:left">Status</th>
+                <th style="padding:6px 10px;text-align:left">Lead</th>
+                <th style="padding:6px 10px;text-align:left">Bloco atual</th>
+                <th style="padding:6px 10px;text-align:left">Atualizado</th>
+              </tr></thead>
+              <tbody>${recentRows}</tbody>
+            </table>
+          </div>` : '<p style="color:var(--text-3);font-size:12px">—</p>'}
+      </div>
+    </div>
+  </div>`
+
+  const root = document.getElementById('exec-modal-root') || (() => { const d = document.createElement('div'); d.id = 'exec-modal-root'; document.body.appendChild(d); return d })()
+  root.innerHTML = html
+}
+
+</script>
+
+<!-- Node picker popup -->
+<div id="add-node-picker">
+  <div class="picker-title">Adicionar bloco</div>
+  <div class="picker-item" onclick="pickAndAdd('message')">
+    <div class="pi-icon" style="background:rgba(56,139,253,.15);color:#58a6ff">💬</div>Mensagem
+  </div>
+  <div class="picker-item" onclick="pickAndAdd('interactive_message')">
+    <div class="pi-icon" style="background:rgba(225,98,50,.15);color:#f0883e">🗂</div>Msg. Interativa
+  </div>
+  <div class="picker-item" onclick="pickAndAdd('wait')">
+    <div class="pi-icon" style="background:rgba(210,153,34,.12);color:#e3b341">⏱</div>Espera
+  </div>
+  <div class="picker-item" onclick="pickAndAdd('condition')">
+    <div class="pi-icon" style="background:rgba(137,87,229,.15);color:#a371f7">🔀</div>Condição
+  </div>
+  <div class="picker-sep"></div>
+  <div class="picker-item" onclick="pickAndAdd('action', {actionType:'add_tag',params:{}})">
+    <div class="pi-icon" style="background:rgba(225,98,50,.15);color:#f0883e">🏷</div>Adicionar tag
+  </div>
+  <div class="picker-item" onclick="pickAndAdd('action', {actionType:'change_stage',params:{}})">
+    <div class="pi-icon" style="background:rgba(225,98,50,.15);color:#f0883e">📋</div>Mudar etapa
+  </div>
+  <div class="picker-item" onclick="pickAndAdd('action', {actionType:'assign_operator',params:{}})">
+    <div class="pi-icon" style="background:rgba(225,98,50,.15);color:#f0883e">👤</div>Atribuir operador
+  </div>
+  <div class="picker-sep"></div>
+  <div class="picker-item" onclick="pickAndAdd('end')">
+    <div class="pi-icon" style="background:rgba(72,79,88,.2);color:#8b949e">⬛</div>Encerrar fluxo
+  </div>
+</div>
+</body>
+</html>

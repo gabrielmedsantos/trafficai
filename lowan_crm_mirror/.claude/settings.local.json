@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new root@204.168.190.107 'echo OK; uptime; ls /root | head -30')",
+      "Bash(git config *)",
+      "Bash(git -C /d/boot/ANTIGRAVITY status --short)",
+      "Bash(git -C /d/boot/ANTIGRAVITY log --oneline -5 -- lowan_crm_mirror/)",
+      "Bash(ssh root@204.168.190.107 'which rsync && docker ps --format \"table {{.Names}}\\\\t{{.Image}}\\\\t{{.Status}}\"')",
+      "Bash(ssh root@204.168.190.107 'echo \"=== api dist ===\"; docker exec wablast_api ls /app/dist | head; echo \"=== worker dist ===\"; docker exec wablast_worker ls /app/dist | head; echo \"=== frontend html ===\"; docker exec wablast_frontend ls /usr/share/nginx/html | head -30; echo \"=== unofficial root ===\"; docker exec wablast_unofficial sh -c \"ls /app 2>/dev/null || ls / | head -20\"; echo \"=== telegram-user root ===\"; docker exec wablast_telegram_user sh -c \"ls /app 2>/dev/null || ls / | head -20\"')",
+      "Bash(ssh root@204.168.190.107 'mkdir -p /tmp/lowan_pull && cd /tmp/lowan_pull && \\\\ *)",
+      "Bash(mkdir -p /tmp/lowan_pull)",
+      "Bash(scp root@204.168.190.107:/tmp/lowan_pull/*.tar.gz /tmp/lowan_pull/)",
+      "Read(//tmp/**)",
+      "Bash(rm -rf api_dist telegram_user_src)",
+      "Bash(mkdir api_dist telegram_user_src)",
+      "Bash(tar -xzf /tmp/lowan_pull/api_dist.tar.gz -C api_dist --strip-components=1)"
+    ]
+  }
+}

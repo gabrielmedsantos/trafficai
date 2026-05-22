@@ -1,0 +1,16 @@
+{
+  "name": "wablast-telegram-user",
+  "version": "1.0.0",
+  "description": "Telegram MTProto (user/personal) connector for Lowan CRM",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^2.7.0",
+    "pino": "^8.17.2",
+    "telegram": "^2.22.2"
+  }
+}

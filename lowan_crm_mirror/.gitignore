@@ -1,0 +1,14 @@
+# Backups timestamped pelos scripts de deploy (não devem entrar no git)
+*.bak.*
+*.bak
+*.pre_*
+*.compress_bak
+
+# Maps de source (gerados pelo build TS)
+# Mantém .js mas evita map (verboso)
+*.js.map
+*.d.ts.map
+
+# Lockfiles dos containers Baileys/Telegram (ficam só no container)
+unofficial_src/package-lock.json
+telegram_user_src/package-lock.json
