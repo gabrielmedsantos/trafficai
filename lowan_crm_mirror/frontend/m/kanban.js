@@ -15,6 +15,52 @@ async function fetchKanban() {
   if (S.leadsLoaded) cleanOrphanStages()
 }
 
+// ─── Data-Lite: column-scoped fetches via /leads/lite (PR #27/#28) ───────────
+// Quando localStorage.useDataLite === '1' e a flag está em uso, o kanban deixa
+// de depender de S.leads (lista global) e passa a popular S.kanbanCols por
+// coluna. Cada coluna mantém items + nextCursor + hasMore independentes.
+// Estrutura: S.kanbanCols[colKey] = { items, nextCursor, hasMore, loading, loaded, error }
+// colKey é o stage UUID, ou o sentinel '_none' para a coluna "Sem etapa".
+
+if (!S.kanbanCols) S.kanbanCols = {}
+
+function _colKey(stageId) {
+  return (stageId === null || stageId === undefined || stageId === '_none') ? '_none' : String(stageId)
+}
+
+async function fetchKanbanColumn(colKey, opts) {
+  opts = opts || {}
+  const stageParam = colKey === '_none' ? '_none' : encodeURIComponent(colKey)
+  const cursorParam = opts.cursor ? '&cursor=' + encodeURIComponent(opts.cursor) : ''
+  const limit = opts.limit || 50
+  const prev = S.kanbanCols[colKey] || { items: [], nextCursor: null, hasMore: false }
+  S.kanbanCols[colKey] = { ...prev, loading: true, error: null }
+  try {
+    const res = await api('/lite?stageId=' + stageParam + '&limit=' + limit + cursorParam)
+    const items = opts.reset || !prev.items ? res.items : prev.items.concat(res.items)
+    S.kanbanCols[colKey] = {
+      items: items,
+      nextCursor: res.nextCursor,
+      hasMore: !!res.hasMore,
+      loading: false,
+      loaded: true,
+      error: null,
+    }
+  } catch (err) {
+    S.kanbanCols[colKey] = { ...(S.kanbanCols[colKey] || prev), loading: false, error: err && err.message || 'erro' }
+    try { console.debug('[kanban-lite] fetchKanbanColumn ' + colKey + ' falhou:', err && err.message) } catch (e) {}
+  }
+}
+
+// Faz fan-out: 1 fetch por coluna (sem etapa + cada stage do pipeline).
+// Chamado depois de fetchKanban() retornar o pipeline.stages.
+async function fetchKanbanAllColumns(opts) {
+  if (!DL.enabled() || !S.kanban || !Array.isArray(S.kanban.stages)) return
+  opts = opts || {}
+  const colKeys = ['_none'].concat(S.kanban.stages.map(s => s.id))
+  await Promise.all(colKeys.map(k => fetchKanbanColumn(k, { reset: true, limit: opts.limit || 50 })))
+}
+
 
 async function cleanOrphanStages() {
   // SEGURANÇA: apenas atualiza localmente — NÃO persiste no backend
@@ -87,28 +133,43 @@ function renderKanban() {
   const stages = pipeline.stages || []
   const leads = S.leads
 
+  // Data-Lite (PR #28): em modo lite, cada coluna vem do seu próprio fetch
+  // /leads/lite?stageId=X (popula S.kanbanCols). Senão, split clássico de S.leads.
+  const useLite = DL.enabled() && S.kanbanCols && Object.keys(S.kanbanCols).length > 0
+
   const byStage = {}
   const noStage = []
-  for (const lead of leads) {
-    if (lead.stageId) {
-      if (!byStage[lead.stageId]) byStage[lead.stageId] = []
-      byStage[lead.stageId].push(lead)
-    } else {
-      noStage.push(lead)
+  if (!useLite) {
+    for (const lead of leads) {
+      if (lead.stageId) {
+        if (!byStage[lead.stageId]) byStage[lead.stageId] = []
+        byStage[lead.stageId].push(lead)
+      } else {
+        noStage.push(lead)
+      }
     }
   }
 
+  const _colItems = (key, fallback) => {
+    if (!useLite) return fallback
+    const col = S.kanbanCols[key]
+    return (col && col.items) ? col.items : []
+  }
+
   const allColumns = [
-    { id: null, name: pipeline.defaultStageName || 'Sem Etapa', color: '#94a3b8', leads: noStage },
-    ...stages.map(s => ({ ...s, leads: byStage[s.id] || [] })),
+    { id: null, name: pipeline.defaultStageName || 'Sem Etapa', color: '#94a3b8', leads: _colItems('_none', noStage) },
+    ...stages.map(s => ({ ...s, leads: _colItems(s.id, byStage[s.id] || []) })),
   ]
 
   // ─── Stats agregados ─────────────────────────────────────────────────────
-  const totalAll = (S.leadsTotal && S.leadsTotal > leads.length) ? S.leadsTotal : leads.length
-  const inStage = leads.filter(l => l.stageId).length
-  const noStageCount = noStage.length
-  const unreadCount = leads.filter(l => l.unreadCount > 0).length
-  const unassignedCount = leads.filter(l => !l.assignedToId).length
+  // Quando localStorage.useDataLite === '1', vem do summary endpoint (PR #24)
+  // via window.DL.counter — fallback automático para o cálculo em S.leads.
+  const _legacyTotal = (S.leadsTotal && S.leadsTotal > leads.length) ? S.leadsTotal : leads.length
+  const totalAll        = DL.counter('kanban', s => s.total,              () => _legacyTotal)
+  const inStage         = DL.counter('kanban', s => s.total - s.semEtapa, () => leads.filter(l => l.stageId).length)
+  const noStageCount    = DL.counter('kanban', s => s.semEtapa,           () => noStage.length)
+  const unreadCount     = DL.counter('kanban', s => s.aguardandoResposta, () => leads.filter(l => l.unreadCount > 0).length)
+  const unassignedCount = DL.counter('kanban', s => s.semOperador,        () => leads.filter(l => !l.assignedToId).length)
   const pct = (n) => totalAll > 0 ? Math.round((n / totalAll) * 100) : 0
 
   return `
@@ -154,10 +215,22 @@ function renderKanban() {
 
 function renderKanbanColumn(col, totalAll) {
   const colId = col.id === null ? 'null' : col.id
-  const limit = S.kanbanColLimits[colId] ?? KANBAN_PAGE
-  const visible = col.leads.slice(0, limit)
-  const hasMore = col.leads.length > limit
-  const colCount = col.leads.length
+  // Data-Lite: em modo lite a coluna vem do próprio fetch /leads/lite.
+  // Infinite scroll via nextCursor — sentinel renderiza quando .hasMore.
+  const colKey = _colKey(col.id)
+  const liteCol = DL.enabled() && S.kanbanCols ? S.kanbanCols[colKey] : null
+  const useLite = !!liteCol
+  const limit = useLite ? col.leads.length : (S.kanbanColLimits[colId] ?? KANBAN_PAGE)
+  const visible = useLite ? col.leads : col.leads.slice(0, limit)
+  const hasMoreLegacy = !useLite && col.leads.length > limit
+  const hasMoreLite = useLite && !!liteCol.hasMore
+  // Contagem total da coluna: via summary quando flag ON (suporta S.leads parcial);
+  // fallback é o tamanho da lista carregada localmente.
+  const colCount = DL.counter('kanban',
+    s => col.id === null ? (s.semEtapa || 0) : ((s.byStage && s.byStage[col.id] && s.byStage[col.id].total) || 0),
+    () => col.leads.length
+  )
+  const liteRemaining = useLite ? Math.max(0, colCount - col.leads.length) : 0
   const pct = totalAll > 0 ? Math.max(1, Math.round((colCount / totalAll) * 100)) : 0
   const pctLabel = totalAll > 0 ? ((colCount / totalAll) * 100).toFixed(colCount === 0 ? 0 : (colCount * 100 / totalAll < 1 ? 2 : 0)) : '0'
   return `
@@ -184,9 +257,13 @@ function renderKanbanColumn(col, totalAll) {
       ondrop="kanbanDrop(event,'${col.id}')">
       ${col.leads.length === 0 ? `
         <div class="kb-empty-zone">Arraste leads aqui</div>` : visible.map(l => renderKanbanCard(l)).join('')}
-      ${hasMore ? `<div class="kb-sentinel" data-kanban-sentinel="${colId}">
+      ${hasMoreLegacy ? `<div class="kb-sentinel" data-kanban-sentinel="${colId}">
         <svg fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
         ${col.leads.length - limit} restantes
+      </div>` : ''}
+      ${hasMoreLite ? `<div class="kb-sentinel" data-kanban-sentinel="${colId}" data-lite="1">
+        <svg fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+        ${liteRemaining} restantes
       </div>` : ''}
     </div>
   </div>`
@@ -216,6 +293,18 @@ function attachKanbanScrollListeners() {
 
 
 function _loadMoreKanbanCol(colId) {
+  // Data-Lite: se em modo lite (S.kanbanCols populado pra essa col), usa
+  // fetchKanbanColumn(cursor) em vez de fatiar S.leads. Append em vez de
+  // re-render full.
+  if (DL.enabled() && S.kanbanCols) {
+    const colKey = colId === 'null' ? '_none' : colId
+    if (S.kanbanCols[colKey]) return _loadMoreKanbanColLite(colId, colKey)
+  }
+  return _loadMoreKanbanColLegacy(colId)
+}
+
+
+function _loadMoreKanbanColLegacy(colId) {
   // Monta lista de leads desta coluna (igual ao renderKanban)
   const pipeline = S.kanban
   if (!pipeline) return
@@ -268,6 +357,64 @@ function _loadMoreKanbanCol(colId) {
     if (newSentinel) _kanbanSentinelObserver.observe(newSentinel)
   }
 }
+
+
+// Data-Lite: append da próxima página via /leads/lite?cursor=...
+function _loadMoreKanbanColLite(colId, colKey) {
+  const col = S.kanbanCols[colKey]
+  if (!col || !col.hasMore || col.loading) return
+  const cursor = col.nextCursor
+  const prevLen = (col.items || []).length
+
+  fetchKanbanColumn(colKey, { cursor: cursor }).then(function(){
+    const after = S.kanbanCols[colKey]
+    if (!after) return
+    const newItems = (after.items || []).slice(prevLen)
+    if (!newItems.length) return
+
+    const zone = document.querySelector(`[data-drop-zone="${colId}"]`)
+    if (!zone) return
+
+    // Remove sentinel antigo
+    const sentinel = zone.querySelector(`[data-kanban-sentinel="${colId}"][data-lite="1"]`)
+    if (sentinel) sentinel.remove()
+
+    // Appenda cards novos
+    const frag = document.createDocumentFragment()
+    for (const lead of newItems) {
+      const tmp = document.createElement('div')
+      tmp.innerHTML = renderKanbanCard(lead)
+      while (tmp.firstChild) frag.appendChild(tmp.firstChild)
+    }
+
+    // Recoloca sentinel se ainda tem mais
+    if (after.hasMore) {
+      // Calcula quantos faltam pra mostrar no sentinel (true total - loaded)
+      const summary = DL.getSummary('kanban')
+      let totalCol = (col.items || []).length
+      if (summary) {
+        if (colId === 'null') totalCol = summary.semEtapa || 0
+        else if (summary.byStage && summary.byStage[colId]) totalCol = summary.byStage[colId].total || 0
+      }
+      const remaining = Math.max(0, totalCol - after.items.length)
+      const tmp = document.createElement('div')
+      tmp.innerHTML = `<div data-kanban-sentinel="${colId}" data-lite="1" style="height:40px;display:flex;align-items:center;justify-content:center;font-size:11px;color:#97a0af;flex-shrink:0">
+        <svg style="width:14px;height:14px;animation:spin 0.8s linear infinite;margin-right:5px" fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+        ${remaining} restantes
+      </div>`
+      frag.appendChild(tmp.firstChild)
+    }
+
+    zone.appendChild(frag)
+
+    // Re-observa o novo sentinel
+    if (after.hasMore && _kanbanSentinelObserver) {
+      const newSentinel = zone.querySelector(`[data-kanban-sentinel="${colId}"][data-lite="1"]`)
+      if (newSentinel) _kanbanSentinelObserver.observe(newSentinel)
+    }
+  })
+}
+
 
 // Kanban time display mode:
 //   'stage'      → tempo na etapa atual (stageMovedAt → createdAt fallback)  [DEFAULT — pedido pelo time pra cobrar movimentação]
@@ -427,18 +574,57 @@ async function kanbanDrop(e, stageId) {
   // Template literals convertem null para a string "null" — converter de volta
   const realStageId = (stageId === 'null' || stageId === null) ? null : stageId
 
-  const lead = S.leads.find(l => l.id === leadId)
+  // Data-Lite (PR #28): em modo lite, o lead pode existir só em S.kanbanCols
+  // (não em S.leads). Procurar nos dois.
+  const useLite = DL.enabled() && S.kanbanCols && Object.keys(S.kanbanCols).length > 0
+  let lead = S.leads.find(l => l.id === leadId)
+  let liteSourceKey = null
+  if (!lead && useLite) {
+    for (const k in S.kanbanCols) {
+      const found = (S.kanbanCols[k].items || []).find(l => l.id === leadId)
+      if (found) { lead = found; liteSourceKey = k; break }
+    }
+  }
   if (!lead || lead.stageId === realStageId) { render(); return }
 
   const prevStageId = lead.stageId
+  const targetKey = _colKey(realStageId)
+  const sourceKey = liteSourceKey || _colKey(prevStageId)
+
+  // Update S.leads (mantém compat com fluxos legados, ex: leads board, modais)
   S.leads = S.leads.map(l => l.id === leadId ? { ...l, stageId: realStageId } : l)
 
-  // Garante que a coluna de destino mostre o lead dropado
-  const targetColId = realStageId === null ? 'null' : realStageId
-  const targetColLeads = S.leads.filter(l => (realStageId === null ? !l.stageId : l.stageId === realStageId))
-  const currentLimit = S.kanbanColLimits[targetColId] ?? KANBAN_PAGE
-  if (targetColLeads.length > currentLimit) {
-    S.kanbanColLimits[targetColId] = targetColLeads.length
+  // Update S.kanbanCols (lite mode): remove da coluna fonte, insere na destino.
+  // Mantém um snapshot pra rollback em caso de erro.
+  let liteSnapshot = null
+  if (useLite) {
+    liteSnapshot = JSON.parse(JSON.stringify({ src: S.kanbanCols[sourceKey], dst: S.kanbanCols[targetKey] }))
+    if (S.kanbanCols[sourceKey]) {
+      S.kanbanCols[sourceKey] = {
+        ...S.kanbanCols[sourceKey],
+        items: (S.kanbanCols[sourceKey].items || []).filter(l => l.id !== leadId),
+      }
+    }
+    if (S.kanbanCols[targetKey]) {
+      const movedLead = { ...lead, stageId: realStageId }
+      S.kanbanCols[targetKey] = {
+        ...S.kanbanCols[targetKey],
+        items: [movedLead].concat(S.kanbanCols[targetKey].items || []),
+      }
+    }
+    // Summary cache fica stale após o move — invalida pra contadores
+    // refletirem o novo estado na próxima renderização.
+    try { DL.invalidate('kanban'); DL.invalidate('leads') } catch (e) {}
+  }
+
+  // Garante que a coluna de destino mostre o lead dropado (modo legacy)
+  if (!useLite) {
+    const targetColId = realStageId === null ? 'null' : realStageId
+    const targetColLeads = S.leads.filter(l => (realStageId === null ? !l.stageId : l.stageId === realStageId))
+    const currentLimit = S.kanbanColLimits[targetColId] ?? KANBAN_PAGE
+    if (targetColLeads.length > currentLimit) {
+      S.kanbanColLimits[targetColId] = targetColLeads.length
+    }
   }
 
   render()
@@ -447,6 +633,10 @@ async function kanbanDrop(e, stageId) {
     await api(`/${leadId}`, { method: 'PUT', body: JSON.stringify({ stageId: realStageId }) })
   } catch(err) {
     S.leads = S.leads.map(l => l.id === leadId ? { ...l, stageId: prevStageId } : l)
+    if (useLite && liteSnapshot) {
+      if (liteSnapshot.src) S.kanbanCols[sourceKey] = liteSnapshot.src
+      if (liteSnapshot.dst) S.kanbanCols[targetKey] = liteSnapshot.dst
+    }
     showToast('Erro ao mover lead')
     render()
   }

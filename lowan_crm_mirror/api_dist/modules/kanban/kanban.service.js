@@ -54,6 +54,30 @@ class KanbanService {
     async invalidateCache(workspaceId) {
         await redis_1.redis.del(redis_1.RedisKeys.kanbanCache(workspaceId)).catch(() => { });
     }
+    // ─── Summary (Data-Lite) ──────────────────────────────────────────────────
+    // Contadores agregados pro Kanban — total por etapa, sem etapa, sem operador,
+    // aguardando resposta. Não retorna leads, só counts.
+    async getSummary(workspaceId, userId, role, permissions = { viewAllLeads: false }) {
+        const baseWhere = (role === 'ADMIN' || permissions.viewAllLeads)
+            ? { workspaceId }
+            : { workspaceId, assignedToId: userId };
+        const [total, semEtapa, semOperador, aguardandoResposta, byStageRaw, unreadByStageRaw] = await Promise.all([
+            database_1.prisma.lead.count({ where: baseWhere }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, stageId: null } }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, assignedToId: null } }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, unreadCount: { gt: 0 } } }),
+            database_1.prisma.lead.groupBy({ by: ['stageId'], where: baseWhere, _count: { _all: true } }),
+            database_1.prisma.lead.groupBy({ by: ['stageId'], where: { ...baseWhere, unreadCount: { gt: 0 } }, _count: { _all: true } }),
+        ]);
+        const byStage = {};
+        for (const r of byStageRaw) {
+            if (r.stageId != null) byStage[r.stageId] = { total: r._count._all, unread: 0 };
+        }
+        for (const r of unreadByStageRaw) {
+            if (r.stageId != null && byStage[r.stageId]) byStage[r.stageId].unread = r._count._all;
+        }
+        return { total, semEtapa, semOperador, aguardandoResposta, byStage };
+    }
     // ─── Stages ───────────────────────────────────────────────────────────────
     async createStage(workspaceId, input) {
         const pipeline = await this.getOrCreatePipeline(workspaceId);

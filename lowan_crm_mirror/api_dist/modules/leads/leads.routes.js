@@ -101,6 +101,11 @@ async function leadsRoutes(app) {
             return reply.send(await service.updateProfile(id, body.data));
         });
         authed.get('/', (req, reply) => controller.list(req, reply));
+        // Data-Lite: contadores agregados sem precisar carregar a lista
+        authed.get('/summary', (req, reply) => controller.summary(req, reply));
+        authed.get('/inbox/summary', (req, reply) => controller.inboxSummary(req, reply));
+        // Data-Lite: lista paginada lean (filtros server-side + cursor pagination).
+        authed.get('/lite', (req, reply) => controller.listLite(req, reply));
         authed.get('/tag-options', (req, reply) => controller.getTagOptions(req, reply));
         authed.post('/tag-options', (req, reply) => controller.createTagOption(req, reply));
         authed.delete('/tag-options/:tag', (req, reply) => controller.deleteTagOption(req, reply));
@@ -514,6 +519,32 @@ async function leadsRoutes(app) {
             mgr.get('/connections/:id', async (req, reply) => {
                 const { workspaceId } = req.leadUser;
                 return reply.send(await connService.getById(req.params.id, workspaceId));
+            });
+            // ADMIN-ONLY: credenciais com Access Token descriptografado.
+            // Bloqueia colaboradores com manageConnections — só role=ADMIN.
+            mgr.get('/connections/:id/credentials', async (req, reply) => {
+                if (req.leadUser?.role !== 'ADMIN') {
+                    throw common_types_1.HttpError.forbidden('Apenas administradores podem visualizar credenciais');
+                }
+                const { workspaceId } = req.leadUser;
+                return reply.send(await connService.getCredentials(req.params.id, workspaceId));
+            });
+            // ADMIN-ONLY: permissões por usuário pra esta conexão.
+            mgr.get('/connections/:id/access', async (req, reply) => {
+                if (req.leadUser?.role !== 'ADMIN') {
+                    throw common_types_1.HttpError.forbidden('Apenas administradores podem gerenciar permissões');
+                }
+                const { workspaceId } = req.leadUser;
+                return reply.send(await connService.listAccess(req.params.id, workspaceId));
+            });
+            mgr.put('/connections/:id/access', async (req, reply) => {
+                if (req.leadUser?.role !== 'ADMIN') {
+                    throw common_types_1.HttpError.forbidden('Apenas administradores podem gerenciar permissões');
+                }
+                const body = req.body || {};
+                const userIds = Array.isArray(body.userIds) ? body.userIds.filter(s => typeof s === 'string') : [];
+                const { workspaceId } = req.leadUser;
+                return reply.send(await connService.setAccess(req.params.id, userIds, workspaceId));
             });
             mgr.put('/connections/:id', async (req, reply) => {
                 const body = connections_schema_1.updateConnectionSchema.safeParse(req.body);

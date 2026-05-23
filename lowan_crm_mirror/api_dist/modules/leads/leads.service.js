@@ -666,6 +666,87 @@ class LeadsService {
             };
         });
     }
+    // Data-Lite: lista paginada lean. Cursor-based, sem lastMessagePreview,
+    // mesma seleção de campos do list() — pra que UI possa trocar uma pela outra
+    // sem mudar shape de S.leads. Filtros server-side (stageId, assignedToId,
+    // status, q, tags, hasUnread, hasMessage, since).
+    async listLite(userId, role, workspaceId, permissions = DEFAULT_PERMS, opts = {}) {
+        const baseWhere = (role === 'ADMIN' || permissions.viewAllLeads)
+            ? { workspaceId }
+            : { workspaceId, assignedToId: userId };
+        const where = { ...baseWhere };
+        // Filtros server-side. "_none" = explicitamente null (sem etapa / sem operador).
+        if (opts.stageId !== undefined) {
+            where.stageId = opts.stageId === '_none' ? null : opts.stageId;
+        }
+        if (opts.assignedToId !== undefined) {
+            where.assignedToId = opts.assignedToId === '_none' ? null : opts.assignedToId;
+        }
+        if (opts.status) {
+            where.status = opts.status;
+        }
+        if (opts.hasUnread === true) {
+            where.unreadCount = { gt: 0 };
+        }
+        if (opts.hasMessage === true) {
+            where.lastMessageAt = { not: null };
+        }
+        if (opts.since instanceof Date && !isNaN(opts.since.getTime())) {
+            where.OR = [
+                { updatedAt: { gt: opts.since } },
+                { lastMessageAt: { gt: opts.since } },
+            ];
+        }
+        if (opts.q && opts.q.trim()) {
+            const q = opts.q.trim().slice(0, 60);
+            // Combina com OR de since via AND implícito; se ambos existirem,
+            // re-arquiteta como AND[since-OR, q-OR].
+            const qOr = [
+                { name: { contains: q, mode: 'insensitive' } },
+                { phone: { contains: q } },
+            ];
+            if (where.OR) {
+                where.AND = [{ OR: where.OR }, { OR: qOr }];
+                delete where.OR;
+            } else {
+                where.OR = qOr;
+            }
+        }
+        if (Array.isArray(opts.tags) && opts.tags.length > 0) {
+            where.tags = { hasSome: opts.tags };
+        }
+        const limit = Math.max(1, Math.min(200, Number(opts.limit) || 50));
+        // Peek 1 a mais pra saber se hasMore sem fazer segundo COUNT.
+        const take = limit + 1;
+        const findArgs = {
+            where,
+            // Ordem estável: stageMovedAt (recência no funil), depois createdAt, depois id.
+            orderBy: [
+                { stageMovedAt: { sort: 'desc', nulls: 'last' } },
+                { createdAt: 'desc' },
+                { id: 'desc' },
+            ],
+            take,
+            select: {
+                id: true, name: true, phone: true, status: true, tags: true,
+                unreadCount: true, lastMessageAt: true, origin: true, stageId: true,
+                assignedToId: true, contactId: true, createdAt: true, isBlocked: true, avatarUrl: true,
+                assignedTo: { select: { id: true, name: true } },
+                stage: { select: { id: true, name: true, color: true } },
+            },
+        };
+        if (opts.cursor) {
+            findArgs.cursor = { id: opts.cursor };
+            findArgs.skip = 1; // pula o cursor para não duplicar
+        }
+        const rows = await database_1.prisma.lead.findMany(findArgs);
+        const hasMore = rows.length > limit;
+        const items = hasMore ? rows.slice(0, limit) : rows;
+        // Mantém shape compatível com list() — preview sempre null aqui.
+        const itemsOut = items.map(l => ({ ...l, lastMessagePreview: null, lastMessageOut: null }));
+        const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].id : null;
+        return { items: itemsOut, nextCursor, hasMore };
+    }
     async create(input, workspaceId, creatorId, creatorRole) {
         const phone = input.phone.replace(/\D/g, '');
         const blocked = await database_1.prisma.blockedPhone.findFirst({ where: { phone, workspaceId } });
@@ -1395,6 +1476,17 @@ Responda SOMENTE com este JSON (sem markdown, sem texto extra):
         }
         if (!connection)
             throw common_types_1.HttpError.badRequest('Nenhuma conexão ativa disponível');
+        // ── Permissão por conexão (collaborator x connection) ──────────────────
+        // Colaborador só envia por conexões liberadas via tabela connection_user_access.
+        // Admin sempre passa. Default backfill já libera todos da era pré-feature.
+        if (role !== 'ADMIN') {
+            const _acc = await database_1.prisma.$queryRaw `
+        SELECT 1 FROM connection_user_access
+        WHERE connection_id = ${connection.id}::uuid AND user_id = ${userId}::uuid LIMIT 1`;
+            if (_acc.length === 0) {
+                throw common_types_1.HttpError.forbidden('Você não tem permissão para enviar por esta conexão');
+            }
+        }
         const accessToken = (0, token_encryption_1.decrypt)(connection.accessTokenEnc);
         const rawPhone = contact.phoneNormalized ?? '';
         const to = rawPhone.length === 11 && !rawPhone.startsWith('55') ? `55${rawPhone}` : rawPhone;
@@ -1495,6 +1587,15 @@ Responda SOMENTE com este JSON (sem markdown, sem texto extra):
         }
         if (!connection)
             throw common_types_1.HttpError.badRequest('Nenhuma conexão ativa disponível');
+        // ── Permissão por conexão (collaborator x connection) ──────────────────
+        if (role !== 'ADMIN') {
+            const _acc = await database_1.prisma.$queryRaw `
+        SELECT 1 FROM connection_user_access
+        WHERE connection_id = ${connection.id}::uuid AND user_id = ${userId}::uuid LIMIT 1`;
+            if (_acc.length === 0) {
+                throw common_types_1.HttpError.forbidden('Você não tem permissão para enviar por esta conexão');
+            }
+        }
         const accessToken = (0, token_encryption_1.decrypt)(connection.accessTokenEnc);
         const rawPhone = contact.phoneNormalized ?? '';
         const to = rawPhone.length === 11 && !rawPhone.startsWith('55') ? `55${rawPhone}` : rawPhone;
@@ -1613,6 +1714,15 @@ Responda SOMENTE com este JSON (sem markdown, sem texto extra):
         }
         if (!connection)
             throw common_types_1.HttpError.badRequest('Nenhuma conexão ativa disponível');
+        // ── Permissão por conexão (collaborator x connection) ──────────────────
+        if (role !== 'ADMIN') {
+            const _acc = await database_1.prisma.$queryRaw `
+        SELECT 1 FROM connection_user_access
+        WHERE connection_id = ${connection.id}::uuid AND user_id = ${userId}::uuid LIMIT 1`;
+            if (_acc.length === 0) {
+                throw common_types_1.HttpError.forbidden('Você não tem permissão para enviar por esta conexão');
+            }
+        }
         const accessToken = (0, token_encryption_1.decrypt)(connection.accessTokenEnc);
         const rawPhone2 = contact.phoneNormalized ?? '';
         const to = rawPhone2.length === 11 && !rawPhone2.startsWith('55') ? `55${rawPhone2}` : rawPhone2;
@@ -1735,6 +1845,15 @@ Responda SOMENTE com este JSON (sem markdown, sem texto extra):
         }
         if (!connection)
             throw common_types_1.HttpError.badRequest('Nenhuma conexão ativa disponível');
+        // ── Permissão por conexão (collaborator x connection) ──────────────────
+        if (role !== 'ADMIN') {
+            const _acc = await database_1.prisma.$queryRaw `
+        SELECT 1 FROM connection_user_access
+        WHERE connection_id = ${connection.id}::uuid AND user_id = ${userId}::uuid LIMIT 1`;
+            if (_acc.length === 0) {
+                throw common_types_1.HttpError.forbidden('Você não tem permissão para enviar por esta conexão');
+            }
+        }
         const accessToken = (0, token_encryption_1.decrypt)(connection.accessTokenEnc);
         const rawPhone = contact.phoneNormalized ?? '';
         const to = rawPhone.length === 11 && !rawPhone.startsWith('55') ? `55${rawPhone}` : rawPhone;
@@ -2189,6 +2308,47 @@ Responda SOMENTE com este JSON (sem markdown, sem texto extra):
             workspace: { id: target.id, name: target.name, slug: target.slug },
         };
     }
+    // ─── Summary (Data-Lite) ────────────────────────────────────────────────
+    // Contadores agregados via SQL — frontend usa pra preencher badges e
+    // contadores de etapa/operador sem precisar carregar a lista completa.
+    // Sempre filtra por workspaceId. Operadores não-admin veem só os próprios.
+    async getSummary(userId, role, workspaceId, permissions = DEFAULT_PERMS) {
+        const baseWhere = (role === 'ADMIN' || permissions.viewAllLeads)
+            ? { workspaceId }
+            : { workspaceId, assignedToId: userId };
+        const [total, unread, semEtapa, semOperador, byStageRaw, byOperatorRaw, byStatusRaw] = await Promise.all([
+            database_1.prisma.lead.count({ where: baseWhere }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, unreadCount: { gt: 0 } } }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, stageId: null } }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, assignedToId: null } }),
+            database_1.prisma.lead.groupBy({ by: ['stageId'], where: baseWhere, _count: { _all: true } }),
+            database_1.prisma.lead.groupBy({ by: ['assignedToId'], where: baseWhere, _count: { _all: true } }),
+            database_1.prisma.lead.groupBy({ by: ['status'], where: baseWhere, _count: { _all: true } }),
+        ]);
+        const byStage = {};
+        for (const r of byStageRaw) {
+            if (r.stageId != null) byStage[r.stageId] = r._count._all;
+        }
+        const byOperator = {};
+        for (const r of byOperatorRaw) {
+            if (r.assignedToId != null) byOperator[r.assignedToId] = r._count._all;
+        }
+        const byStatus = {};
+        for (const r of byStatusRaw) byStatus[r.status] = r._count._all;
+        return { total, unread, semEtapa, semOperador, byStage, byOperator, byStatus };
+    }
+    // Summary específico do Inbox: só leads com mensagem (conversas reais).
+    async getInboxSummary(userId, role, workspaceId, permissions = DEFAULT_PERMS) {
+        const baseWhere = (role === 'ADMIN' || permissions.viewAllLeads)
+            ? { workspaceId, lastMessageAt: { not: null } }
+            : { workspaceId, assignedToId: userId, lastMessageAt: { not: null } };
+        const [total, naoLidas] = await Promise.all([
+            database_1.prisma.lead.count({ where: baseWhere }),
+            database_1.prisma.lead.count({ where: { ...baseWhere, unreadCount: { gt: 0 } } }),
+        ]);
+        return { total, naoLidas };
+    }
+
     // ─── Blacklist de telefones ─────────────────────────────────────────────
     async listBlockedPhones(workspaceId) {
         const rows = await database_1.prisma.blockedPhone.findMany({

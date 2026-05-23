@@ -425,7 +425,96 @@ async function connOpenDetail(id) {
 }
 
 
-function connCloseModal() { S.connModal=null; S.connSelectedId=null; S.connDetail=null; S.connDetailHealth=null; render() }
+// ADMIN-ONLY: abre modal com credenciais (Phone Number ID, Access Token, WABA ID, telefone).
+// Fetch lazy on-open — token nunca circula no JS payload da rota list.
+async function connShowCredentials(id) {
+  if (!isAdmin()) { showToast('Apenas administradores podem visualizar credenciais', 'error'); return }
+  S.connSelectedId = id
+  S.connModal = 'credentials'
+  S.connCredentials = null
+  S.connCredentialsLoading = true
+  S.connCredentialsError = null
+  render()
+  try {
+    const r = await apiAdmin(`/connections/${id}/credentials`)
+    S.connCredentials = r
+  } catch (e) {
+    S.connCredentialsError = e.message || 'Falha ao carregar credenciais'
+  } finally {
+    S.connCredentialsLoading = false
+    scheduleRender()
+  }
+}
+
+// ADMIN-ONLY: abre modal de permissões de envio (collaborator x connection).
+// Fetch lazy on-open: lista todos os users + flag hasAccess.
+async function connShowAccess(id) {
+  if (!isAdmin()) { showToast('Apenas administradores podem gerenciar permissões', 'error'); return }
+  S.connSelectedId = id
+  S.connModal = 'access'
+  S.connAccess = null
+  S.connAccessLoading = true
+  S.connAccessError = null
+  S.connAccessSaving = false
+  S.connAccessDirty = false
+  render()
+  try {
+    const r = await apiAdmin(`/connections/${id}/access`)
+    S.connAccess = r
+    // Snapshot inicial pra detectar mudanças (dirty tracking)
+    S._connAccessOriginal = new Set(r.users.filter(u => u.hasAccess && u.role !== 'ADMIN').map(u => u.id))
+  } catch (e) {
+    S.connAccessError = e.message || 'Falha ao carregar permissões'
+  } finally {
+    S.connAccessLoading = false
+    scheduleRender()
+  }
+}
+
+function connToggleUserAccess(userId) {
+  if (!S.connAccess) return
+  const u = S.connAccess.users.find(x => x.id === userId)
+  if (!u || u.role === 'ADMIN') return  // admins sempre on, não toggle
+  u.hasAccess = !u.hasAccess
+  // Marca dirty se mudou do snapshot original
+  const orig = S._connAccessOriginal
+  const current = new Set(S.connAccess.users.filter(x => x.hasAccess && x.role !== 'ADMIN').map(x => x.id))
+  S.connAccessDirty = current.size !== orig.size || [...current].some(id => !orig.has(id))
+  scheduleRender()
+}
+
+async function connSaveAccess() {
+  if (!S.connAccess || !S.connSelectedId || S.connAccessSaving) return
+  S.connAccessSaving = true
+  scheduleRender()
+  try {
+    const userIds = S.connAccess.users.filter(u => u.hasAccess && u.role !== 'ADMIN').map(u => u.id)
+    await apiAdmin(`/connections/${S.connSelectedId}/access`, { method: 'PUT', body: JSON.stringify({ userIds }) })
+    showToast('Permissões salvas')
+    S._connAccessOriginal = new Set(userIds)
+    S.connAccessDirty = false
+  } catch (e) {
+    showToast(e.message || 'Erro ao salvar', 'error')
+  } finally {
+    S.connAccessSaving = false
+    scheduleRender()
+  }
+}
+
+function connCopyCredential(value, label) {
+  try {
+    navigator.clipboard.writeText(value).then(function(){
+      showToast((label || 'Valor') + ' copiado')
+    }).catch(function(){
+      showToast('Falha ao copiar', 'error')
+    })
+  } catch (e) {
+    showToast('Clipboard não disponível', 'error')
+  }
+}
+
+
+function connCloseModal() { S.connModal=null; S.connSelectedId=null; S.connDetail=null; S.connDetailHealth=null; S.connCredentials=null; S.connCredentialsLoading=false; S.connCredentialsError=null; S.connAccess=null; S.connAccessLoading=false; S.connAccessError=null; S.connAccessSaving=false; S.connAccessDirty=false; S._connAccessOriginal=null; render() }
 
 // ── Proxy pool ────────────────────────────────────────────────────────────────
 // Carrega lista de proxies do pool com status derivado (free/in_use/burned).
@@ -1788,7 +1877,10 @@ function renderConnList() {
         const _iconErr = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>'
         const _iconPause = '<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5"/></svg>'
         const _iconCard = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z"/></svg>'
-        const _iconExt = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>'
+        // Antes: arrow-top-right-on-square (parecido demais com o icone de editar).
+        // Trocado por globo — distinto e semanticamente correto pra "abrir
+        // servico externo" (Meta Business Manager).
+        const _iconExt = '<svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 12h18M12 3a13.5 13.5 0 010 18M12 3a13.5 13.5 0 000 18"/></svg>'
         const _iconChart = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>'
         const _iconRefresh = '<svg fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356m0 0L18.62 6.75A8.25 8.25 0 105.34 17.94l1.42-1.42M3.985 14.652h-4.992M3 19.644l2.395-2.395A8.25 8.25 0 0018.66 6.06l-1.42 1.42"/></svg>'
         const bannerHtml = showBanner ? `
@@ -1844,6 +1936,12 @@ function renderConnList() {
               ${c.wabaId ? `<a class="cn-action" title="Abrir no Meta WhatsApp Manager" href="https://business.facebook.com/wa/manage/phone-numbers?waba_id=${encodeURIComponent(c.wabaId)}${c.phoneNumberId?`&phone_number=${encodeURIComponent(c.phoneNumberId)}`:''}" target="_blank" rel="noopener" style="text-decoration:none">${_iconExt}</a>` : ''}
               ${canManageConns() ? `<button class="cn-action" title="Editar" onclick="openConnWizard(${cJson})">
                 <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              </button>` : ''}
+              ${isAdmin() ? `<button class="cn-action" title="Ver credenciais (admin)" onclick="connShowCredentials('${c.id}')">
+                <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+              </button>` : ''}
+              ${isAdmin() ? `<button class="cn-action" title="Permissões de envio (admin)" onclick="connShowAccess('${c.id}')">
+                <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path stroke-linecap="round" stroke-linejoin="round" d="M8 11V7a4 4 0 118 0v4"/></svg>
               </button>` : ''}
               <button class="cn-action" title="Detalhes" onclick="connOpenDetail('${c.id}')">
                 <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -2063,6 +2161,107 @@ function renderConnModal() {
         </div>` : (h.metaHealth===null?`<p class="text-xs text-gray-400 mt-2 text-center">Clique em "Verificar conexão" para carregar o status Meta</p>`:'')}`:''}
       </div>`}
       <button onclick="connCloseModal()" class="mt-5 w-full px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50">Fechar</button>`
+  }
+
+  if (S.connModal === 'access') {
+    const a = S.connAccess
+    const conn = S.connections.find(c => c.id === S.connSelectedId)
+    const userRow = (u) => {
+      const isAdminUser = u.role === 'ADMIN'
+      const checked = isAdminUser || u.hasAccess
+      const disabled = isAdminUser || S.connAccessSaving
+      const initials = (u.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+      const hue = Math.abs((u.name || '').split('').reduce((acc, ch) => acc * 31 + ch.charCodeAt(0), 0)) % 360
+      return `
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e9eaec;border-radius:8px;background:${checked ? 'rgba(79,70,229,.04)' : '#fff'};cursor:${disabled && !isAdminUser ? 'wait' : (isAdminUser ? 'default' : 'pointer')};transition:background .15s">
+          <input type="checkbox" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''} onchange="connToggleUserAccess('${u.id}')" style="width:16px;height:16px;accent-color:#4f46e5;cursor:inherit">
+          <div style="width:28px;height:28px;border-radius:50%;background:hsl(${hue},55%,88%);color:hsl(${hue},55%,30%);font-weight:700;font-size:11px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${esc(initials)}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:#0a0b0f;line-height:1.2">${esc(u.name)}</div>
+            <div style="font-size:11px;color:#6b7280;line-height:1.2;margin-top:2px">${esc(u.email || '')}${isAdminUser ? ' · admin (acesso total)' : ''}</div>
+          </div>
+        </label>`
+    }
+    const collaborators = (a?.users || []).filter(u => u.role === 'COLLABORATOR')
+    const admins = (a?.users || []).filter(u => u.role === 'ADMIN')
+    const grantedCount = (a?.users || []).filter(u => u.role !== 'ADMIN' && u.hasAccess).length
+    content = `
+      <h2 style="font-size:18px;font-weight:700;color:#0a0b0f;margin:0 0 4px;font-family:'Bricolage Grotesque',ui-sans-serif,system-ui;letter-spacing:-.025em">Permissões de envio</h2>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 16px">${esc(conn?.name || 'Conexão')} · quem pode responder/enviar por esta conexão</p>
+      ${S.connAccessLoading ? `
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:32px;color:#6b7280;font-size:13px">
+          <svg style="width:16px;height:16px;animation:spin 0.8s linear infinite" fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          Carregando permissões...
+        </div>` : ''}
+      ${S.connAccessError ? `
+        <div style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#dc2626;font-size:12px">${esc(S.connAccessError)}</div>` : ''}
+      ${a ? `
+        <div style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#6b7280">
+          <span><strong style="color:#0a0b0f">${grantedCount}</strong> de ${collaborators.length} colaboradores liberados</span>
+          ${S.connAccessDirty ? `<span style="color:#d97706;font-weight:600">• alterações não salvas</span>` : ''}
+        </div>
+        ${collaborators.length === 0 ? `
+          <div style="padding:16px;background:#fafbfc;border:1px dashed #e9eaec;border-radius:8px;text-align:center;color:#6b7280;font-size:12px">Nenhum colaborador ativo neste workspace</div>
+        ` : `
+          <div style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto">
+            ${collaborators.map(userRow).join('')}
+          </div>
+        `}
+        ${admins.length > 0 ? `
+          <details style="margin-top:10px;font-size:11px;color:#6b7280">
+            <summary style="cursor:pointer;padding:4px 0">Admins (acesso total automático)</summary>
+            <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;opacity:.7">
+              ${admins.map(userRow).join('')}
+            </div>
+          </details>` : ''}
+      ` : ''}
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button onclick="connCloseModal()" ${S.connAccessSaving ? 'disabled' : ''} style="flex:1;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#fff;font-size:13px;font-weight:500;color:#374151;cursor:${S.connAccessSaving ? 'wait' : 'pointer'}">${S.connAccessDirty ? 'Cancelar' : 'Fechar'}</button>
+        ${S.connAccessDirty ? `<button onclick="connSaveAccess()" ${S.connAccessSaving ? 'disabled' : ''} style="flex:1;padding:9px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-size:13px;font-weight:600;cursor:${S.connAccessSaving ? 'wait' : 'pointer'};opacity:${S.connAccessSaving ? '.6' : '1'}">${S.connAccessSaving ? 'Salvando...' : 'Salvar'}</button>` : ''}
+      </div>`
+  }
+
+  if (S.connModal === 'credentials') {
+    const cr = S.connCredentials
+    const row = (label, value, mono) => {
+      if (!value) return ''
+      const escVal = String(value).replace(/'/g, "\\'").replace(/"/g, '&quot;')
+      return `
+        <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid #e9eaec;border-radius:8px;background:#fafbfc">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">${esc(label)}</span>
+            <button onclick="connCopyCredential('${escVal}','${esc(label)}')" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;color:#374151;display:inline-flex;align-items:center;gap:4px">
+              <svg style="width:11px;height:11px" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              Copiar
+            </button>
+          </div>
+          <div style="${mono ? "font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;" : 'font-size:13px;'}color:#0a0b0f;word-break:break-all;line-height:1.4">${esc(String(value))}</div>
+        </div>`
+    }
+    content = `
+      <h2 style="font-size:18px;font-weight:700;color:#0a0b0f;margin:0 0 4px;font-family:'Bricolage Grotesque',ui-sans-serif,system-ui;letter-spacing:-.025em">Credenciais</h2>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 16px">${esc(cr?.name || 'Conexão')} · uso restrito ao administrador</p>
+      ${S.connCredentialsLoading ? `
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;padding:32px;color:#6b7280;font-size:13px">
+          <svg style="width:16px;height:16px;animation:spin 0.8s linear infinite" fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          Carregando credenciais...
+        </div>` : ''}
+      ${S.connCredentialsError ? `
+        <div style="padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#dc2626;font-size:12px">
+          ${esc(S.connCredentialsError)}
+        </div>` : ''}
+      ${cr ? `
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${row('Phone Number ID', cr.phoneNumberId, true)}
+          ${row('Telefone', cr.phoneNumber, true)}
+          ${row('WABA ID', cr.wabaId, true)}
+          ${row('Access Token', cr.accessToken, true)}
+          ${row('Webhook Verify Token', cr.webhookVerifyToken, true)}
+        </div>
+        <div style="margin-top:14px;padding:10px 12px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;font-size:11px;color:#854d0e;line-height:1.5">
+          ⚠ Mantenha estes valores confidenciais. O Access Token concede acesso de envio em nome desta conta WhatsApp Business.
+        </div>` : ''}
+      <button onclick="connCloseModal()" style="margin-top:16px;width:100%;padding:9px;border:1px solid #d1d5db;border-radius:8px;background:#fff;font-size:13px;font-weight:500;color:#374151;cursor:pointer">Fechar</button>`
   }
 
   return `
@@ -2437,4 +2636,4 @@ function openMetaAdsConnectModal() {
 function closeMetaAdsConnectModal() {
   document.getElementById('ma-modal-root')?.remove()
 }
-
+

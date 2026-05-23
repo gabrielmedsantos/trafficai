@@ -61,6 +61,34 @@ class LeadsController {
         const wantsPreview = withMessages === '1' || withMessages === 'true';
         return reply.send(await this.service.list(id, role, workspaceId, permissions, sinceDate, search?.trim() || undefined, wantsPreview));
     }
+    // ─── Data-Lite summary endpoints ───────────────────────────────────────
+    async summary(request, reply) {
+        const { id, role, workspaceId, permissions } = request.leadUser;
+        return reply.send(await this.service.getSummary(id, role, workspaceId, permissions));
+    }
+    async inboxSummary(request, reply) {
+        const { id, role, workspaceId, permissions } = request.leadUser;
+        return reply.send(await this.service.getInboxSummary(id, role, workspaceId, permissions));
+    }
+    async listLite(request, reply) {
+        const { id, role, workspaceId, permissions } = request.leadUser;
+        const q = request.query || {};
+        const opts = {};
+        if (q.limit !== undefined) opts.limit = q.limit;
+        if (q.cursor) opts.cursor = String(q.cursor);
+        if (q.stageId !== undefined) opts.stageId = String(q.stageId);
+        if (q.assignedToId !== undefined) opts.assignedToId = String(q.assignedToId);
+        if (q.status) opts.status = String(q.status);
+        if (q.q) opts.q = String(q.q);
+        if (q.tags) opts.tags = String(q.tags).split(',').map(t => t.trim()).filter(Boolean);
+        if (q.hasUnread === '1' || q.hasUnread === 'true') opts.hasUnread = true;
+        if (q.hasMessage === '1' || q.hasMessage === 'true') opts.hasMessage = true;
+        if (q.since) {
+            const d = new Date(q.since);
+            if (!isNaN(d.getTime())) opts.since = d;
+        }
+        return reply.send(await this.service.listLite(id, role, workspaceId, permissions, opts));
+    }
     async create(request, reply) {
         const body = leads_schema_1.createLeadSchema.safeParse(request.body);
         if (!body.success)

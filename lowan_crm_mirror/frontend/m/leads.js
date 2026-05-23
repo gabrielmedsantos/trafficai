@@ -411,6 +411,7 @@ function filteredLeads() {
 function applySearch() {
   S.search = S.searchInput
   S.leadsPage = 0
+  S.leadsScrollLimit = LEADS_PAGE_SIZE
   render()
   if (S.searchInput) requestAnimationFrame(() => filterLeadsTable(S.searchInput))
 }
@@ -419,7 +420,30 @@ function applySearch() {
 function applyLeadsFilter(changes) {
   Object.assign(S, changes)
   S.leadsPage = 0
+  S.leadsScrollLimit = LEADS_PAGE_SIZE
   render()
+}
+
+
+// Data-Lite: infinite scroll na tabela de leads (modo lite). Observer
+// monitora o sentinel renderizado depois da tbody; quando entra em
+// viewport, incrementa S.leadsScrollLimit e re-renderiza.
+var _leadsScrollObserver = null
+
+function attachLeadsScrollListener() {
+  if (_leadsScrollObserver) { _leadsScrollObserver.disconnect(); _leadsScrollObserver = null }
+  const sentinel = document.querySelector('[data-leads-scroll-sentinel]')
+  if (!sentinel) return
+  _leadsScrollObserver = new IntersectionObserver(function(entries){
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        S.leadsScrollLimit = (S.leadsScrollLimit || LEADS_PAGE_SIZE) + LEADS_PAGE_SIZE
+        if (typeof scheduleRender === 'function') scheduleRender()
+        else render()
+      }
+    }
+  }, { threshold: 0.1 })
+  _leadsScrollObserver.observe(sentinel)
 }
 
 
@@ -427,6 +451,7 @@ function clearFilters() {
   S.search = ''; S.searchInput = ''
   S.filterStatus = 'todos'; S.filterStage = 'todos'; S.filterUser = 'todos'; S.filterTags = []
   S.leadsPage = 0
+  S.leadsScrollLimit = LEADS_PAGE_SIZE
   render()
 }
 
@@ -714,14 +739,27 @@ function renderLeadsPanel() {
   const totalLeads = allLeads.length
   const totalPages = Math.ceil(totalLeads / LEADS_PAGE_SIZE)
   if (S.leadsPage >= totalPages && totalPages > 0) S.leadsPage = totalPages - 1
-  const leads = allLeads.slice(S.leadsPage * LEADS_PAGE_SIZE, (S.leadsPage + 1) * LEADS_PAGE_SIZE)
+  // Data-Lite: infinite scroll em vez de botões prev/next. Renderiza 0 até
+  // S.leadsScrollLimit (cresce em incrementos de LEADS_PAGE_SIZE quando o
+  // sentinel entra em viewport). Default já carrega 1 página.
+  if (typeof S.leadsScrollLimit !== 'number' || S.leadsScrollLimit < LEADS_PAGE_SIZE) {
+    S.leadsScrollLimit = LEADS_PAGE_SIZE
+  }
+  const useLiteScroll = DL.enabled()
+  const leads = useLiteScroll
+    ? allLeads.slice(0, S.leadsScrollLimit)
+    : allLeads.slice(S.leadsPage * LEADS_PAGE_SIZE, (S.leadsPage + 1) * LEADS_PAGE_SIZE)
+  const hasMoreScroll = useLiteScroll && totalLeads > leads.length
   const leadsForCards = _getLeadsForCards()
   const t = totals(leadsForCards)
 
-  const totalAll = (S.leadsTotal && S.leadsTotal > S.leads.length) ? S.leadsTotal : S.leads.length
-  const semEtapaCount = S.leads.filter(l => !l.stageId).length
-  const semOpCount = S.leads.filter(l => !l.assignedToId).length
-  const aguardandoCount = S.leads.filter(l => l.unreadCount > 0).length
+  // Quando localStorage.useDataLite === '1', vem do summary endpoint (PR #24)
+  // via window.DL.counter — fallback automático para o cálculo em S.leads.
+  const _legacyTotalAll = (S.leadsTotal && S.leadsTotal > S.leads.length) ? S.leadsTotal : S.leads.length
+  const totalAll        = DL.counter('leads', s => s.total,       () => _legacyTotalAll)
+  const semEtapaCount   = DL.counter('leads', s => s.semEtapa,    () => S.leads.filter(l => !l.stageId).length)
+  const semOpCount      = DL.counter('leads', s => s.semOperador, () => S.leads.filter(l => !l.assignedToId).length)
+  const aguardandoCount = DL.counter('leads', s => s.unread,      () => S.leads.filter(l => l.unreadCount > 0).length)
   const stages = S.kanban?.stages || []
   const hasFilters = !!(S.search || S.searchInput || S.filterStage !== 'todos' || S.filterUser !== 'todos' || S.filterTags.length > 0)
 
@@ -892,7 +930,11 @@ function renderLeadsPanel() {
           <tbody id="leads-tbody">${rowsHtml}</tbody>
         </table>
         </div>
-        ${totalPages > 1 ? `
+        ${useLiteScroll && hasMoreScroll ? `
+        <div class="lds-scroll-sentinel" data-leads-scroll-sentinel="1" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;color:var(--text-muted);font-size:12px">
+          <svg style="width:14px;height:14px;animation:spin 0.8s linear infinite" fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          <span>${(totalLeads - leads.length).toLocaleString('pt-BR').replace(',','.')} restantes · role pra carregar</span>
+        </div>` : (totalPages > 1 && !useLiteScroll ? `
         <div class="lds-pag">
           <div class="lds-pag-info">Mostrando <strong>${(S.leadsPage * LEADS_PAGE_SIZE + 1).toLocaleString('pt-BR').replace(',','.')}–${Math.min((S.leadsPage + 1) * LEADS_PAGE_SIZE, totalLeads).toLocaleString('pt-BR').replace(',','.')}</strong> de <strong>${totalLeads.toLocaleString('pt-BR').replace(',','.')}</strong></div>
           <div class="lds-pag-btns">
@@ -901,7 +943,7 @@ function renderLeadsPanel() {
             <span style="color:var(--text-muted);padding:0 6px;align-self:center">de ${totalPages}</span>
             <button class="lds-pag-btn" ${S.leadsPage>=totalPages-1?'disabled':''} onclick="S.leadsPage=Math.min(${totalPages-1},S.leadsPage+1);render()"><svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg></button>
           </div>
-        </div>` : ''}
+        </div>` : '')}
       </div>`}
     </div>
   `
@@ -1169,14 +1211,18 @@ function _legacyRenderLeadsPanelDeprecated() { return `
             </tbody>
           </table>
         </div>
-        ${totalPages > 1 ? `
+        ${useLiteScroll && hasMoreScroll ? `
+        <div class="lds-scroll-sentinel" data-leads-scroll-sentinel="1" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;color:var(--text-muted);font-size:12px">
+          <svg style="width:14px;height:14px;animation:spin 0.8s linear infinite" fill="none" viewBox="0 0 24 24"><circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+          <span>${(totalLeads - leads.length).toLocaleString('pt-BR').replace(',','.')} restantes · role pra carregar</span>
+        </div>` : (totalPages > 1 && !useLiteScroll ? `
         <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px">
           <span style="font-size:12.5px;color:var(--text-muted)">${S.leadsPage * LEADS_PAGE_SIZE + 1}–${Math.min((S.leadsPage + 1) * LEADS_PAGE_SIZE, totalLeads)} de ${totalLeads}</span>
           <div style="display:flex;gap:6px">
             <button onclick="S.leadsPage=Math.max(0,S.leadsPage-1);render()" ${S.leadsPage===0?'disabled':''} style="padding:5px 12px;font-size:12.5px;border:1.5px solid var(--border);border-radius:7px;background:#fff;cursor:pointer;font-family:inherit;color:var(--text-primary);opacity:${S.leadsPage===0?'0.4':'1'}">← Anterior</button>
             <button onclick="S.leadsPage=Math.min(${totalPages-1},S.leadsPage+1);render()" ${S.leadsPage>=totalPages-1?'disabled':''} style="padding:5px 12px;font-size:12.5px;border:1.5px solid var(--border);border-radius:7px;background:#fff;cursor:pointer;font-family:inherit;color:var(--text-primary);opacity:${S.leadsPage>=totalPages-1?'0.4':'1'}">Próxima →</button>
           </div>
-        </div>` : ''}
+        </div>` : '')}
       `}
     </div>
   `

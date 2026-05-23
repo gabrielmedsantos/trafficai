@@ -12,6 +12,11 @@ class KanbanController {
         const { workspaceId } = request.leadUser;
         return reply.send(await this.service.getBoard(workspaceId));
     }
+    // Data-Lite: contadores agregados sem carregar a lista
+    async summary(request, reply) {
+        const { id, role, workspaceId, permissions } = request.leadUser;
+        return reply.send(await this.service.getSummary(workspaceId, id, role, permissions));
+    }
     async createStage(request, reply) {
         const { workspaceId } = request.leadUser;
         const body = kanban_schema_1.createStageSchema.safeParse(request.body);

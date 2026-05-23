@@ -369,8 +369,18 @@ function enterTab(tab) {
   if (tab === 'kanban') {
     S.kanbanLoading = true      // mostra spinner imediatamente — sem board antigo
     render()
-    // renderKanban usa S.kanban.stages (vem de kanban.js) + S.leads (vem de
-    // leads.js). Em deep-link/refresh em /kanban sem ter passado por /leads,
+    // Data-Lite (PR #28): em modo lite, dispensa o fetch global de /leads/ e
+    // carrega 1 fetch /leads/lite por coluna após a pipeline chegar. Counters
+    // continuam vindo via DL.counter (summary endpoints).
+    if (DL.enabled()) {
+      loadModule('kanban')
+        .then(() => fetchKanban())
+        .then(() => fetchKanbanAllColumns())
+        .finally(() => { S.kanbanLoading = false; scheduleRender() })
+      return
+    }
+    // Legacy: renderKanban usa S.kanban.stages (vem de kanban.js) + S.leads (vem
+    // de leads.js). Em deep-link/refresh em /kanban sem ter passado por /leads,
     // S.leads fica vazio. Carrega ambos em paralelo.
     const pK = loadModule('kanban').then(() => fetchKanban())
     const pL = loadModule('leads').then(() => fetchLeads().catch(()=>{}))
@@ -542,6 +552,18 @@ async function boot() {
   if (typeof fetchUsers === 'function') fetchUsers().catch(()=>{})
   if (typeof fetchTagOptions === 'function') fetchTagOptions().catch(()=>{}).finally(() => scheduleRender())
   if (typeof fetchKanban === 'function') fetchKanban().catch(()=>{}).finally(() => scheduleRender())
+  // kanban.js e settings.js são lazy-loaded — os `typeof === 'function'` acima
+  // ficam sempre false no boot inicial, então S.kanban.stages e S.users
+  // permanecem vazios até o user entrar nas respectivas views. Sintomas em /leads:
+  //   • dropdown de etapa cai no fallback "Sem Etapa" pra todos
+  //   • dropdown de operador fica vazio
+  // Pre-carrega ambos os módulos em background no boot — pequenos (~16 KB + ~20 KB).
+  loadModule('kanban').then(() => {
+    if (typeof fetchKanban === 'function') fetchKanban().catch(()=>{}).finally(() => scheduleRender())
+  }).catch(()=>{})
+  loadModule('settings').then(() => {
+    if (typeof fetchUsers === 'function') fetchUsers().catch(()=>{}).finally(() => scheduleRender())
+  }).catch(()=>{})
   if (typeof loadAvatarSession === 'function') loadAvatarSession()
   // Carrega workspaces disponíveis para o switcher na navbar
   refreshUserWorkspaces()
@@ -809,6 +831,7 @@ function render() {
     if (saved) el.scrollTop = saved
   })
   if (typeof attachKanbanScrollListeners === 'function') attachKanbanScrollListeners()
+  if (typeof attachLeadsScrollListener === 'function') attachLeadsScrollListener()
   _inboxScrollBound = false; attachInboxScrollListener()
 
   requestAnimationFrame(() => { loadAuthImages(); loadAuthAudios(); loadAuthVideos() })
@@ -882,6 +905,8 @@ function _patchContentArea() {
         row.style.display = (!_term || row.dataset.search.includes(_term)) ? '' : 'none'
       })
     }
+    // Data-Lite: re-ata observer de scroll do leads em re-renders surgicos
+    if (tab === 'leads' && typeof attachLeadsScrollListener === 'function') attachLeadsScrollListener()
   } else {
     // Tipo de tab mudou (ex: kanban ↔ scrollable) — rebuilda só o content-wrapper
     const savedKanbanScrollX = document.getElementById('kanban-board')?.scrollLeft || 0
@@ -899,6 +924,7 @@ function _patchContentArea() {
       if (saved) el.scrollTop = saved
     })
     if (typeof attachKanbanScrollListeners === 'function') attachKanbanScrollListeners()
+    if (typeof attachLeadsScrollListener === 'function') attachLeadsScrollListener()
     if (typeof _setupKanbanPan === 'function') _setupKanbanPan()
     _inboxScrollBound = false; attachInboxScrollListener()
   }
@@ -937,7 +963,11 @@ function renderCollaboratorView() { return '' } // replaced by sidebar layout
 
 function renderSidebar() {
   const tab = isAdmin() ? S.adminTab : S.collabTab
-  const unread = S.leads.filter(l => isAdmin() ? l.unreadCount > 0 : (l.assignedToId === S.me?.id && l.unreadCount > 0)).length
+  // Admin: pode vir do summary (admin = workspace-wide, semântica idêntica).
+  // Non-admin: legacy (per-user filter, summary não cobre o caso com viewAllLeads).
+  const unread = isAdmin()
+    ? DL.counter('leads', s => s.unread, () => S.leads.filter(l => l.unreadCount > 0).length)
+    : S.leads.filter(l => (l.assignedToId === S.me?.id && l.unreadCount > 0)).length
   const initials = (S.me?.name||'?').trim().split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase()
   const userName = S.me?.name || 'Usuário'
   const userRole = S.me?.role === 'ADMIN' ? 'Administrador' : 'Colaborador'
@@ -993,6 +1023,15 @@ function renderSidebar() {
       <svg class="sb-ws-chev" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4"/></svg>
     </div>
 
+    ${(typeof DL !== 'undefined' && DL.enabled()) ? `
+      <div class="sb-item sb-lite-badge" style="position:relative;margin-top:6px;cursor:default;background:rgba(79,70,229,.09);border:1px solid rgba(79,70,229,.28);color:#4f46e5">
+        <span class="sb-ic" style="color:#4f46e5">
+          <svg fill="currentColor" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+        </span>
+        <span class="sb-label" style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-family:'JetBrains Mono',ui-monospace,monospace">Data-Lite</span>
+        <span class="sb-tip">Data-Lite ativo · /lite + summary</span>
+      </div>` : ''}
+
     <div class="sb-section">Operação</div>
     <nav class="sb-nav">
       ${navItem('dashboard',`<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10-3a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1v-7z"/></svg>`,'Início')}
@@ -1042,7 +1081,10 @@ function renderSidebar() {
 
 function renderMobileBottomNav() {
   const tab = isAdmin() ? S.adminTab : S.collabTab
-  const unread = S.leads.filter(l => isAdmin() ? l.unreadCount > 0 : (l.assignedToId === S.me?.id && l.unreadCount > 0)).length
+  // Mesma lógica do sidebar: admin via summary, non-admin via legacy.
+  const unread = isAdmin()
+    ? DL.counter('leads', s => s.unread, () => S.leads.filter(l => l.unreadCount > 0).length)
+    : S.leads.filter(l => (l.assignedToId === S.me?.id && l.unreadCount > 0)).length
 
   const ICONS = {
     dashboard: `<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v2a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10-3a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1v-7z"/></svg>`,

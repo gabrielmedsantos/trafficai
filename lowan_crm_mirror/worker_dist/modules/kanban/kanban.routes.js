@@ -10,6 +10,8 @@ async function kanbanRoutes(app) {
     app.register(async (authed) => {
         authed.addHook('preHandler', leads_middleware_1.authenticateLeadUser);
         authed.get('/', (req, reply) => controller.getBoard(req, reply));
+        // Data-Lite: contadores agregados sem precisar do board completo
+        authed.get('/summary', (req, reply) => controller.summary(req, reply));
         authed.post('/stages', (req, reply) => controller.createStage(req, reply));
         authed.patch('/stages/:id', (req, reply) => controller.updateStage(req, reply));
         authed.delete('/stages/:id', (req, reply) => controller.deleteStage(req, reply));

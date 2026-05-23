@@ -282,32 +282,13 @@ class ConnectionsService {
                 await syncRedisError();
                 return { valid: true, banned: false, blockReason, qualityRating: check.qualityRating, accountMode: check.accountMode, messagingLimit: check.messagingLimit, healthStatus: check.healthStatus, status: 'ERROR' };
             }
-            // Auto-pause em quality RED (reduzir risco de reports cascateando pra outras conexões do app)
-            const isRed = check.qualityRating === 'RED';
-            if (isRed && connection.status === 'ACTIVE') {
-                const autoReason = 'AUTO: Qualidade RED detectada — pausado pra preservar reputação do app. Reduza envios em massa / reports e reative manualmente.';
+            if (connection.status === 'ERROR') {
                 await database_1.prisma.whatsappConnection.update({
                     where: { id },
-                    data: { status: 'PAUSED', pausedReason: autoReason, healthScore: 30, metaQualityRating: 'RED' },
-                });
-                await redis_1.redis.hset(redis_1.RedisKeys.healthConn(id), { status: 'PAUSED', score: 30 });
-                await redis_1.redis.set(redis_1.RedisKeys.connPaused(id), 'auto:quality_red');
-                return { valid: true, banned: false, blockReason, autoPaused: true, qualityRating: check.qualityRating, accountMode: check.accountMode, messagingLimit: check.messagingLimit, healthStatus: check.healthStatus, status: 'PAUSED' };
-            }
-            // Re-ativa se status era ERROR e agora resolveu
-            if (connection.status === 'ERROR' && !isRed) {
-                await database_1.prisma.whatsappConnection.update({
-                    where: { id },
-                    data: { status: 'ACTIVE', pausedReason: null, healthScore: 100, metaQualityRating: check.qualityRating },
+                    data: { status: 'ACTIVE', pausedReason: null, healthScore: 100 },
                 });
                 await syncRedisActive();
-                return { valid: true, banned: false, blockReason, qualityRating: check.qualityRating, accountMode: check.accountMode, messagingLimit: check.messagingLimit, healthStatus: check.healthStatus, status: 'ACTIVE' };
             }
-            // Atualiza quality/score sem mudar status
-            await database_1.prisma.whatsappConnection.update({
-                where: { id },
-                data: { metaQualityRating: check.qualityRating, healthScore: isRed ? 30 : 100 },
-            });
             return { valid: true, banned: false, blockReason, qualityRating: check.qualityRating, accountMode: check.accountMode, messagingLimit: check.messagingLimit, healthStatus: check.healthStatus, status: connection.status };
         }
         else {
@@ -362,6 +343,118 @@ class ConnectionsService {
         if (!connection)
             throw common_types_1.HttpError.notFound('Connection not found');
         return (0, token_encryption_1.decrypt)(connection.accessTokenEnc);
+    }
+    // ─── Permissões por conexão (collaborator x connection) ─────────────────
+    // Tabela connection_user_access(conn_id, user_id) — raw SQL pq não está no
+    // Prisma schema. Default backfill: todos colaboradores ativos do workspace
+    // recebem acesso a todas as conexões do mesmo workspace.
+    /** Admin: lista todos os usuários do workspace + flag hasAccess pra esta conn */
+    async listAccess(connectionId, workspaceId) {
+        const conn = await database_1.prisma.whatsappConnection.findFirst({
+            where: { id: connectionId, ...(workspaceId ? { OR: [{ workspaceId }, { workspaceId: null }] } : {}) },
+            select: { id: true, workspaceId: true },
+        });
+        if (!conn)
+            throw common_types_1.HttpError.notFound('Connection not found');
+        // Resolve qual workspace usar p/ buscar users — se conexão é global (null),
+        // usa o workspace do admin que chamou.
+        const ws = conn.workspaceId || workspaceId;
+        const users = await database_1.prisma.leadUser.findMany({
+            where: { workspaceId: ws, isActive: true },
+            select: { id: true, name: true, email: true, role: true },
+            orderBy: { name: 'asc' },
+        });
+        const granted = await database_1.prisma.$queryRaw `
+      SELECT user_id FROM connection_user_access WHERE connection_id = ${connectionId}::uuid
+    `;
+        const grantedSet = new Set(granted.map(r => r.user_id));
+        return {
+            connectionId,
+            users: users.map(u => ({
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                role: u.role,
+                // Admins implicitamente têm acesso (sempre); flag em rows é informativa
+                hasAccess: u.role === 'ADMIN' ? true : grantedSet.has(u.id),
+            })),
+        };
+    }
+    /** Admin: substitui o set de userIds liberados pra esta conexão */
+    async setAccess(connectionId, userIds, workspaceId) {
+        const conn = await database_1.prisma.whatsappConnection.findFirst({
+            where: { id: connectionId, ...(workspaceId ? { OR: [{ workspaceId }, { workspaceId: null }] } : {}) },
+            select: { id: true, workspaceId: true },
+        });
+        if (!conn)
+            throw common_types_1.HttpError.notFound('Connection not found');
+        const ws = conn.workspaceId || workspaceId;
+        // Valida: cada userId tem que ser COLLABORATOR ativo do workspace
+        // (admins são auto-acesso e não devem ser inseridos)
+        const validUsers = await database_1.prisma.leadUser.findMany({
+            where: { id: { in: userIds }, workspaceId: ws, isActive: true, role: 'COLLABORATOR' },
+            select: { id: true },
+        });
+        const validIds = validUsers.map(u => u.id);
+        // Transaction: limpa + reinsere
+        await database_1.prisma.$transaction([
+            database_1.prisma.$executeRaw `DELETE FROM connection_user_access WHERE connection_id = ${connectionId}::uuid`,
+            ...(validIds.length > 0
+                ? [database_1.prisma.$executeRawUnsafe(
+                    `INSERT INTO connection_user_access (connection_id, user_id) SELECT $1::uuid, unnest($2::uuid[])`,
+                    connectionId, validIds
+                )]
+                : []),
+        ]);
+        return { connectionId, grantedUserIds: validIds };
+    }
+    /** Helper interno: usado por sendReply/sendImageReply/sendAudioReply.
+     *  Retorna true se o user pode enviar pela conexão. ADMIN sempre true. */
+    async userCanUseConnection(connectionId, userId, role) {
+        if (role === 'ADMIN') return true;
+        const rows = await database_1.prisma.$queryRaw `
+      SELECT 1 FROM connection_user_access
+      WHERE connection_id = ${connectionId}::uuid AND user_id = ${userId}::uuid
+      LIMIT 1
+    `;
+        return rows.length > 0;
+    }
+
+    /** ADMIN-ONLY: retorna as credenciais da conexão com token descriptografado.
+     *  Rota associada (GET /connections/:id/credentials) deve estar atrás de
+     *  requireLeadAdmin — nunca expor pra colaboradores com manageConnections. */
+    async getCredentials(id, workspaceId) {
+        const connection = await database_1.prisma.whatsappConnection.findFirst({
+            where: { id, ...(workspaceId ? { OR: [{ workspaceId }, { workspaceId: null }] } : {}) },
+            select: {
+                id: true,
+                name: true,
+                phoneNumberId: true,
+                wabaId: true,
+                accessTokenEnc: true,
+                webhookVerifyToken: true,
+            },
+        });
+        if (!connection)
+            throw common_types_1.HttpError.notFound('Connection not found');
+        // phone_number existe no DB mas não está mapeado no Prisma schema —
+        // mesmo padrão das colunas proxy_*. Raw SQL pra resgatar.
+        let phoneNumber = null;
+        try {
+            const rows = await database_1.prisma.$queryRaw `SELECT phone_number FROM whatsapp_connections WHERE id = ${id}::uuid LIMIT 1`;
+            phoneNumber = rows && rows[0] ? rows[0].phone_number : null;
+        }
+        catch (e) { /* coluna pode não existir em ambientes antigos */ }
+        const accessToken = (0, token_encryption_1.decrypt)(connection.accessTokenEnc);
+        return {
+            id: connection.id,
+            name: connection.name,
+            phoneNumberId: connection.phoneNumberId,
+            phoneNumber,
+            wabaId: connection.wabaId,
+            webhookVerifyToken: connection.webhookVerifyToken,
+            accessToken,
+        };
     }
 }
 exports.ConnectionsService = ConnectionsService;

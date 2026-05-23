@@ -22,17 +22,17 @@ var __lazyEnabled = (function(){
 // Eager set inclui utils, core, modals e inbox (deps cross-module pesadas — ver
 // memory/project_lowan_fase2_plan.md).
 var MODULE_REGISTRY = {
-  utils:        { v: 26, eager: true  },
-  core:         { v: 15, eager: true  },
+  utils:        { v: 33, eager: true  },
+  core:         { v: 23, eager: true  },
   modals:       { v: 1, eager: true  },
-  inbox:        { v: 15, eager: true  },
+  inbox:        { v: 16, eager: true  },
   dashboard:    { v: 1, eager: false },
-  kanban:       { v: 3, eager: false },
-  leads:        { v: 3, eager: false },
-  connections:  { v: 2, eager: false },
+  kanban:       { v: 6, eager: false },
+  leads:        { v: 5, eager: false },
+  connections:  { v: 6, eager: false },
   broadcasts:   { v: 3, eager: false },
   'ai-agents':  { v: 4, eager: false },
-  settings:     { v: 2, eager: false },
+  settings:     { v: 3, eager: false },
   scheduled:    { v: 1, eager: false },
   'meta-ads':   { v: 1, eager: false },
   integrations: { v: 1, eager: false },
@@ -69,6 +69,20 @@ function loadModule(name) {
 // pre-registro vale pra resto).
 for (var __mname in MODULE_REGISTRY) {
   if (MODULE_REGISTRY[__mname].eager) __loadedModules.add(__mname)
+}
+
+// ─── window.DL polyfill (degradação segura) ───────────────────────────────────
+// data-lite.js (PR #25) sobrescreve isso com a impl real. Se data-lite.js falhar
+// ao carregar por qualquer motivo, este stub mantém o app funcionando: counter()
+// sempre cai no legacyFn, enabled() retorna false. Consumidores em kanban/leads/
+// core (PR #26) chamam DL.counter sem precisar checar typeof.
+window.DL = window.DL || {
+  enabled: function(){ return false },
+  counter: function(_, __, legacyFn){ return legacyFn() },
+  getSummary: function(){ return null },
+  fetchSummary: function(){ return Promise.resolve(null) },
+  invalidate: function(){},
+  prefetchAll: function(){ return Promise.resolve() },
 }
 
 // Helper pra render dispatchers chamarem renders de views possivelmente lazy.
@@ -146,6 +160,140 @@ function _safeSetItem(key, value) {
 
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+// ─── Tooltip global (substitui o nativo do browser) ───────────────────────────
+// Antes vivia em settings.js (lazy-loaded), o que deixava o tooltip nativo do
+// browser dar as caras antes do settings carregar — o nativo é lento e demora a
+// sumir. Movido pra utils (eager) pra ficar ativo desde o primeiro paint.
+//
+// Intercepta hover em [title] e [data-tooltip] e renderiza tooltip estilizado.
+// O title nativo fica suprimido durante hover e restaurado ao sair (preserva a11y).
+// Pra usar HTML formatado (ex: <kbd>): use data-tooltip-html="true".
+;(function setupGlobalTooltip() {
+  if (typeof window === 'undefined' || window._lwnTooltipInstalled) return
+  if (typeof document === 'undefined') return
+  // Touch-only devices: tooltip nativo não é exibido; nosso também fica off
+  // (touch+hold provoca tooltip do OS que conflita).
+  var isTouch = ('ontouchstart' in window) && !(window.matchMedia && window.matchMedia('(hover: hover)').matches)
+  if (isTouch) return
+  window._lwnTooltipInstalled = true
+
+  var tip = document.createElement('div')
+  tip.className = 'lwn-tooltip'
+  tip.setAttribute('role', 'tooltip')
+  // body pode ainda não existir se utils carrega muito cedo
+  function attach() { document.body.appendChild(tip) }
+  if (document.body) attach()
+  else document.addEventListener('DOMContentLoaded', attach, { once: true })
+
+  var cur = null
+  var showTimer = null
+  var hideTimer = null
+
+  function findTarget(node) {
+    if (!node || node.nodeType !== 1) return null
+    return node.closest('[data-tooltip]:not([data-tooltip=""]), [title]:not([title=""])')
+  }
+  function getText(el) {
+    return el.dataset.tooltip || el.dataset.lwnTitle || el.getAttribute('title') || ''
+  }
+  function isHtml(el) { return el.dataset.tooltipHtml === 'true' }
+
+  function suppress(el) {
+    if (el.hasAttribute('title')) {
+      el.dataset.lwnTitle = el.getAttribute('title')
+      el.removeAttribute('title')
+    }
+  }
+  function restore(el) {
+    if (el && el.dataset && el.dataset.lwnTitle != null) {
+      el.setAttribute('title', el.dataset.lwnTitle)
+      delete el.dataset.lwnTitle
+    }
+  }
+
+  function position(el) {
+    var r = el.getBoundingClientRect()
+    if (r.width === 0 && r.height === 0) { hide(); return }
+    var tr = tip.getBoundingClientRect()
+    var top = r.top - tr.height - 8
+    var placement = 'top'
+    if (top < 8) { top = r.bottom + 8; placement = 'bottom' }
+    var left = r.left + (r.width - tr.width) / 2
+    left = Math.max(8, Math.min(left, window.innerWidth - tr.width - 8))
+    tip.style.top = top + 'px'
+    tip.style.left = left + 'px'
+    tip.dataset.placement = placement
+  }
+
+  function show(el) {
+    if (!el || !document.body.contains(el)) { cur = null; return }
+    var text = getText(el)
+    if (!text) return
+    cur = el
+    if (isHtml(el)) tip.innerHTML = text
+    else tip.textContent = text
+    tip.classList.add('is-visible')
+    requestAnimationFrame(function(){ position(el) })
+  }
+  function hide() {
+    clearTimeout(showTimer); clearTimeout(hideTimer)
+    if (cur) restore(cur)
+    cur = null
+    tip.classList.remove('is-visible')
+  }
+
+  // FIX: ao re-render do SPA o elemento `cur` pode ter sido removido do DOM
+  // ANTES de mouseout disparar. Sem este guard, o tooltip permanece visível.
+  // Roda em todo mouseover e auto-cura.
+  function checkCurStillInDom() {
+    if (cur && !document.body.contains(cur)) {
+      clearTimeout(showTimer); clearTimeout(hideTimer)
+      cur = null
+      tip.classList.remove('is-visible')
+    }
+  }
+
+  // 500ms — balanceado entre "passa rápido sem ver" e "demorou demais".
+  // Antes era 3000ms (3s), reclamado como "demorando demais".
+  var SHOW_DELAY_MS = 500
+  document.addEventListener('mouseover', function(e){
+    checkCurStillInDom()
+    var t = findTarget(e.target)
+    if (!t || t === cur) return
+    if (cur) restore(cur)
+    suppress(t)
+    cur = t
+    clearTimeout(showTimer); clearTimeout(hideTimer)
+    showTimer = setTimeout(function(){ show(t) }, SHOW_DELAY_MS)
+  })
+  document.addEventListener('mouseout', function(e){
+    var t = findTarget(e.target)
+    if (!t || t !== cur) return
+    if (e.relatedTarget && t.contains(e.relatedTarget)) return
+    clearTimeout(showTimer); clearTimeout(hideTimer)
+    hideTimer = setTimeout(hide, 80)
+  })
+  // Mouse saiu do viewport — force hide
+  document.addEventListener('mouseleave', hide)
+  // Keyboard a11y: foca via tab → mostra tooltip
+  document.addEventListener('focusin', function(e){
+    var t = findTarget(e.target)
+    if (!t || t === cur) return
+    try { if (!t.matches(':focus-visible')) return } catch (err) { return }
+    if (cur) restore(cur)
+    suppress(t)
+    cur = t
+    show(t)
+  })
+  document.addEventListener('focusout', function(){
+    clearTimeout(showTimer); clearTimeout(hideTimer)
+    hide()
+  })
+  window.addEventListener('scroll', hide, true)
+  document.addEventListener('mousedown', hide, true)
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') hide() })
+})()
 
 // ─── Custom Dropdown (CDD) ────────────────────────────────────────────────────
 // LOWAN_BUILD_MARKER_v2026_05_08_1150
