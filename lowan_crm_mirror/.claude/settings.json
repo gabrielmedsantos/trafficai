@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Skill(agent-browser)",
-      "Skill(agent-browser:*)"
-    ]
-  }
-}
