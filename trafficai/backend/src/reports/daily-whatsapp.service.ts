@@ -4,6 +4,7 @@
 // ==============================
 
 import axios from 'axios';
+import crypto from 'crypto';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 
@@ -24,6 +25,19 @@ interface AccountWithSettings {
     zapi_instance_id: string | null;
     zapi_token: string | null;
     zapi_client_token: string | null;
+    // approval workflow
+    owner_whatsapp: string | null;
+    daily_report_approval_required: boolean | null;
+}
+
+const PUBLIC_BASE_URL = process.env.PUBLIC_API_URL || 'https://api.alfamaxdigital.com.br';
+
+/** Retorna a data de "ontem" em fuso de Brasília (BRT, UTC-3), formato YYYY-MM-DD. */
+function yesterdayBRT(): string {
+    const nowUtc = Date.now();
+    const brtMs = nowUtc - 3 * 60 * 60 * 1000;
+    const yesterdayBrt = new Date(brtMs - 24 * 60 * 60 * 1000);
+    return yesterdayBrt.toISOString().slice(0, 10);
 }
 
 interface DayMetrics {
@@ -39,11 +53,87 @@ interface DayMetrics {
     primary_action_label: string;
 }
 
+interface RangeMetrics {
+    spend: number;
+    impressions: number;
+    leads: number;
+    cost_per_lead: number;
+    primary_action_label: string;
+}
+
 export class DailyWhatsAppService {
 
     /**
+     * Roda a cada 15min — dispara relatório pra contas cujo horário UTC bate com o slot atual
+     * e que ainda não enviaram hoje (controle por daily_whatsapp_last_sent_date).
+     */
+    async sendScheduledReports(): Promise<void> {
+        const now = new Date();
+        // Slot de 15min: arredonda pra baixo (ex: 14:33 → 14:30)
+        const hh = String(now.getUTCHours()).padStart(2, '0');
+        const mm = String(Math.floor(now.getUTCMinutes() / 15) * 15).padStart(2, '0');
+        const slot = `${hh}:${mm}`;
+        const todayStr = now.toISOString().slice(0, 10);
+
+        let accounts: AccountWithSettings[];
+        try {
+            accounts = await query<AccountWithSettings>(`
+                SELECT
+                    a.id, a.user_id, a.account_name, a.meta_account_id,
+                    rs.client_name, rs.client_phone,
+                    ns.whatsapp_provider,
+                    ns.uazapi_url, ns.uazapi_token,
+                    ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
+                    ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token,
+                    ns.owner_whatsapp, ns.daily_report_approval_required
+                FROM ad_accounts a
+                JOIN report_settings rs ON rs.account_id = a.id
+                LEFT JOIN notification_settings ns ON ns.user_id = a.user_id
+                WHERE a.is_client_active = true
+                  AND rs.daily_whatsapp_enabled = true
+                  AND rs.client_phone IS NOT NULL AND rs.client_phone <> ''
+                  AND COALESCE(rs.daily_whatsapp_time, '11:15') = $1
+                  AND (rs.daily_whatsapp_last_sent_date IS NULL OR rs.daily_whatsapp_last_sent_date < $2::DATE)
+            `, [slot, todayStr]);
+        } catch (err: any) {
+            // tabela/coluna não criada ainda — silencia
+            return;
+        }
+
+        if (!accounts.length) return;
+
+        logger.info(`📱 Slot ${slot} UTC: ${accounts.length} relatório(s) WhatsApp pra enviar`);
+
+        // Data reportada: ONTEM em BRT (relatório diário sempre fala do dia anterior em horário Brasília)
+        const dateStr = yesterdayBRT();
+
+        for (const acc of accounts) {
+            if (acc.client_phone!.startsWith('https://chat.whatsapp.com/')) {
+                logger.warn(`daily-whatsapp: ${acc.account_name} usa link convite — use ID do grupo (xxx@g.us) ou número`);
+                continue;
+            }
+            try {
+                const message = await this.buildFullReport(acc, dateStr);
+                if (acc.daily_report_approval_required && acc.owner_whatsapp) {
+                    await this.queueForApproval(acc, message, dateStr);
+                    logger.info(`📤 Relatório p/ aprovação: ${acc.account_name} → dono`);
+                } else {
+                    await this.send(acc, acc.client_phone!, message);
+                    logger.info(`✅ Relatório enviado: ${acc.account_name} → ${acc.client_phone}`);
+                }
+                await query(
+                    `UPDATE report_settings SET daily_whatsapp_last_sent_date = $1::DATE WHERE account_id = $2`,
+                    [todayStr, acc.id]
+                );
+            } catch (err: any) {
+                logger.error(`Falha relatório ${acc.account_name}`, { error: err.message });
+            }
+        }
+    }
+
+    /**
      * Envia relatório diário de texto via WhatsApp para todas as contas habilitadas.
-     * Chamado automaticamente pelo cron às 08:00.
+     * Chamado manualmente — sem filtro de horário, sem dedupe diário.
      */
     async sendDailyReports(): Promise<void> {
         // Busca contas com daily_whatsapp_enabled = true e client_phone configurado
@@ -56,7 +146,8 @@ export class DailyWhatsAppService {
                     ns.whatsapp_provider,
                     ns.uazapi_url, ns.uazapi_token,
                     ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
-                    ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token
+                    ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token,
+                    ns.owner_whatsapp, ns.daily_report_approval_required
                 FROM ad_accounts a
                 JOIN report_settings rs ON rs.account_id = a.id
                 LEFT JOIN notification_settings ns ON ns.user_id = a.user_id
@@ -77,24 +168,252 @@ export class DailyWhatsAppService {
 
         logger.info(`📱 Enviando relatório diário WhatsApp para ${accounts.length} conta(s)`);
 
-        // Ontem
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const dateStr = yesterday.toISOString().split('T')[0];
+        // Ontem em BRT
+        const dateStr = yesterdayBRT();
 
         for (const acc of accounts) {
             if (acc.client_phone!.startsWith('https://chat.whatsapp.com/')) {
-                logger.warn(`daily-whatsapp: ${acc.account_name} usa link de grupo — envio automático não suportado, pulando`);
+                logger.warn(`daily-whatsapp: ${acc.account_name} usa link convite — use o ID do grupo (xxx@g.us) ou número`);
                 continue;
             }
             try {
-                const metrics = await this.getMetricsForDate(acc.id, dateStr);
-                const message = this.buildMessage(acc, metrics, dateStr);
-                await this.send(acc, message);
-                logger.info(`✅ Relatório diário enviado: ${acc.account_name} → ${acc.client_phone}`);
+                const message = await this.buildFullReport(acc, dateStr);
+
+                // Modo aprovação: manda pro DONO com link, salva pendente
+                if (acc.daily_report_approval_required && acc.owner_whatsapp) {
+                    await this.queueForApproval(acc, message, dateStr);
+                    logger.info(`📤 Relatório enviado pra aprovação: ${acc.account_name} → dono`);
+                } else {
+                    await this.send(acc, acc.client_phone!, message);
+                    logger.info(`✅ Relatório diário enviado: ${acc.account_name} → ${acc.client_phone}`);
+                }
             } catch (err: any) {
                 logger.error(`Falha ao enviar relatório diário para ${acc.account_name}`, { error: err.message });
             }
+        }
+    }
+
+    /**
+     * Monta o relatório completo (3 períodos + ads ativos) no formato cliente.
+     */
+    private async buildFullReport(acc: AccountWithSettings, todayDateStr: string): Promise<string> {
+        // "Hoje" no relatório = data informada (geralmente ontem, conforme cron)
+        const today = new Date(todayDateStr + 'T12:00:00Z');
+        // Últimos 7 dias COMPLETOS antes do dia "Hoje"
+        const last7End = new Date(today); last7End.setUTCDate(last7End.getUTCDate() - 1);
+        const last7Start = new Date(last7End); last7Start.setUTCDate(last7Start.getUTCDate() - 6);
+        // Mês corrente: dia 1 do mês de "Hoje" até o próprio "Hoje"
+        const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+        const monthEnd = today;
+
+        const todayStr = this.toISODate(today);
+        const last7StartStr = this.toISODate(last7Start);
+        const last7EndStr = this.toISODate(last7End);
+        const monthStartStr = this.toISODate(monthStart);
+        const monthEndStr = this.toISODate(monthEnd);
+
+        const [todayM, last7M, monthM, activeAds] = await Promise.all([
+            this.getRangeMetrics(acc.id, todayStr, todayStr),
+            this.getRangeMetrics(acc.id, last7StartStr, last7EndStr),
+            this.getRangeMetrics(acc.id, monthStartStr, monthEndStr),
+            this.countActiveAds(acc.id),
+        ]);
+
+        return this.buildMessageNew(acc, {
+            today: { metrics: todayM, label: this.formatDayBR(todayStr) },
+            last7d: { metrics: last7M, label: `${this.formatDayBR(last7StartStr)} a ${this.formatDayBR(last7EndStr)}` },
+            month: { metrics: monthM, label: `${this.formatDayBR(monthStartStr)} a ${this.formatDayBR(monthEndStr)}` },
+            activeAds,
+        });
+    }
+
+    private toISODate(d: Date): string {
+        return d.toISOString().slice(0, 10);
+    }
+
+    private formatDayBR(iso: string): string {
+        const [, m, d] = iso.split('-');
+        return `${d}/${m}`;
+    }
+
+    private async getRangeMetrics(accountId: string, fromDate: string, toDate: string): Promise<RangeMetrics> {
+        const rows = await query<any>(`
+            SELECT
+                COALESCE(SUM(ih.spend), 0)         AS spend,
+                COALESCE(SUM(ih.impressions), 0)   AS impressions,
+                COALESCE(SUM(ih.conversions), 0)   AS conversions
+            FROM insights_history ih
+            JOIN campaigns c ON ih.campaign_id = c.id
+            WHERE c.account_id = $1
+              AND ih.date >= $2 AND ih.date <= $3
+        `, [accountId, fromDate, toDate]);
+        const t = rows[0] || {};
+        const spend = parseFloat(t.spend) || 0;
+        const conversions = parseInt(t.conversions) || 0;
+
+        // Detecta label da ação primária pelo período
+        const actionsRows = await query<any>(`
+            SELECT ih.actions FROM insights_history ih
+            JOIN campaigns c ON ih.campaign_id = c.id
+            WHERE c.account_id = $1 AND ih.date >= $2 AND ih.date <= $3
+        `, [accountId, fromDate, toDate]);
+
+        return {
+            spend,
+            impressions: parseInt(t.impressions) || 0,
+            leads: conversions,
+            cost_per_lead: conversions > 0 ? spend / conversions : 0,
+            primary_action_label: this.detectPrimaryAction(actionsRows),
+        };
+    }
+
+    private async countActiveAds(accountId: string): Promise<number> {
+        // "Ativos" = ACTIVE/em análise NO META + tiveram impressões nos últimos 7 dias
+        // (filtro de impressões evita contar campaigns pausadas que ficaram com status defasado)
+        const r = await query<any>(`
+            SELECT COUNT(DISTINCT c.id)::INT AS n
+            FROM campaigns c
+            LEFT JOIN insights_history ih ON ih.campaign_id = c.id
+                AND ih.date >= (CURRENT_DATE - INTERVAL '7 days')
+                AND ih.impressions > 0
+            WHERE c.account_id = $1
+              AND (
+                  c.status IN ('ACTIVE', 'IN_PROCESS', 'PENDING_REVIEW', 'IN_REVIEW', 'PREAPPROVED')
+                  OR ih.id IS NOT NULL
+              )
+        `, [accountId]);
+        return Number(r[0]?.n ?? 0);
+    }
+
+    private greetingPrefix(): string {
+        const hour = new Date().getHours();
+        if (hour < 12) return 'Bom dia';
+        if (hour < 18) return 'Boa tarde';
+        return 'Boa noite';
+    }
+
+    private buildMessageNew(
+        acc: AccountWithSettings,
+        data: {
+            today: { metrics: RangeMetrics; label: string };
+            last7d: { metrics: RangeMetrics; label: string };
+            month: { metrics: RangeMetrics; label: string };
+            activeAds: number;
+        }
+    ): string {
+        const clientName = (acc.client_name || acc.account_name || 'Cliente').toUpperCase();
+        const greeting = this.greetingPrefix();
+        const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const fmtNum = (v: number) => v.toLocaleString('pt-BR');
+
+        const block = (m: RangeMetrics) =>
+            `💰 Investimento de ${fmtBRL(m.spend)}\n` +
+            `⚡️ Impressões: ${fmtNum(m.impressions)}\n` +
+            `📊 Total de ${fmtNum(m.leads)} ${m.leads === 1 ? 'lead' : 'leads'}\n` +
+            `💰 Custo por lead de ${fmtBRL(m.cost_per_lead)}`;
+
+        return [
+            `${greeting} *${clientName}*, tudo bem?`,
+            '',
+            'Resumo de Ontem:',
+            `> [${data.today.label}]`,
+            '',
+            block(data.today.metrics),
+            '',
+            'Resumo de nossas campanhas nos últimos 7 dias:',
+            `> [${data.last7d.label}]`,
+            '',
+            block(data.last7d.metrics),
+            '',
+            'Resumo desse mês:',
+            `> [${data.month.label}]`,
+            '',
+            block(data.month.metrics),
+            '',
+            `🏷️ Anúncios rodando ou em análise: ${data.activeAds}`,
+        ].join('\n');
+    }
+
+    /**
+     * Salva o relatório como pendente de aprovação e manda link pro dono via WhatsApp.
+     */
+    private async queueForApproval(
+        acc: AccountWithSettings,
+        message: string,
+        dateStr: string,
+    ): Promise<void> {
+        const token = crypto.randomBytes(18).toString('hex');
+        await query(
+            `INSERT INTO daily_report_approvals
+             (user_id, account_id, report_date, client_name, client_phone, message_text, approval_token, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
+            [
+                acc.user_id, acc.id, dateStr,
+                acc.client_name || acc.account_name,
+                acc.client_phone,
+                message,
+                token,
+            ]
+        );
+
+        const approvalUrl = `${PUBLIC_BASE_URL}/api/v1/r/${token}`;
+        const previewLines = message.split('\n').slice(0, 3).join('\n');
+        const ownerMessage =
+            `📋 *Aprovação pendente — ${acc.client_name || acc.account_name}*\n` +
+            `📅 ${this.formatDateBR(dateStr)}\n\n` +
+            `Cliente: ${acc.client_phone}\n\n` +
+            `${previewLines}…\n\n` +
+            `━━━━━━━━━━━━━━━━━\n` +
+            `👇 *Ver e aprovar:*\n${approvalUrl}`;
+
+        await this.send(acc, acc.owner_whatsapp!, ownerMessage);
+    }
+
+    /**
+     * Reenvia um relatório APROVADO pro telefone do cliente.
+     * Chamado pelo endpoint público de aprovação.
+     */
+    async sendApproved(approvalId: string): Promise<void> {
+        const rows = await query<any>(`
+            SELECT
+                dra.id, dra.user_id, dra.account_id, dra.client_phone, dra.message_text, dra.status,
+                ns.whatsapp_provider,
+                ns.uazapi_url, ns.uazapi_token,
+                ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
+                ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token
+            FROM daily_report_approvals dra
+            LEFT JOIN notification_settings ns ON ns.user_id = dra.user_id
+            WHERE dra.id = $1
+        `, [approvalId]);
+        if (!rows.length) throw new Error('Aprovação não encontrada');
+        const r = rows[0];
+        if (r.status === 'sent') return;
+
+        const fakeAcc: AccountWithSettings = {
+            id: r.account_id, user_id: r.user_id,
+            account_name: '', meta_account_id: '',
+            client_name: null, client_phone: r.client_phone,
+            whatsapp_provider: r.whatsapp_provider,
+            uazapi_url: r.uazapi_url, uazapi_token: r.uazapi_token,
+            evolution_api_url: r.evolution_api_url, evolution_api_key: r.evolution_api_key,
+            evolution_instance: r.evolution_instance,
+            zapi_instance_id: r.zapi_instance_id, zapi_token: r.zapi_token,
+            zapi_client_token: r.zapi_client_token,
+            owner_whatsapp: null, daily_report_approval_required: null,
+        };
+
+        try {
+            await this.send(fakeAcc, r.client_phone, r.message_text);
+            await query(
+                `UPDATE daily_report_approvals SET status = 'sent', sent_at = NOW() WHERE id = $1`,
+                [approvalId]
+            );
+        } catch (err: any) {
+            await query(
+                `UPDATE daily_report_approvals SET status = 'failed', error_message = $2 WHERE id = $1`,
+                [approvalId, err.message]
+            );
+            throw err;
         }
     }
 
@@ -109,7 +428,8 @@ export class DailyWhatsAppService {
                 ns.whatsapp_provider,
                 ns.uazapi_url, ns.uazapi_token,
                 ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
-                ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token
+                ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token,
+                ns.owner_whatsapp, ns.daily_report_approval_required
             FROM ad_accounts a
             LEFT JOIN report_settings rs ON rs.account_id = a.id
             LEFT JOIN notification_settings ns ON ns.user_id = a.user_id
@@ -124,19 +444,14 @@ export class DailyWhatsAppService {
         const resolvedPhone = phone || (acc as any).client_phone || null;
         if (!resolvedPhone) throw new Error('WhatsApp do cliente não configurado nesta conta');
         if (resolvedPhone.startsWith('https://chat.whatsapp.com/')) {
-            throw new Error('Links de grupo não funcionam para envio automático. Use o número (ex: 5511999999999)');
+            throw new Error('Links convite não funcionam pra envio automático. Use o número (ex: 5511999999999) OU o ID do grupo (ex: 1234567890@g.us)');
         }
         acc.client_phone = resolvedPhone;
 
-        const targetDate = dateStr || (() => {
-            const d = new Date();
-            d.setDate(d.getDate() - 1);
-            return d.toISOString().split('T')[0];
-        })();
+        const targetDate = dateStr || yesterdayBRT();
 
-        const metrics = await this.getMetricsForDate(acc.id, targetDate);
-        const message = this.buildMessage(acc, metrics, targetDate);
-        await this.send(acc, message);
+        const message = await this.buildFullReport(acc, targetDate);
+        await this.send(acc, acc.client_phone!, message);
 
         return { message };
     }
@@ -267,9 +582,10 @@ export class DailyWhatsAppService {
 
     // ─── ENVIO ────────────────────────────────────────────────────────────────
 
-    private async send(acc: AccountWithSettings, message: string): Promise<void> {
-        const phone = acc.client_phone!;
-        const provider = acc.whatsapp_provider || 'uazapi';
+    private async send(acc: AccountWithSettings, phone: string, message: string): Promise<void> {
+        // Default: Evolution se ENV global estiver configurado, senão UazAPI (legado)
+        const envEvolutionConfigured = !!process.env.EVOLUTION_API_BASE_URL && !!process.env.EVOLUTION_API_KEY;
+        const provider = acc.whatsapp_provider || (envEvolutionConfigured ? 'evolution' : 'uazapi');
 
         if (provider === 'uazapi') {
             await this.sendViaUazapi(acc, phone, message);
@@ -281,6 +597,10 @@ export class DailyWhatsAppService {
     }
 
     private normalizePhone(phone: string): string {
+        // Group ID do WhatsApp: 1234567890@g.us — preserva como veio
+        if (phone.includes('@g.us') || phone.includes('@s.whatsapp.net')) {
+            return phone.trim();
+        }
         return phone.replace(/\D/g, '');
     }
 
@@ -313,20 +633,45 @@ export class DailyWhatsAppService {
     }
 
     private async sendViaEvolution(acc: AccountWithSettings, phone: string, message: string): Promise<void> {
-        if (!acc.evolution_api_url || !acc.evolution_instance) {
-            throw new Error('Evolution API não configurada');
+        // Fallbacks: per-user → ENV global → comm_integrations conectada do user
+        let baseUrl = acc.evolution_api_url || process.env.EVOLUTION_API_BASE_URL || '';
+        let apiKey = acc.evolution_api_key || process.env.EVOLUTION_API_KEY || '';
+        let instance = acc.evolution_instance || '';
+
+        if (!instance) {
+            try {
+                const integ = await query<any>(
+                    `SELECT config, credentials FROM comm_integrations
+                     WHERE user_id = $1 AND type = 'whatsapp_evolution' AND status = 'connected'
+                     ORDER BY connected_at DESC NULLS LAST LIMIT 1`,
+                    [acc.user_id]
+                );
+                if (integ.length) {
+                    const cfg = integ[0].config || {};
+                    const creds = integ[0].credentials || {};
+                    instance = cfg.instanceName || cfg.instance || '';
+                    if (!baseUrl) baseUrl = cfg.baseUrl || cfg.evolutionBaseUrl || '';
+                    if (!apiKey) apiKey = creds.apiKey || creds.evolutionApiKey || '';
+                }
+            } catch (err: any) {
+                logger.warn('lookup comm_integrations falhou', { error: err.message });
+            }
+        }
+
+        if (!baseUrl || !instance) {
+            throw new Error('Evolution API não configurada — defina EVOLUTION_API_BASE_URL/EVOLUTION_API_KEY no .env, ou conecte uma instância em /comercial/integrations, ou preencha em Configurações → Notificações');
         }
 
         const number = this.normalizePhone(phone);
-        const url = `${acc.evolution_api_url}/message/sendText/${acc.evolution_instance}`;
+        const url = `${baseUrl.replace(/\/$/, '')}/message/sendText/${instance}`;
 
         try {
             await axios.post(url, {
                 number,
-                textMessage: { text: message },
+                text: message,           // v2 payload
             }, {
                 headers: {
-                    apikey: acc.evolution_api_key || '',
+                    apikey: apiKey,
                     'Content-Type': 'application/json',
                 },
                 timeout: 15000,
