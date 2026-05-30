@@ -179,6 +179,12 @@ export class AuthService {
             });
 
             const { access_token, expires_in } = response.data;
+            if (!access_token || typeof expires_in !== 'number' || !Number.isFinite(expires_in) || expires_in <= 0) {
+                throw new AppError(
+                    `Meta retornou resposta inválida no refresh: ${JSON.stringify(response.data).slice(0, 200)}`,
+                    502,
+                );
+            }
             const tokenExpiration = new Date(Date.now() + expires_in * 1000);
 
             await authRepository.updateMetaToken(userId, user.meta_user_id!, access_token, tokenExpiration);
