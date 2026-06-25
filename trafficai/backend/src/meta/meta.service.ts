@@ -389,8 +389,8 @@ export class MetaService {
                         cpc: parseFloat(insight.cpc || '0'),
                         cpm: parseFloat(insight.cpm || '0'),
                         frequency: parseFloat(insight.frequency || '0'),
-                        conversions: this.extractConversions(insight.actions),
-                        cost_per_conversion: this.extractCostPerConversion(insight.cost_per_action_type),
+                        conversions: this.extractConversions(insight.actions, campaign.objective),
+                        cost_per_conversion: this.extractCostPerConversion(insight.cost_per_action_type, campaign.objective),
                         roas: this.extractRoas(insight.purchase_roas),
                         actions: insight.actions,
                     });
@@ -539,8 +539,73 @@ export class MetaService {
         { type: 'thruplay',         label: 'ThruPlays' },
     ];
 
-    extractPrimaryAction(actions?: any[]): { count: number; label: string; action_type: string } {
+    /**
+     * Mapeia objective da campanha → tipos de action que representam o "Resultado"
+     * no Gerenciador da Meta. Ordem importa (primeiro com valor > 0 vence).
+     * Campanhas de mensagem precisam priorizar messaging_conversation_started_7d
+     * antes de tipos genéricos como `lead` (que o Meta retorna pra todo tipo de conversão).
+     */
+    private static OBJECTIVE_PRIORITY: Record<string, { type: string; label: string }[]> = {
+        // Messaging (WhatsApp / Messenger) — Resultados = "Conversas iniciadas"
+        OUTCOME_ENGAGEMENT: [
+            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas iniciadas' },
+            { type: 'onsite_conversion.total_messaging_connection',        label: 'Conexões de mensagem' },
+            { type: 'onsite_conversion.messaging_first_reply',             label: 'Primeiras respostas' },
+            { type: 'post_engagement',  label: 'Engajamentos' },
+        ],
+        MESSAGES: [
+            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas iniciadas' },
+            { type: 'onsite_conversion.total_messaging_connection',        label: 'Conexões de mensagem' },
+        ],
+        // Lead-gen
+        OUTCOME_LEADS: [
+            { type: 'offsite_conversion.fb_pixel_lead', label: 'Leads' },
+            { type: 'lead',                             label: 'Leads' },
+            { type: 'onsite_conversion.lead',           label: 'Leads' },
+            { type: 'complete_registration',            label: 'Cadastros' },
+        ],
+        LEAD_GENERATION: [
+            { type: 'offsite_conversion.fb_pixel_lead', label: 'Leads' },
+            { type: 'lead',                             label: 'Leads' },
+        ],
+        // Sales / Conversions
+        OUTCOME_SALES: [
+            { type: 'offsite_conversion.fb_pixel_purchase', label: 'Compras' },
+            { type: 'purchase',                             label: 'Compras' },
+            { type: 'onsite_conversion.purchase',           label: 'Compras' },
+            { type: 'omni_purchase',                        label: 'Compras' },
+        ],
+        CONVERSIONS: [
+            { type: 'offsite_conversion.fb_pixel_purchase', label: 'Compras' },
+            { type: 'purchase',                             label: 'Compras' },
+        ],
+        // Traffic / Awareness / Video
+        OUTCOME_TRAFFIC: [
+            { type: 'link_click', label: 'Cliques no link' },
+        ],
+        OUTCOME_AWARENESS: [
+            { type: 'post_engagement', label: 'Engajamentos' },
+            { type: 'video_view',      label: 'Visualizações de vídeo' },
+        ],
+        VIDEO_VIEWS: [
+            { type: 'video_view', label: 'Visualizações de vídeo' },
+            { type: 'thruplay',   label: 'ThruPlays' },
+        ],
+    };
+
+    extractPrimaryAction(actions?: any[], objective?: string): { count: number; label: string; action_type: string } {
         if (!actions || actions.length === 0) return { count: 0, label: 'Conversões', action_type: '' };
+        // 1) Prioridade específica do objetivo da campanha (se conhecido)
+        const objList = objective ? MetaService.OBJECTIVE_PRIORITY[objective] : null;
+        if (objList) {
+            for (const priority of objList) {
+                const match = actions.find((a: any) => a.action_type === priority.type);
+                if (match && parseInt(match.value, 10) > 0) {
+                    return { count: parseInt(match.value, 10), label: priority.label, action_type: priority.type };
+                }
+            }
+        }
+        // 2) Fallback: lista global (mantém compat com objetivos não mapeados)
         for (const priority of MetaService.ACTION_PRIORITY) {
             const match = actions.find((a: any) => a.action_type === priority.type);
             if (match && parseInt(match.value, 10) > 0) {
@@ -550,8 +615,8 @@ export class MetaService {
         return { count: 0, label: 'Conversões', action_type: '' };
     }
 
-    private extractConversions(actions?: any[]): number {
-        return this.extractPrimaryAction(actions).count;
+    private extractConversions(actions?: any[], objective?: string): number {
+        return this.extractPrimaryAction(actions, objective).count;
     }
 
     private extractRoas(purchaseRoas?: any[]): number {
@@ -559,8 +624,15 @@ export class MetaService {
         return parseFloat(purchaseRoas[0].value || '0');
     }
 
-    private extractCostPerConversion(costPerActionType?: any[]): number {
+    private extractCostPerConversion(costPerActionType?: any[], objective?: string): number {
         if (!costPerActionType) return 0;
+        const objList = objective ? MetaService.OBJECTIVE_PRIORITY[objective] : null;
+        if (objList) {
+            for (const priority of objList) {
+                const match = costPerActionType.find((a: any) => a.action_type === priority.type);
+                if (match && parseFloat(match.value) > 0) return parseFloat(match.value);
+            }
+        }
         for (const priority of MetaService.ACTION_PRIORITY) {
             const match = costPerActionType.find((a: any) => a.action_type === priority.type);
             if (match && parseFloat(match.value) > 0) return parseFloat(match.value);
