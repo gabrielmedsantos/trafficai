@@ -8,6 +8,7 @@
 // ==============================
 
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
@@ -20,6 +21,62 @@ import { processWhatsAppMessage, findWhatsAppLeadByPhone, recordPurchaseForWhats
 import { KommoAdapter } from './crm-adapters/kommo.adapter';
 
 const router = Router();
+
+// ─── Rate limit por token ──────────────────────────────────────────────────
+// Protege cada fonte individualmente — alguém floodando o token de um cliente
+// não consegue inflar contadores nem consumir nossa cota Meta CAPI.
+// Limite generoso pra suportar sites de alto tráfego sem afetar uso real.
+//
+// 600 req/min por token = 10/seg sustentado (com burst).
+// Status 429 silencioso (success:true) pra não revelar a estrutura pro atacante.
+const eventLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `tai_event:${req.params.token}`,
+    handler: (_req, res) => {
+        res.status(429).json({ success: false, error: { message: 'Rate limit excedido' } });
+    },
+});
+
+// Click events são mais raros (1 por sessão geralmente), limite mais apertado.
+const clickLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `tai_click:${req.params.token}`,
+    handler: (_req, res) => {
+        // Click silencioso já pelo design — não vaza erro.
+        res.json({ success: true });
+    },
+});
+
+// WhatsApp webhook (Evolution API) — baixo volume normalmente.
+const whatsappLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `tai_wa:${req.params.token}`,
+    handler: (_req, res) => {
+        res.status(429).json({ success: false, error: { message: 'Rate limit excedido' } });
+    },
+});
+
+// CRM webhook — Kommo/RDStation podem disparar em rajada quando importam leads.
+// Limite mais alto, mas ainda protege.
+const webhookLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `tai_webhook:${req.params.token}`,
+    handler: (_req, res) => {
+        res.status(429).json({ success: false, error: { message: 'Rate limit excedido' } });
+    },
+});
 
 async function findSource(token: string): Promise<(TrackingSource & {
     webhook_secret: string | null;
@@ -60,7 +117,7 @@ router.get('/pixel/:token.js', async (req: Request, res: Response) => {
 });
 
 // ─── POST /track/event/:token ───────────────────────────────────────────────
-router.post('/event/:token', async (req: Request, res: Response) => {
+router.post('/event/:token', eventLimiter, async (req: Request, res: Response) => {
     try {
         const source = await findSource(req.params.token);
         if (!source || !source.is_active) {
@@ -75,13 +132,15 @@ router.post('/event/:token', async (req: Request, res: Response) => {
             phone: body.phone,
             first_name: body.first_name,
             last_name: body.last_name,
-            city: body.city,
-            state: body.state,
-            zip: body.zip,
+            // Geo: prioriza payload do client (form/identify) e cai pra headers Cloudflare
+            city: body.city || ctx.city || undefined,
+            state: body.state || ctx.state || undefined,
+            zip: body.zip || ctx.zip || undefined,
             country: body.country || ctx.country || undefined,
             external_id: body.external_id,
             fbp: body.fbp,
             fbc: body.fbc,
+            gclid: body.gclid,
             client_ip: ctx.ip || undefined,
             client_user_agent: ctx.user_agent || undefined,
         };
@@ -96,6 +155,7 @@ router.post('/event/:token', async (req: Request, res: Response) => {
             currency: body.currency,
             custom_data: body.custom_data,
             user_data: userData,
+            session_id: body.session_id,
         };
 
         if (!event.event_name) {
@@ -111,7 +171,7 @@ router.post('/event/:token', async (req: Request, res: Response) => {
 });
 
 // ─── POST /track/click/:token ───────────────────────────────────────────────
-router.post('/click/:token', async (req: Request, res: Response) => {
+router.post('/click/:token', clickLimiter, async (req: Request, res: Response) => {
     try {
         const source = await findSource(req.params.token);
         if (!source || !source.is_active) return res.json({ success: true });
@@ -130,6 +190,8 @@ router.post('/click/:token', async (req: Request, res: Response) => {
             client_ip: ctx.ip || undefined,
             client_user_agent: ctx.user_agent || undefined,
             country: ctx.country || undefined,
+            city: ctx.city || undefined,
+            session_id: req.body?.session_id,
         };
         await recordClick(source.id, c);
         res.json({ success: true });
@@ -140,13 +202,13 @@ router.post('/click/:token', async (req: Request, res: Response) => {
 
 // ─── POST /track/whatsapp/:token ────────────────────────────────────────────
 // Recebe webhook do Evolution API (messages.upsert). Se a mensagem veio de
-// anúncio WhatsApp (tem ctwaClid), captura lead + dispara LeadSubmitted
+// anúncio WhatsApp (tem ctwaClid), captura lead + dispara Lead
 // com action_source=business_messaging.
 //
 // Configure no Evolution API:
 //   URL: https://api.alfamaxdigital.com.br/api/v1/track/whatsapp/{SEU_TOKEN}?key={SECRET}
 //   Eventos: messages.upsert
-router.post('/whatsapp/:token', async (req: Request, res: Response) => {
+router.post('/whatsapp/:token', whatsappLimiter, async (req: Request, res: Response) => {
     try {
         const source = await findSource(req.params.token);
         if (!source || !source.is_active) {
@@ -183,7 +245,7 @@ router.post('/whatsapp/:token', async (req: Request, res: Response) => {
 //       custom_data?: {...},
 //       action_source?: 'system_generated' (default)
 //     }
-router.post('/webhook/:token', async (req: Request, res: Response) => {
+router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Response) => {
     try {
         const source = await findSource(req.params.token);
         if (!source || !source.is_active) return res.status(404).json({ success: false });
@@ -193,23 +255,33 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
             const secret = source.webhook_secret;
             let authenticated = false;
 
+            // Comparação resistente a timing attack: ambos os buffers DEVEM ter
+            // o mesmo tamanho — encapsula numa helper que retorna false se diferentes.
+            const safeEq = (a: string, b: string): boolean => {
+                if (typeof a !== 'string' || typeof b !== 'string') return false;
+                const ba = Buffer.from(a);
+                const bb = Buffer.from(b);
+                if (ba.length !== bb.length) return false;
+                return crypto.timingSafeEqual(ba, bb);
+            };
+
             // (1) HMAC assinado
             const signature = (req.headers['x-tai-signature'] as string) || '';
             if (signature) {
                 const raw = JSON.stringify(req.body || {});
                 const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
-                if (signature === expected) authenticated = true;
+                if (safeEq(signature, expected)) authenticated = true;
             }
 
             // (2) Authorization: Bearer <secret>
             if (!authenticated) {
                 const auth = (req.headers['authorization'] as string) || '';
                 const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-                if (bearer && bearer === secret) authenticated = true;
+                if (bearer && safeEq(bearer, secret)) authenticated = true;
             }
 
             // (3) ?key=<secret>
-            if (!authenticated && req.query.key === secret) {
+            if (!authenticated && typeof req.query.key === 'string' && safeEq(req.query.key, secret)) {
                 authenticated = true;
             }
 
@@ -294,9 +366,15 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
             });
         }
 
+        // event_id determinístico se o webhook não passar (evita dedupe falho):
+        // se tivermos external_id (ex: kommo_lead_id), montamos um id estável
+        // pra que dispares repetidos do Salesbot batam na proteção de dedupe.
+        const derivedEventId = b.event_id
+            || (b.external_id && b.event ? `${b.external_id}-${b.event}` : null);
+
         const event: TrackingEventInput = {
             event_name: b.event || b.event_name,
-            event_id: b.event_id,
+            event_id: derivedEventId,
             // Meta rejeita eventos > 7 dias. Se vier antigo (ex: CRM mandando
             // lead fechado ontem > 7 dias no passado), usa agora().
             event_time: b.event_time ? clampEventTime(Number(b.event_time), 'clamp_7d') : undefined,
@@ -319,6 +397,7 @@ router.post('/webhook/:token', async (req: Request, res: Response) => {
                 ctwa_clid: b.user?.ctwa_clid,
                 fbc: b.user?.fbc,
                 fbp: b.user?.fbp,
+                gclid: b.user?.gclid,
                 page_id: b.user?.page_id,
             },
         };
@@ -535,7 +614,7 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
 }
 
 function buildPixelScript(token: string, apiBase: string, pixelId: string | null): string {
-    return `/* TrafficAI Pixel · token=${token} */
+    return `/* TrafficAI Pixel · token=${token} · v2 */
 (function(){
   if (window.TrafficAI && window.TrafficAI._loaded) return;
   var API = ${JSON.stringify(apiBase)};
@@ -549,18 +628,54 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     var m = document.cookie.match(new RegExp('(?:^|;\\\\s*)' + name + '=([^;]+)'));
     return m ? decodeURIComponent(m[1]) : null;
   }
+  // Detecta domínio "raiz" do site pra cookie compartilhado entre subdomínios.
+  // Suporta TLDs compostos comuns (com.br, co.uk, com.au, etc).
+  function rootDomain(){
+    var host = window.location.hostname || '';
+    if (!host || host === 'localhost' || /^[\\d.]+$/.test(host)) return host;
+    var parts = host.split('.');
+    if (parts.length <= 2) return host;
+    // TLDs de 2 níveis conhecidos
+    var multi = ['com.br','com.au','co.uk','co.jp','co.za','com.mx','com.ar','com.co','net.br','org.br','gov.br','com.pt','com.es'];
+    var last2 = parts.slice(-2).join('.');
+    if (multi.indexOf(last2) !== -1) return parts.slice(-3).join('.');
+    return last2;
+  }
   function setCookie(name, value, days){
     var exp = new Date(Date.now() + days*86400000).toUTCString();
-    var domain = window.location.hostname.split('.').slice(-2).join('.');
-    document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + exp +
-      '; path=/; SameSite=Lax; domain=.' + domain;
+    var root = rootDomain();
+    var attrs = '; expires=' + exp + '; path=/; SameSite=Lax';
+    if (root && root.indexOf('.') !== -1) attrs += '; domain=.' + root;
+    document.cookie = name + '=' + encodeURIComponent(value) + attrs;
   }
+  // UUID robusto — usa crypto se disponível, senão fallback de alta entropia.
   function uuid(){
-    if (crypto && crypto.randomUUID) return crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
-      var r = Math.random()*16|0, v = c === 'x' ? r : (r&0x3|0x8);
-      return v.toString(16);
-    });
+    try { if (crypto && crypto.randomUUID) return crypto.randomUUID(); } catch(e){}
+    var rnd;
+    if (crypto && crypto.getRandomValues) {
+      var b = new Uint8Array(16);
+      crypto.getRandomValues(b);
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      var hex = Array.prototype.map.call(b, function(x){ return ('0' + x.toString(16)).slice(-2); }).join('');
+      return hex.slice(0,8)+'-'+hex.slice(8,12)+'-'+hex.slice(12,16)+'-'+hex.slice(16,20)+'-'+hex.slice(20);
+    }
+    rnd = function(){ return Math.floor(Math.random() * 0x10000).toString(16).padStart(4, '0'); };
+    return rnd()+rnd()+'-'+rnd()+'-4'+rnd().slice(0,3)+'-'+rnd()+'-'+rnd()+rnd()+rnd();
+  }
+
+  // ── Session ID — único por sessão de browsing, sobrevive a navegação SPA ──
+  var SESSION_KEY = '__tai_session__';
+  function getSession(){
+    try {
+      var sid = sessionStorage.getItem(SESSION_KEY);
+      if (!sid) { sid = uuid(); sessionStorage.setItem(SESSION_KEY, sid); }
+      return sid;
+    } catch(e) {
+      // Sem sessionStorage (privacidade extrema): gera por load.
+      if (!window.__taiSid) window.__taiSid = uuid();
+      return window.__taiSid;
+    }
   }
 
   // ── fbp / fbc (padrão Meta) ───────────────────────────────────────────
@@ -581,6 +696,16 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       return fbc;
     }
     return getCookie('_fbc');
+  }
+  // Google Ads — persistido em cookie próprio (_tai_gclid) por 90 dias.
+  function captureGclid(){
+    var params = new URLSearchParams(window.location.search);
+    var gc = params.get('gclid');
+    if (gc) {
+      setCookie('_tai_gclid', gc, 90);
+      return gc;
+    }
+    return getCookie('_tai_gclid');
   }
 
   // ── Perfil do usuário (identify) persistido na sessão ─────────────────
@@ -645,6 +770,8 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       external_id: params.external_id || ident.external_id,
       fbp: ensureFbp(),
       fbc: captureFbc(),
+      gclid: captureGclid(),
+      session_id: getSession(),
       custom_data: params.custom_data,
     };
     send(EP_EVENT, payload);
@@ -657,16 +784,17 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   }
 
   // ── Auto: registra clique e PageView ──────────────────────────────────
-  var params = parseParams();
-  var hasTraffic = params.fbclid || params.gclid || params.utm_source || params.utm_campaign;
+  var initParams = parseParams();
+  var hasTraffic = initParams.fbclid || initParams.gclid || initParams.utm_source || initParams.utm_campaign;
   if (hasTraffic) {
-    send(EP_CLICK, Object.assign(params, {
+    send(EP_CLICK, Object.assign({}, initParams, {
       landing_page: window.location.href,
       referrer: document.referrer || null,
+      session_id: getSession(),
     }));
   }
 
-  // ── Auto-scroll tracking (50% e 90%) ──────────────────────────────────
+  // ── Auto-scroll tracking (50% e 90%) — reseta a cada PageView SPA ─────
   var scrollMarks = { 50:false, 90:false };
   function onScroll(){
     var h = document.documentElement;
@@ -722,11 +850,42 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     if (!form.dataset.taiEvent) track('InitiateCheckout');
   }, true);
 
+  // ── SPA navigation tracking ──────────────────────────────────────────
+  // Detecta mudança de rota client-side (pushState / replaceState / popstate)
+  // e dispara PageView novo — Next.js, React Router, Vue Router, etc.
+  var lastUrl = window.location.href;
+  function onRouteChange(){
+    var cur = window.location.href;
+    if (cur === lastUrl) return;
+    lastUrl = cur;
+    // Reset scroll marks pra nova "página"
+    scrollMarks = { 50:false, 90:false };
+    track('PageView');
+  }
+  try {
+    var _push = history.pushState;
+    history.pushState = function(){
+      var r = _push.apply(this, arguments);
+      setTimeout(onRouteChange, 0);
+      return r;
+    };
+    var _replace = history.replaceState;
+    history.replaceState = function(){
+      var r = _replace.apply(this, arguments);
+      setTimeout(onRouteChange, 0);
+      return r;
+    };
+    window.addEventListener('popstate', onRouteChange);
+    window.addEventListener('hashchange', onRouteChange);
+  } catch(e){ /* monkey-patch falhou — sem SPA tracking */ }
+
   // ── API pública ───────────────────────────────────────────────────────
   window.TrafficAI = {
     _loaded: true,
+    _version: 2,
     track: track,
     identify: setIdent,
+    sessionId: getSession,
     pageView: function(params){ return track('PageView', params); },
     viewContent: function(params){ return track('ViewContent', params); },
     lead: function(params){ return track('Lead', params); },

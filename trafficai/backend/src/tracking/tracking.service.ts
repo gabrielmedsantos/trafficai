@@ -79,6 +79,7 @@ export interface TrackingUserInput {
     external_id?: string;
     fbp?: string;
     fbc?: string;
+    gclid?: string;         // Google Ads Click ID (vai como custom_data + persistido)
     client_ip?: string;
     client_user_agent?: string;
     // WhatsApp Click-to-Message attribution
@@ -97,6 +98,7 @@ export interface TrackingEventInput {
     currency?: string;
     custom_data?: Record<string, any>;
     user_data?: TrackingUserInput;
+    session_id?: string;   // sessão do visitante (gerado pelo pixel)
 }
 
 /**
@@ -164,12 +166,12 @@ interface MetaCapiResponse {
     error?: any;
 }
 
-async function postToMeta(
+export async function postToMeta(
     pixelId: string,
     accessToken: string,
     payload: any,
     testEventCode?: string | null
-): Promise<{ status: 'sent' | 'failed'; response?: MetaCapiResponse; error?: string; fbtrace_id?: string }> {
+): Promise<{ status: 'sent' | 'failed' | 'test_only'; response?: MetaCapiResponse; error?: string; fbtrace_id?: string }> {
     try {
         const body: any = { data: [payload] };
         if (testEventCode) body.test_event_code = testEventCode;
@@ -183,10 +185,40 @@ async function postToMeta(
                 headers: { 'Content-Type': 'application/json' },
             }
         );
+
+        const data: any = res.data || {};
+        const received = Number(data.events_received ?? 0);
+        const messages: string[] = Array.isArray(data.messages) ? data.messages.map(String) : [];
+
+        // Caso A: a Meta confirmou recebimento (events_received >= 1) e não usamos test_event_code.
+        if (received >= 1 && !testEventCode) {
+            return {
+                status: 'sent',
+                response: data,
+                fbtrace_id: data.fbtrace_id,
+            };
+        }
+
+        // Caso B: test_event_code ATIVO. Evento vai pra "Eventos de teste" no Events Manager
+        // e NÃO conta em "Visão geral" / atribuição real. Marca como test_only pra ficar claro.
+        if (testEventCode) {
+            return {
+                status: 'test_only',
+                response: data,
+                error: `test_event_code="${testEventCode}" ativo — evento só aparece na aba "Eventos de teste" do Events Manager`,
+                fbtrace_id: data.fbtrace_id,
+            };
+        }
+
+        // Caso C: Meta respondeu 200 mas events_received=0. Aceitou o JSON mas rejeitou
+        // o evento (faltou PII, action_source inválido, pixel inativo, etc).
         return {
-            status: 'sent',
-            response: res.data,
-            fbtrace_id: res.data?.fbtrace_id,
+            status: 'failed',
+            response: data,
+            error: messages.length > 0
+                ? `Meta aceitou request mas events_received=0 · ${messages.join(' / ')}`
+                : 'Meta respondeu 200 mas events_received=0 (evento rejeitado silenciosamente)',
+            fbtrace_id: data.fbtrace_id,
         };
     } catch (err: any) {
         const data = err?.response?.data;
@@ -215,8 +247,28 @@ export async function trackEvent(
     event: TrackingEventInput
 ): Promise<{ event_id: string; emq_score: number; meta_status: string }> {
     const eventTime = event.event_time || Math.floor(Date.now() / 1000);
+    const eventIdProvided = !!event.event_id;
     const eventId = event.event_id || crypto.randomUUID();
     const actionSource = event.action_source || 'website';
+
+    // Dedupe: se o caller passou event_id explícito (browser reenviando por retry
+    // ou webhook idempotente), verifica se já foi enviado. Se sim, retorna o
+    // resultado do original sem chamar Meta de novo — evita inflar métricas.
+    // Se event_id foi gerado aqui (UUID novo), não tem risco de duplicar.
+    if (eventIdProvided) {
+        const existing = await query<{ event_id: string; emq_score: number; meta_status: string }>(
+            `SELECT event_id, emq_score, meta_status FROM tracking_events
+             WHERE source_id = $1 AND event_id = $2 LIMIT 1`,
+            [source.id, eventId]
+        );
+        if (existing.length > 0) {
+            return {
+                event_id: existing[0].event_id,
+                emq_score: existing[0].emq_score,
+                meta_status: existing[0].meta_status,
+            };
+        }
+    }
 
     const userData = buildUserData(event.user_data);
     const emq = computeEmqScore(event.user_data, !!event.event_id);
@@ -224,6 +276,9 @@ export async function trackEvent(
     const customData: Record<string, any> = { ...(event.custom_data || {}) };
     if (event.value !== undefined) customData.value = event.value;
     if (event.currency) customData.currency = event.currency;
+    // Google Ads attribution — Meta não tem campo dedicado, vai em custom_data
+    // pra ficar disponível em conversões offline e relatórios.
+    if (event.user_data?.gclid) customData.gclid = event.user_data.gclid;
 
     const payload: Record<string, any> = {
         event_name: event.event_name,
@@ -236,11 +291,18 @@ export async function trackEvent(
     if (Object.keys(userData).length > 0) payload.user_data = userData;
     if (Object.keys(customData).length > 0) payload.custom_data = customData;
 
-    let metaResult: { status: 'sent' | 'failed'; response?: any; error?: string; fbtrace_id?: string } = {
-        status: 'failed', error: 'Credenciais Meta não configuradas',
-    };
+    let metaResult: { status: 'sent' | 'failed' | 'test_only'; response?: any; error?: string; fbtrace_id?: string };
 
-    if (source.pixel_id && source.access_token && source.is_active) {
+    // Mensagem específica conforme o que tá faltando — antes era genérica
+    // ("Credenciais Meta não configuradas") e induzia a usuária a procurar
+    // problema na config errada.
+    if (!source.is_active) {
+        metaResult = { status: 'failed', error: 'Fonte desativada (is_active=false) — ative em Editar credenciais' };
+    } else if (!source.pixel_id) {
+        metaResult = { status: 'failed', error: 'Pixel ID não configurado — cole o Pixel ID em Editar credenciais' };
+    } else if (!source.access_token) {
+        metaResult = { status: 'failed', error: 'Access Token não configurado — cole o token de acesso da Meta em Editar credenciais' };
+    } else {
         metaResult = await postToMeta(
             source.pixel_id,
             source.access_token,
@@ -257,13 +319,15 @@ export async function trackEvent(
                 external_id, event_source_url, value, currency,
                 custom_data, user_data_hashed,
                 client_ip, client_user_agent, city, state, country, zip, fbp, fbc, ctwa_clid,
+                gclid, session_id,
                 emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,
                 $7,$8,$9,$10,
                 $11,$12,
                 $13,$14,$15,$16,$17,$18,$19,$20,$21,
-                $22,$23,$24,$25,$26
+                $22,$23,
+                $24,$25,$26,$27,$28
             )`,
             [
                 source.id,
@@ -287,6 +351,8 @@ export async function trackEvent(
                 event.user_data?.fbp || null,
                 event.user_data?.fbc || null,
                 event.user_data?.ctwa_clid || null,
+                event.user_data?.gclid || null,
+                event.session_id || null,
                 emq,
                 metaResult.status,
                 metaResult.response ? JSON.stringify(metaResult.response) : null,
@@ -313,6 +379,141 @@ export async function trackEvent(
     };
 }
 
+// ─── Retry de eventos falhos ────────────────────────────────────────────────
+
+/**
+ * Reenvia 1 evento falho pra Meta usando o payload original já persistido.
+ * Mantém o mesmo event_id → Meta deduplica caso o original tenha chegado mas
+ * tenha respondido com erro (raro, mas seguro).
+ * Atualiza retry_count, last_retry_at, meta_status, meta_response, meta_error.
+ */
+export async function retryEvent(eventId: string): Promise<{
+    ok: boolean;
+    status: 'sent' | 'failed' | 'test_only';
+    error?: string;
+    retry_count: number;
+}> {
+    const rows = await query<any>(
+        `SELECT e.*, s.pixel_id, s.access_token, s.test_event_code, s.is_active
+         FROM tracking_events e
+         JOIN tracking_sources s ON e.source_id = s.id
+         WHERE e.id = $1`,
+        [eventId]
+    );
+    if (!rows.length) {
+        return { ok: false, status: 'failed', error: 'Evento não encontrado', retry_count: 0 };
+    }
+    const ev = rows[0];
+    const newRetryCount = (Number(ev.retry_count) || 0) + 1;
+
+    if (!ev.is_active) {
+        return { ok: false, status: 'failed', error: 'Source desativada', retry_count: newRetryCount };
+    }
+    if (!ev.pixel_id || !ev.access_token) {
+        await query(
+            `UPDATE tracking_events SET retry_count = $1, last_retry_at = NOW(),
+                meta_error = $2, updated_at = NOW()
+             WHERE id = $3`,
+            [newRetryCount, 'Credenciais Meta não configuradas', eventId]
+        ).catch(() => { /* ignore */ });
+        return { ok: false, status: 'failed', error: 'Credenciais Meta não configuradas', retry_count: newRetryCount };
+    }
+
+    // Reconstrói o payload exato salvo
+    const payload: any = {
+        event_name: ev.event_name,
+        event_time: Number(ev.event_time),
+        event_id: ev.event_id,
+        action_source: ev.action_source,
+    };
+    if (ev.event_source_url) payload.event_source_url = ev.event_source_url;
+    if (ev.messaging_channel) payload.messaging_channel = ev.messaging_channel;
+    if (ev.user_data_hashed && Object.keys(ev.user_data_hashed).length > 0) {
+        payload.user_data = ev.user_data_hashed;
+    }
+    if (ev.custom_data && Object.keys(ev.custom_data).length > 0) {
+        payload.custom_data = ev.custom_data;
+    }
+
+    const result = await postToMeta(ev.pixel_id, ev.access_token, payload, ev.test_event_code);
+
+    try {
+        await query(
+            `UPDATE tracking_events SET
+                meta_status = $1,
+                meta_response = $2,
+                meta_error = $3,
+                meta_fbtrace_id = $4,
+                retry_count = $5,
+                last_retry_at = NOW()
+             WHERE id = $6`,
+            [
+                result.status,
+                result.response ? JSON.stringify(result.response) : null,
+                result.error || null,
+                result.fbtrace_id || null,
+                newRetryCount,
+                eventId,
+            ]
+        );
+    } catch (err: any) {
+        logger.warn('retry: falha ao atualizar status', { error: err.message });
+    }
+
+    return {
+        // test_only conta como ok pra retry (foi entregue, só que como test event)
+        ok: result.status === 'sent' || result.status === 'test_only',
+        status: result.status,
+        error: result.error,
+        retry_count: newRetryCount,
+    };
+}
+
+/**
+ * Retenta em batch: pega eventos failed elegíveis (last_retry_at NULL ou
+ * mais antigo que `minSinceMs`) com retry_count < maxRetries.
+ * Retorna contagens.
+ */
+export async function retryFailedBatch(opts: {
+    sourceId?: string;
+    maxAgeHours?: number;       // janela máxima de retry (default 24h)
+    maxRetries?: number;        // tentativas máximas (default 3)
+    minSinceLastRetryMs?: number; // espera mínima entre retries (default 5min)
+    limit?: number;
+}): Promise<{ attempted: number; succeeded: number; still_failed: number }> {
+    const maxAge = opts.maxAgeHours ?? 24;
+    const maxRetries = opts.maxRetries ?? 3;
+    const minSince = opts.minSinceLastRetryMs ?? 5 * 60 * 1000;
+    const limit = opts.limit ?? 100;
+
+    const params: any[] = [maxAge, maxRetries, minSince, limit];
+    let sql = `
+        SELECT id FROM tracking_events
+        WHERE meta_status = 'failed'
+          AND retry_count < $2
+          AND created_at >= NOW() - ($1 || ' hours')::INTERVAL
+          AND (last_retry_at IS NULL OR last_retry_at < NOW() - ($3 || ' milliseconds')::INTERVAL)`;
+    if (opts.sourceId) {
+        params.push(opts.sourceId);
+        sql += ` AND source_id = $${params.length}`;
+    }
+    sql += ` ORDER BY created_at ASC LIMIT $4`;
+
+    const eventIds = await query<{ id: string }>(sql, params);
+
+    let succeeded = 0;
+    let stillFailed = 0;
+    for (const row of eventIds) {
+        const r = await retryEvent(row.id);
+        if (r.ok) succeeded++; else stillFailed++;
+    }
+    return {
+        attempted: eventIds.length,
+        succeeded,
+        still_failed: stillFailed,
+    };
+}
+
 // ─── Click tracking (primeiro contato: fbclid, gclid, UTMs) ─────────────────
 
 export interface ClickRecordInput {
@@ -329,6 +530,7 @@ export interface ClickRecordInput {
     client_user_agent?: string;
     country?: string;
     city?: string;
+    session_id?: string;
 }
 
 export async function recordClick(sourceId: string, c: ClickRecordInput): Promise<void> {
@@ -339,8 +541,8 @@ export async function recordClick(sourceId: string, c: ClickRecordInput): Promis
             `INSERT INTO tracking_clicks (
                 source_id, fbclid, gclid, utm_source, utm_medium, utm_campaign,
                 utm_content, utm_term, landing_page, referrer,
-                client_ip, client_user_agent, country, city
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                client_ip, client_user_agent, country, city, session_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
             [
                 sourceId,
                 c.fbclid || null, c.gclid || null,
@@ -349,6 +551,7 @@ export async function recordClick(sourceId: string, c: ClickRecordInput): Promis
                 c.landing_page || null, c.referrer || null,
                 c.client_ip || null, c.client_user_agent || null,
                 c.country || null, c.city || null,
+                c.session_id || null,
             ]
         );
     } catch (err: any) {
@@ -362,6 +565,9 @@ export function extractClientContext(req: any): {
     ip: string | null;
     user_agent: string | null;
     country: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
 } {
     const h = req.headers || {};
     // Preferência: Cloudflare > X-Forwarded-For > req.ip
@@ -370,8 +576,21 @@ export function extractClientContext(req: any): {
         (String(h['x-forwarded-for'] || '').split(',')[0].trim()) ||
         req.ip || null;
     const country = (h['cf-ipcountry'] as string) || null;
+    // Cloudflare enterprise/business mandam city + region (estado).
+    // Em planos free, esses headers podem vir vazios — tratamos como fallback opcional.
+    const city = (h['cf-ipcity'] as string) || null;
+    // cf-region: nome do estado; cf-region-code: sigla (ex: SP). Preferimos a sigla.
+    const state = (h['cf-region-code'] as string) || (h['cf-region'] as string) || null;
+    const zip = (h['cf-postal-code'] as string) || null;
     const ua = (h['user-agent'] as string) || null;
-    return { ip: ip || null, user_agent: ua, country };
+    return {
+        ip: ip || null,
+        user_agent: ua,
+        country: country || null,
+        city: city || null,
+        state: state || null,
+        zip: zip || null,
+    };
 }
 
 // ─── Geração de tokens ──────────────────────────────────────────────────────

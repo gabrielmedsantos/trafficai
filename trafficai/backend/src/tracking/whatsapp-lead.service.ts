@@ -3,7 +3,7 @@
 // Processa webhook do Evolution API (messages.upsert). Quando a mensagem
 // traz externalAdReply.ctwaClid (usuário veio de anúncio WhatsApp), captura
 // phone + ctwa_clid + ad_source_id, busca o pixel/page associado ao anúncio
-// via Meta Graph API e dispara LeadSubmitted com action_source=business_messaging.
+// via Meta Graph API e dispara Lead com action_source=business_messaging.
 // ==============================
 
 import axios from 'axios';
@@ -120,24 +120,34 @@ export async function processWhatsAppMessage(
         pageId = resolved.page;
     }
 
-    const leadEventId = `ctwa-${phone}-Lead-${Date.now()}`;
+    // event_id estável (sem Date.now()) — se 2 webhooks disparam pro mesmo
+    // phone/source, ambos geram o MESMO event_id e a proteção de dedupe do
+    // trackEvent bloqueia o segundo antes de chamar Meta.
+    const leadEventId = `ctwa-${phone}-Lead`;
 
-    // Salva no banco
-    await query(
+    // Salva no banco — RETURNING id detecta se o INSERT foi bloqueado por
+    // race condition (2 webhooks simultâneos passando pelo SELECT check anterior).
+    const inserted = await query<{ id: string }>(
         `INSERT INTO tracking_whatsapp_leads (
             source_id, phone, name, ctwa_clid, ad_source_id, ad_source_url,
             ad_title, ad_thumbnail_url, message_text, pixel_id, page_id,
             instance_name, raw_payload, lead_event_id, lead_meta_status
          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')
-         ON CONFLICT (source_id, phone) DO NOTHING`,
+         ON CONFLICT (source_id, phone) DO NOTHING
+         RETURNING id`,
         [
             source.id, phone, name, ctwaClid, adSourceId, adSourceUrl,
             adTitle, adThumbUrl, messageText, pixelId, pageId,
             instanceName, JSON.stringify(evolutionPayload), leadEventId,
         ]
     );
+    // Se ON CONFLICT bloqueou (race), outro processo já criou o lead e disparou
+    // o Lead na Meta — não repete.
+    if (inserted.length === 0) {
+        return { lead_created: false, meta_sent: false, phone, ctwa_clid: ctwaClid, reason: 'race: lead já criado por outro processo' };
+    }
 
-    // Envia LeadSubmitted pra Meta
+    // Envia Lead pra Meta (event standard — substitui o antigo LeadSubmitted custom)
     let metaSent = false;
     let metaError: string | null = null;
 
@@ -146,7 +156,7 @@ export async function processWhatsAppMessage(
 
     if (effectivePixel && source.access_token) {
         const event: TrackingEventInput = {
-            event_name: 'LeadSubmitted',
+            event_name: 'Lead',
             event_id: leadEventId,
             event_time: Math.floor(Date.now() / 1000),
             action_source: 'business_messaging',
