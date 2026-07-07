@@ -256,6 +256,18 @@ export async function backfillSource(
                 const eventId = `kommo-${leadId}-Purchase`;
                 const eventTime = clampEventTime(lead.closed_at || lead.updated_at || Math.floor(Date.now() / 1000), timeStrat);
 
+                // Dedupe idempotente: se esse event_id já foi enviado, pula sem
+                // reenviar pra Meta (evita inflar Purchase em execuções repetidas).
+                const existing = await query<{ id: string }>(
+                    `SELECT id FROM tracking_events
+                     WHERE source_id = $1 AND event_id = $2 LIMIT 1`,
+                    [sourceId, eventId]
+                );
+                if (existing.length > 0) {
+                    result.skipped++;
+                    continue;
+                }
+
                 const payload = {
                     event_name: 'Purchase',
                     event_time: eventTime,
