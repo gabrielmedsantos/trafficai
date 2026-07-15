@@ -106,7 +106,7 @@ const OBJECTIVES: ObjectiveConfig[] = [
             { key: 'cpm',            label: 'CPM',                 fmt: fmtBRL, color: '#fb923c', bg: 'rgba(249,115,22,.12)',   icon: <Activity size={17} /> },
         ],
         chartA: { key: 'messages', label: 'Mensagens', color: '#25d366' },
-        chartB: { key: 'clicks',   label: 'Cliques',   color: '#6366f1' },
+        chartB: { key: 'clicks',   label: 'Cliques',   color: '#ff6b35' },
     },
     {
         id: 'conversions',
@@ -140,7 +140,7 @@ const OBJECTIVES: ObjectiveConfig[] = [
             { key: 'impressions',       label: 'Impressões',    fmt: fmtNum, color: '#fb923c', bg: 'rgba(249,115,22,.12)', icon: <Eye size={17} /> },
         ],
         chartA: { key: 'conversions', label: 'Leads',   color: '#3b82f6' },
-        chartB: { key: 'clicks',      label: 'Cliques', color: '#6366f1' },
+        chartB: { key: 'clicks',      label: 'Cliques', color: '#ff6b35' },
     },
     {
         id: 'traffic',
@@ -618,15 +618,15 @@ export default function DashboardPage() {
                             <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
                                 <defs>
                                     <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%"   stopColor="#6366f1" stopOpacity={0.28} />
-                                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                                        <stop offset="0%"   stopColor="#ff6b35" stopOpacity={0.28} />
+                                        <stop offset="100%" stopColor="#ff6b35" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                                 <XAxis dataKey="date" stroke="#6b7388" fontSize={11} tickFormatter={v => v?.substring(5)} axisLine={false} tickLine={false} />
                                 <YAxis stroke="#6b7388" fontSize={11} axisLine={false} tickLine={false} width={38} />
-                                <Tooltip {...tooltipStyle} cursor={{ stroke: 'rgba(99,102,241,0.18)', strokeWidth: 24 }} />
-                                <Area type="monotone" dataKey="spend" name="Gasto (R$)" stroke="#6366f1" fill="url(#spendGrad)" strokeWidth={2} dot={false} activeDot={{ r: 3, fill: '#6366f1', strokeWidth: 0 }} />
+                                <Tooltip {...tooltipStyle} cursor={{ stroke: 'rgba(255, 107, 53,0.18)', strokeWidth: 24 }} />
+                                <Area type="monotone" dataKey="spend" name="Gasto (R$)" stroke="#ff6b35" fill="url(#spendGrad)" strokeWidth={2} dot={false} activeDot={{ r: 3, fill: '#ff6b35', strokeWidth: 0 }} />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>

@@ -72,10 +72,14 @@ router.delete('/accounts/:id', async (req: Request, res: Response) => {
 // ─── DASHBOARD ─────────────────────────────────────────────────────────────
 
 // GET /financial/dashboard — summary for current month
+// Query: month, year, regime ('cash' | 'accrual', default 'accrual')
+//   cash = só 'confirmed'/'paid' (o que efetivamente entrou/saiu)
+//   accrual = inclui 'pending' (regime de competência)
 router.get('/dashboard', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { month, year } = req.query;
+        const { month, year, regime } = req.query;
+        const isCash = regime === 'cash';
 
         const targetMonth = month ? Number(month) : new Date().getMonth() + 1;
         const targetYear = year ? Number(year) : new Date().getFullYear();
@@ -83,17 +87,34 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         const startDate = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
         const endDate = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
 
+        // Filtro de status conforme regime
+        // cash: confirmed apenas. accrual: confirmed + pending. cancelled sempre fora.
+        const txStatusFilter = isCash
+            ? `AND status = 'confirmed'`
+            : `AND status != 'cancelled'`;
+
         // Totals by type (transactions avulsas)
         const totals = await query<any>(
             `SELECT type, SUM(amount) as total
              FROM transactions
-             WHERE user_id=$1 AND date BETWEEN $2 AND $3 AND status != 'cancelled'
+             WHERE user_id=$1 AND date BETWEEN $2 AND $3 ${txStatusFilter}
              GROUP BY type`,
             [userId, startDate, endDate]
         );
 
         const txIncome = Number(totals.find((r: any) => r.type === 'income')?.total || 0);
         const txExpense = Number(totals.find((r: any) => r.type === 'expense')?.total || 0);
+
+        // Receita pending separada (útil pro frontend mostrar mesmo em regime caixa)
+        const pendingRows = await query<any>(
+            `SELECT type, SUM(amount) as total
+             FROM transactions
+             WHERE user_id=$1 AND date BETWEEN $2 AND $3 AND status = 'pending'
+             GROUP BY type`,
+            [userId, startDate, endDate]
+        );
+        const pendingIncome = Number(pendingRows.find((r: any) => r.type === 'income')?.total || 0);
+        const pendingExpense = Number(pendingRows.find((r: any) => r.type === 'expense')?.total || 0);
 
         // Cobranças de contrato do mês de referência — considera pago como receita
         // e pendente/atrasado como "a receber" (reportado separadamente).
@@ -109,18 +130,28 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         const contractsOverdue = Number(billingTotals.find((r: any) => r.status === 'overdue')?.total || 0);
         const contractsReceivable = contractsPending + contractsOverdue;
 
-        const income = txIncome + contractsPaid;
+        // Em regime caixa, contratos pending NÃO contam como receita realizada.
+        // Em competência, somam (entram em "Receitas"), assim como tx pending já entrou em txIncome.
+        const income = isCash
+            ? txIncome + contractsPaid
+            : txIncome + contractsPaid + contractsPending + contractsOverdue;
         const expense = txExpense;
+        // Receita "a receber" combina tx income pending + cobranças não-pagas
+        const totalReceivable = contractsReceivable + pendingIncome;
 
-        // Category breakdown
+        // Category breakdown — respeita regime
         const byCategory = await query<any>(
             `SELECT type, category, SUM(amount) as total
              FROM transactions
-             WHERE user_id=$1 AND date BETWEEN $2 AND $3 AND status != 'cancelled'
+             WHERE user_id=$1 AND date BETWEEN $2 AND $3 ${txStatusFilter}
              GROUP BY type, category
              ORDER BY total DESC`,
             [userId, startDate, endDate]
         );
+
+        // Separa pra UI conseguir mostrar gráficos lado a lado sem filtrar
+        const incomeByCategory = byCategory.filter((r: any) => r.type === 'income');
+        const expenseByCategory = byCategory.filter((r: any) => r.type === 'expense');
 
         // Recent transactions
         const recent = await query<any>(
@@ -139,11 +170,11 @@ router.get('/dashboard', async (req: Request, res: Response) => {
             [userId]
         );
 
-        // Daily flow (for chart)
+        // Daily flow (for chart) — respeita regime
         const dailyFlow = await query<any>(
             `SELECT date, type, SUM(amount) as total
              FROM transactions
-             WHERE user_id=$1 AND date BETWEEN $2 AND $3 AND status != 'cancelled'
+             WHERE user_id=$1 AND date BETWEEN $2 AND $3 ${txStatusFilter}
              GROUP BY date, type
              ORDER BY date`,
             [userId, startDate, endDate]
@@ -152,19 +183,29 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         res.json({
             success: true,
             data: {
+                regime: isCash ? 'cash' : 'accrual',
                 income,
                 expense,
                 balance: income - expense,
                 income_breakdown: {
                     transactions: txIncome,
                     contracts_paid: contractsPaid,
+                    pending_tx: pendingIncome,
+                    pending_contracts: contractsPending + contractsOverdue,
                 },
-                receivable: contractsReceivable,
+                expense_breakdown: {
+                    transactions: txExpense,
+                    pending_tx: pendingExpense,
+                },
+                receivable: totalReceivable,
                 receivable_breakdown: {
                     pending: contractsPending,
                     overdue: contractsOverdue,
+                    pending_tx: pendingIncome,
                 },
                 byCategory,
+                incomeByCategory,
+                expenseByCategory,
                 recent,
                 accounts,
                 dailyFlow,
@@ -551,6 +592,231 @@ router.delete('/billing/:id', async (req: Request, res: Response) => {
 
         res.json({ success: true, data: { message: 'Registro removido' } });
     } catch (error: any) {
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── MANAGEMENT METRICS ────────────────────────────────────────────────────
+
+// GET /financial/metrics — MRR, ARR, churn, ticket médio, lucro estimado
+// Query: month, year (default: mês corrente)
+router.get('/metrics', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { month, year } = req.query;
+
+        const targetMonth = month ? Number(month) : new Date().getMonth() + 1;
+        const targetYear = year ? Number(year) : new Date().getFullYear();
+        const refMonth = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+        const monthEnd = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
+
+        // Mês anterior pra MoM
+        const prevDate = new Date(targetYear, targetMonth - 2, 1);
+        const prevMonthStart = prevDate.toISOString().split('T')[0];
+        const prevMonthEnd = new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        // MRR — soma fixed_amount de contratos ativos (fixed + mixed)
+        // que estavam ativos no fim do mês selecionado
+        const mrrRows = await query<any>(
+            `SELECT COALESCE(SUM(fixed_amount), 0) AS mrr,
+                    COUNT(DISTINCT client_id) AS clients_with_contract
+             FROM contracts
+             WHERE user_id = $1
+               AND status = 'active'
+               AND type IN ('fixed', 'mixed')
+               AND fixed_amount > 0
+               AND (start_date IS NULL OR start_date <= $2)
+               AND (end_date IS NULL OR end_date >= $2)`,
+            [userId, monthEnd]
+        );
+        const mrr = Number(mrrRows[0]?.mrr || 0);
+        const clientsWithContract = Number(mrrRows[0]?.clients_with_contract || 0);
+        const arr = mrr * 12;
+
+        // MRC — custo recorrente mensal (despesas recorrentes ativas)
+        const mrcRows = await query<any>(
+            `SELECT COALESCE(SUM(amount), 0) AS mrc
+             FROM recurring_transactions
+             WHERE user_id = $1 AND active = true AND type = 'expense'`,
+            [userId]
+        );
+        const mrc = Number(mrcRows[0]?.mrc || 0);
+
+        // Clientes ativos no momento (status='ativo')
+        const activeClientsRows = await query<any>(
+            `SELECT COUNT(*) AS total FROM clients WHERE user_id = $1 AND status = 'ativo'`,
+            [userId]
+        );
+        const activeClients = Number(activeClientsRows[0]?.total || 0);
+        const avgTicket = clientsWithContract > 0 ? mrr / clientsWithContract : 0;
+
+        // Receita realizada do mês (caixa): billings paid + tx income confirmed
+        const revenueRows = await query<any>(
+            `SELECT
+                COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income' AND t.status != 'cancelled'), 0) AS tx_income,
+                COALESCE((SELECT SUM(total_amount) FROM contract_billing
+                          WHERE user_id = $1 AND reference_month = $2 AND status = 'paid'), 0) AS contract_paid
+             FROM transactions t
+             WHERE t.user_id = $1 AND t.date BETWEEN $2 AND $3`,
+            [userId, refMonth, monthEnd]
+        );
+        const revenueThisMonth = Number(revenueRows[0]?.tx_income || 0) + Number(revenueRows[0]?.contract_paid || 0);
+
+        // Receita mês anterior pra MoM
+        const prevRevenueRows = await query<any>(
+            `SELECT
+                COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income' AND t.status != 'cancelled'), 0) AS tx_income,
+                COALESCE((SELECT SUM(total_amount) FROM contract_billing
+                          WHERE user_id = $1 AND reference_month = $2 AND status = 'paid'), 0) AS contract_paid
+             FROM transactions t
+             WHERE t.user_id = $1 AND t.date BETWEEN $2 AND $3`,
+            [userId, prevMonthStart, prevMonthEnd]
+        );
+        const revenueLastMonth = Number(prevRevenueRows[0]?.tx_income || 0) + Number(prevRevenueRows[0]?.contract_paid || 0);
+        const revenueGrowthPct = revenueLastMonth > 0
+            ? ((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100
+            : null;
+
+        // Despesa realizada (caixa) — soma transactions expense confirmed
+        const expenseRows = await query<any>(
+            `SELECT COALESCE(SUM(amount), 0) AS total
+             FROM transactions
+             WHERE user_id = $1 AND type = 'expense' AND status != 'cancelled'
+               AND date BETWEEN $2 AND $3`,
+            [userId, refMonth, monthEnd]
+        );
+        const expenseRealized = Number(expenseRows[0]?.total || 0);
+        const profitRealized = revenueThisMonth - expenseRealized;
+        const profitEstimateMonthly = mrr - mrc;
+
+        // Churn — clientes que viraram churned nos últimos 90 dias (3 meses corridos)
+        const churnRows = await query<any>(
+            `SELECT COUNT(*) AS churned_3mo
+             FROM clients
+             WHERE user_id = $1 AND status = 'churned'
+               AND churned_at >= NOW() - INTERVAL '90 days'`,
+            [userId]
+        );
+        const churned3mo = Number(churnRows[0]?.churned_3mo || 0);
+
+        // Churn deste mês (window do mês selecionado)
+        const churnMonthRows = await query<any>(
+            `SELECT COUNT(*) AS churned_this_month
+             FROM clients
+             WHERE user_id = $1 AND status = 'churned'
+               AND churned_at::date BETWEEN $2 AND $3`,
+            [userId, refMonth, monthEnd]
+        );
+        const churnedThisMonth = Number(churnMonthRows[0]?.churned_this_month || 0);
+
+        // Base pra churn rate: clientes ativos + os que saíram no período
+        const churnBase = activeClients + churned3mo;
+        const churnRate3mo = churnBase > 0 ? (churned3mo / churnBase) * 100 : 0;
+
+        // Novos clientes do mês (created_at no período, status atual ativo)
+        const newClientsRows = await query<any>(
+            `SELECT COUNT(*) AS total FROM clients
+             WHERE user_id = $1 AND created_at::date BETWEEN $2 AND $3`,
+            [userId, refMonth, monthEnd]
+        );
+        const newClientsThisMonth = Number(newClientsRows[0]?.total || 0);
+
+        res.json({
+            success: true,
+            data: {
+                period: { month: targetMonth, year: targetYear },
+                mrr,
+                arr,
+                mrc,
+                avg_ticket: avgTicket,
+                active_clients: activeClients,
+                clients_with_contract: clientsWithContract,
+                revenue_this_month: revenueThisMonth,
+                revenue_last_month: revenueLastMonth,
+                revenue_growth_pct: revenueGrowthPct,
+                expense_realized: expenseRealized,
+                profit_realized: profitRealized,
+                profit_estimate_monthly: profitEstimateMonthly,
+                churned_3mo: churned3mo,
+                churned_this_month: churnedThisMonth,
+                churn_rate_3mo_pct: churnRate3mo,
+                new_clients_this_month: newClientsThisMonth,
+            },
+        });
+    } catch (error: any) {
+        logger.error('Erro em metrics', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /financial/revenue-by-client — receita por cliente no período
+// Query: month, year
+router.get('/revenue-by-client', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { month, year } = req.query;
+
+        const targetMonth = month ? Number(month) : new Date().getMonth() + 1;
+        const targetYear = year ? Number(year) : new Date().getFullYear();
+        const refMonth = `${targetYear}-${String(targetMonth).padStart(2, '0')}-01`;
+        const monthEnd = new Date(targetYear, targetMonth, 0).toISOString().split('T')[0];
+
+        const rows = await query<any>(
+            `SELECT
+                cl.id AS client_id,
+                cl.name AS client_name,
+                cl.avatar_color,
+                cl.status AS client_status,
+                COALESCE((
+                    SELECT SUM(t.amount)
+                    FROM transactions t
+                    WHERE t.user_id = $1 AND t.client_id = cl.id
+                      AND t.type = 'income' AND t.status != 'cancelled'
+                      AND t.date BETWEEN $2 AND $3
+                ), 0) AS tx_income,
+                COALESCE((
+                    SELECT SUM(cb.total_amount)
+                    FROM contract_billing cb
+                    WHERE cb.user_id = $1 AND cb.client_id = cl.id
+                      AND cb.reference_month = $2 AND cb.status = 'paid'
+                ), 0) AS contract_paid,
+                COALESCE((
+                    SELECT SUM(cb.total_amount)
+                    FROM contract_billing cb
+                    WHERE cb.user_id = $1 AND cb.client_id = cl.id
+                      AND cb.reference_month = $2 AND cb.status IN ('pending', 'overdue')
+                ), 0) AS contract_pending
+             FROM clients cl
+             WHERE cl.user_id = $1
+             ORDER BY (
+                COALESCE((SELECT SUM(t.amount) FROM transactions t
+                          WHERE t.user_id = $1 AND t.client_id = cl.id
+                            AND t.type = 'income' AND t.status != 'cancelled'
+                            AND t.date BETWEEN $2 AND $3), 0)
+              + COALESCE((SELECT SUM(cb.total_amount) FROM contract_billing cb
+                          WHERE cb.user_id = $1 AND cb.client_id = cl.id
+                            AND cb.reference_month = $2 AND cb.status = 'paid'), 0)
+             ) DESC`,
+            [userId, refMonth, monthEnd]
+        );
+
+        // Filtra zerados pra não poluir a UI, mas sempre devolve clientes ativos
+        const filtered = rows
+            .map((r: any) => ({
+                client_id: r.client_id,
+                client_name: r.client_name,
+                avatar_color: r.avatar_color,
+                client_status: r.client_status,
+                tx_income: Number(r.tx_income),
+                contract_paid: Number(r.contract_paid),
+                contract_pending: Number(r.contract_pending),
+                total_paid: Number(r.tx_income) + Number(r.contract_paid),
+            }))
+            .filter((r: any) => r.total_paid > 0 || r.contract_pending > 0 || r.client_status === 'ativo');
+
+        res.json({ success: true, data: filtered });
+    } catch (error: any) {
+        logger.error('Erro em revenue-by-client', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

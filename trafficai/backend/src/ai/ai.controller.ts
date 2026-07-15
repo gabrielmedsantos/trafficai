@@ -9,6 +9,8 @@ import { aiService } from './ai.service';
 import { aiRepository } from './ai.repository';
 import { streamAgentChat, ChatMessage } from './agent.service';
 import { ValidationError } from '../shared/errors';
+import { consumeAiCredit } from './ai-credits.middleware';
+import { query } from '../database/connection';
 
 const router = Router();
 const upload = multer({
@@ -22,7 +24,20 @@ router.use(authMiddleware);
  * POST /ai/analyze-campaign
  * Analyze campaign performance with AI
  */
-router.post('/analyze-campaign', async (req: Request, res: Response, next: NextFunction) => {
+// GET /ai/credits — saldo atual
+router.get('/credits', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const r = await query<any>(
+            `SELECT ai_credits AS balance, ai_credits_monthly_limit AS monthly_limit,
+                    ai_credits_reset_at AS reset_at
+             FROM users WHERE id = $1`,
+            [req.user!.userId]
+        );
+        res.json({ success: true, data: r[0] });
+    } catch (err) { next(err); }
+});
+
+router.post('/analyze-campaign', consumeAiCredit('analyze-campaign', 2), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { campaign_id } = req.body;
         if (!campaign_id) {
@@ -39,7 +54,7 @@ router.post('/analyze-campaign', async (req: Request, res: Response, next: NextF
  * POST /ai/analyze-creative
  * Analyze creative assets (image, video, text)
  */
-router.post('/analyze-creative', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/analyze-creative', consumeAiCredit('analyze-creative', 1), upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.user!.userId;
         const { type, text_content, context } = req.body;
@@ -68,6 +83,23 @@ router.post('/analyze-creative', upload.single('file'), async (req: Request, res
         }
 
         const result = await aiService.analyzeCreative(userId, fileType, content, context);
+        res.json({ success: true, data: result });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * POST /ai/top-creatives-analysis
+ * Analisa os top criativos de uma conta (últimos N dias, ordenados por spend)
+ * Body: { account_id: string, days?: number (default 30), limit?: number (default 10) }
+ */
+router.post('/top-creatives-analysis', consumeAiCredit('top-creatives', 3), async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user!.userId;
+        const { account_id, days = 30, limit = 10 } = req.body;
+        if (!account_id) throw new ValidationError('account_id é obrigatório');
+        const result = await aiService.analyzeTopCreatives(userId, account_id, Number(days), Number(limit));
         res.json({ success: true, data: result });
     } catch (err) {
         next(err);

@@ -1,0 +1,71 @@
+# ==============================
+# TrafficAI — Evolution API (WhatsApp)
+# Standalone — usar com SQLite + Redis embutido pra simplicidade.
+# Para produção pesada, trocar por Postgres dedicado.
+#
+# Subir: docker-compose -f docker-compose.evolution.yml up -d
+# ==============================
+version: '3.9'
+
+services:
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    container_name: evolution-api
+    restart: unless-stopped
+    networks:
+      - n8n_default     # mesma rede do trafficai-backend (resolve por nome)
+    ports:
+      - "127.0.0.1:8080:8080"   # exposto só local; webhook chega via rede docker
+    volumes:
+      - evolution_instances:/evolution/instances
+    environment:
+      # ----- Server -----
+      - SERVER_TYPE=http
+      - SERVER_PORT=8080
+      - SERVER_URL=https://evolution.alfamaxdigital.com.br
+
+      # ----- Auth (CHAVE GLOBAL) -----
+      - AUTHENTICATION_TYPE=apikey
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false
+
+      # ----- DB: SQLite (zero deps) -----
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=sqlite
+      - DATABASE_CONNECTION_URI=file:/evolution/instances/evolution.db
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=true
+      - DATABASE_SAVE_MESSAGE_UPDATE=true
+      - DATABASE_SAVE_DATA_CONTACTS=true
+      - DATABASE_SAVE_DATA_CHATS=true
+
+      # ----- Cache em memória -----
+      - CACHE_REDIS_ENABLED=false
+      - CACHE_LOCAL_ENABLED=true
+
+      # ----- Webhook globalmente desativado (cada instância configura o seu) -----
+      - WEBHOOK_GLOBAL_ENABLED=false
+
+      # ----- Logs -----
+      - LOG_LEVEL=ERROR,WARN,INFO
+      - LOG_COLOR=true
+
+      # ----- Multi-instance -----
+      - DEL_INSTANCE=false
+      - QRCODE_LIMIT=10
+
+    labels:
+      # ----- Traefik (expor publicamente em HTTPS) -----
+      - traefik.enable=true
+      - traefik.http.routers.evolution.rule=Host(`evolution.alfamaxdigital.com.br`)
+      - traefik.http.routers.evolution.entrypoints=websecure
+      - traefik.http.routers.evolution.tls=true
+      - traefik.http.routers.evolution.tls.certresolver=le
+      - traefik.http.services.evolution.loadbalancer.server.port=8080
+
+volumes:
+  evolution_instances:
+
+networks:
+  n8n_default:
+    external: true

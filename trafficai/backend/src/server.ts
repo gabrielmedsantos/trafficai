@@ -14,7 +14,16 @@ import { errorHandler } from './api/middleware/error-handler';
 import { startSyncWorker } from './workers/sync.worker';
 import { startTokenRefreshWorker } from './workers/token-refresh.worker';
 import { startAlertsWorker } from './workers/alerts.worker';
+import { startAutomationWorker } from './workers/automation.worker';
+import { startGoogleAdsSyncWorker } from './workers/google-ads-sync.worker';
+import { startWeeklyMonthlyReportWorker } from './workers/weekly-monthly-report.worker';
+import { startBalanceSyncWorker } from './workers/balance-sync.worker';
 import { startReportWorker } from './reports/report.worker';
+import { startBillingWorker } from './workers/billing.worker';
+import { startTrackingRetryWorker } from './workers/tracking-retry.worker';
+import { startTrackingCleanupWorker } from './workers/tracking-cleanup.worker';
+import { startCrmSyncWorker } from './workers/tracking-crm-sync.worker';
+import { startCommercialWorker } from './commercial/commercial.worker';
 import { logger } from './shared/logger';
 
 const app = express();
@@ -96,8 +105,17 @@ app.listen(PORT, () => {
     if (process.env.NODE_ENV !== 'test') {
         startSyncWorker();
         startTokenRefreshWorker();
+        startBalanceSyncWorker();
         startAlertsWorker();
         startReportWorker();
+        startCommercialWorker();
+        startBillingWorker();
+        startTrackingRetryWorker();
+        startTrackingCleanupWorker();
+        startCrmSyncWorker();
+        startAutomationWorker();
+        startGoogleAdsSyncWorker();
+        startWeeklyMonthlyReportWorker();
     }
 });
 

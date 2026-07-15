@@ -5,8 +5,17 @@
 import axios from 'axios';
 import { aiRepository, AiAnalysisRecord } from './ai.repository';
 import { metaRepository, InsightRecord } from '../meta/meta.repository';
+import { metaService } from '../meta/meta.service';
+import { authRepository } from '../auth/auth.repository';
+import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { AppError } from '../shared/errors';
+
+async function getUserAccessToken(userId: string): Promise<string> {
+    const user = await authRepository.findById(userId);
+    if (!user?.access_token) throw new AppError('Meta access token não configurado', 401);
+    return user.access_token;
+}
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_ORG_ID = process.env.OPENAI_ORG_ID || '';
@@ -278,6 +287,172 @@ Com base no conteúdo fornecido, responda EXCLUSIVAMENTE em JSON válido:
 
 Considere: impacto visual, clareza da mensagem, call-to-action, potencial de fadiga criativa.
 Responda APENAS com o JSON.`;
+    }
+
+    /**
+     * Analisa os top criativos de uma conta nos últimos N dias.
+     * Fluxo: puxa top ads via Meta API (level=ad ordenado por spend) →
+     * calcula CPA/CTR/CPC de cada → envia pra IA que identifica padrões
+     * vencedores + recomendações → retorna análise estruturada + os ads.
+     */
+    async analyzeTopCreatives(
+        userId: string,
+        accountId: string,
+        days: number = 30,
+        limit: number = 10,
+    ): Promise<{
+        period: { days: number; label: string };
+        account: { id: string; name: string };
+        totals: { spend: number; conversions: number; impressions: number; clicks: number };
+        top_ads: Array<{
+            ad_id: string;
+            ad_name: string;
+            campaign_name: string;
+            spend: number;
+            impressions: number;
+            clicks: number;
+            ctr: number;
+            cpc: number;
+            cpm: number;
+            conversions: number;
+            cpa: number;
+            action_type_label: string;
+            thumbnail_url: string | null;
+            permalink_url: string | null;
+            media_type: string | null;
+        }>;
+        analysis: {
+            winning_patterns: Array<{ pattern: string; evidence: string; ads: string[] }>;
+            recommendations: string[];
+            insights: string[];
+            summary: string;
+        };
+    }> {
+        // 1) Descobre conta + token
+        const accRows = await query<any>(
+            `SELECT id, meta_account_id, account_name FROM ad_accounts WHERE id = $1 AND user_id = $2`,
+            [accountId, userId]
+        );
+        if (!accRows.length) throw new AppError('Conta não encontrada', 404);
+        const acc = accRows[0];
+        const accessToken = await getUserAccessToken(userId);
+
+        // 2) Puxa top ads
+        const raw = await metaService.getTopAdsForAccount(userId, accessToken, acc.meta_account_id, days, limit);
+        if (!raw.length) {
+            throw new AppError(`Nenhum anúncio com spend nos últimos ${days} dias`, 400);
+        }
+
+        // 3) Normaliza: extrai action primária + calcula CPA
+        const ACTION_PRIORITY = [
+            { type: 'offsite_conversion.fb_pixel_purchase', label: 'Compras' },
+            { type: 'purchase', label: 'Compras' },
+            { type: 'offsite_conversion.fb_pixel_lead', label: 'Leads' },
+            { type: 'lead', label: 'Leads' },
+            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
+            { type: 'onsite_conversion.total_messaging_connection', label: 'Conversas' },
+            { type: 'link_click', label: 'Cliques' },
+            { type: 'post_engagement', label: 'Engajamentos' },
+        ];
+        function extractPrimary(actions: any[] = []): { count: number; label: string; type: string } {
+            for (const p of ACTION_PRIORITY) {
+                const m = actions.find(a => a.action_type === p.type);
+                if (m && parseInt(m.value, 10) > 0) return { count: parseInt(m.value, 10), label: p.label, type: p.type };
+            }
+            return { count: 0, label: 'Conversões', type: '' };
+        }
+
+        const topAds = raw.map((r: any) => {
+            const spend = parseFloat(r.spend || '0');
+            const impressions = parseInt(r.impressions || '0', 10);
+            const clicks = parseInt(r.clicks || '0', 10);
+            const primary = extractPrimary(r.actions || []);
+            const cpa = primary.count > 0 ? spend / primary.count : 0;
+            const cre = r.creative || {};
+            const perm = cre.instagram_permalink_url;
+            const permalink = perm ? (perm.startsWith('http') ? perm : `https://www.facebook.com${perm}`) : null;
+            return {
+                ad_id: r.ad_id,
+                ad_name: r.ad_name || '(sem nome)',
+                campaign_name: r.campaign_name || '',
+                spend, impressions, clicks,
+                ctr: parseFloat(r.ctr || '0'),
+                cpc: parseFloat(r.cpc || '0'),
+                cpm: parseFloat(r.cpm || '0'),
+                conversions: primary.count,
+                cpa,
+                action_type_label: primary.label,
+                thumbnail_url: cre.thumbnail_url || cre.image_url || null,
+                permalink_url: permalink,
+                media_type: cre.object_type || null,
+            };
+        });
+
+        // 4) Totais agregados
+        const totals = topAds.reduce((acc, ad) => ({
+            spend: acc.spend + ad.spend,
+            impressions: acc.impressions + ad.impressions,
+            clicks: acc.clicks + ad.clicks,
+            conversions: acc.conversions + ad.conversions,
+        }), { spend: 0, impressions: 0, clicks: 0, conversions: 0 });
+
+        // 5) Prompt pra IA
+        const prompt = this.buildTopCreativesPrompt(acc.account_name, days, topAds, totals);
+        const analysis = await this.callClaude<{
+            winning_patterns: Array<{ pattern: string; evidence: string; ads: string[] }>;
+            recommendations: string[];
+            insights: string[];
+            summary: string;
+        }>(prompt);
+
+        return {
+            period: { days, label: `últimos ${days} dias` },
+            account: { id: acc.id, name: acc.account_name },
+            totals,
+            top_ads: topAds,
+            analysis,
+        };
+    }
+
+    private buildTopCreativesPrompt(
+        accountName: string,
+        days: number,
+        ads: any[],
+        totals: any,
+    ): string {
+        const rows = ads.map((a, i) => (
+            `${i + 1}. "${a.ad_name}" (campanha: ${a.campaign_name})\n` +
+            `   spend: R$ ${a.spend.toFixed(2)} | impressões: ${a.impressions.toLocaleString('pt-BR')} | cliques: ${a.clicks}\n` +
+            `   CTR: ${a.ctr.toFixed(2)}% | CPC: R$ ${a.cpc.toFixed(2)} | CPM: R$ ${a.cpm.toFixed(2)}\n` +
+            `   ${a.action_type_label}: ${a.conversions} | CPA: R$ ${a.cpa.toFixed(2)}\n` +
+            `   formato: ${a.media_type || 'desconhecido'}`
+        )).join('\n\n');
+
+        return `Você é um analista sênior de mídia paga especializado em Meta Ads. Analise os ${ads.length} anúncios abaixo (top criativos da conta "${accountName}" nos últimos ${days} dias, ordenados por spend) e identifique padrões vencedores + recomendações práticas pra escalar.
+
+DADOS DOS ANÚNCIOS:
+${rows}
+
+TOTAIS DO PERÍODO:
+Spend: R$ ${totals.spend.toFixed(2)} | Impressões: ${totals.impressions.toLocaleString('pt-BR')} | Cliques: ${totals.clicks.toLocaleString('pt-BR')} | Conversões: ${totals.conversions}
+
+REGRAS DE ANÁLISE:
+1. Padrões vencedores: identifique 2-4 padrões concretos nos NOMES dos anúncios (temas, marcas, ganchos, formatos). Cite evidências e liste os ads (por número) que sustentam cada padrão.
+2. Recomendações: 3-5 sugestões PRÁTICAS pra próximos criativos (o que produzir, o que evitar).
+3. Insights: 2-3 observações relevantes sobre eficiência (CTR alto/baixo, CPA disperso, formato dominante).
+4. Summary: 1 parágrafo curto (2-3 frases) que fecharia uma reunião de review criativo.
+5. Não invente dado. Use APENAS o que está listado.
+6. Tom: direto, jornalístico, terceira pessoa. Português BR.
+
+RESPONDA EXATAMENTE com este JSON (sem texto antes ou depois):
+{
+  "winning_patterns": [
+    { "pattern": "descrição do padrão", "evidence": "por que esse padrão é vencedor com números", "ads": ["#1", "#3", "#5"] }
+  ],
+  "recommendations": ["recomendação 1", "..."],
+  "insights": ["insight 1", "..."],
+  "summary": "resumo curto pra reunião"
+}`;
     }
 
     private async callClaude<T>(prompt: string): Promise<T> {

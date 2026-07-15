@@ -113,7 +113,7 @@ function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: st
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '8px 16px',
             borderBottom: '1px solid var(--border)',
-            background: !alert.is_read ? 'rgba(99,102,241,.03)' : 'transparent',
+            background: !alert.is_read ? 'rgba(255, 107, 53,.03)' : 'transparent',
             transition: 'background .15s',
         }}>
             {/* Unread dot */}

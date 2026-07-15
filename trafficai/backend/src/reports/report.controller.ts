@@ -6,7 +6,7 @@ import { Router, Request, Response } from 'express';
 import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { reportService, ReportType, ReportService } from './report.service';
-import { dailyWhatsAppService } from './daily-whatsapp.service';
+import { dailyWhatsAppService, TEMPLATE_VARIABLES, getDefaultTemplate, renderTemplate, buildTemplateVars } from './daily-whatsapp.service';
 import { logger } from '../shared/logger';
 
 const router = Router();
@@ -456,6 +456,7 @@ router.put('/settings/:account_id', async (req: Request, res: Response) => {
             client_name, client_email, client_phone,
             daily_enabled, weekly_enabled, monthly_enabled,
             auto_send_email, auto_send_whatsapp, daily_whatsapp_enabled,
+            daily_whatsapp_time,
             agency_name, custom_message,
         } = req.body;
 
@@ -503,6 +504,46 @@ router.put('/settings/:account_id', async (req: Request, res: Response) => {
             );
         } catch { /* coluna ainda não existe — migration 010 pendente */ }
 
+        // Salva daily_whatsapp_time (migration 031)
+        if (daily_whatsapp_time) {
+            const validTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(daily_whatsapp_time);
+            if (validTime) {
+                try {
+                    await query(
+                        `UPDATE report_settings SET daily_whatsapp_time = $1 WHERE account_id = $2 AND user_id = $3`,
+                        [daily_whatsapp_time, account_id, userId]
+                    );
+                } catch { /* migration 031 pendente */ }
+            }
+        }
+
+        // Toggles semanal/mensal/cobrança (migration 044)
+        const {
+            weekly_report_enabled, weekly_report_day,
+            monthly_report_enabled, monthly_report_day,
+            billing_alert_enabled, billing_alert_min_interval_hours,
+            report_owner_phone,
+        } = req.body;
+        const toggleFields: string[] = [];
+        const toggleParams: any[] = [];
+        let ti = 1;
+        if (weekly_report_enabled !== undefined) { toggleFields.push(`weekly_report_enabled = $${ti++}`); toggleParams.push(Boolean(weekly_report_enabled)); }
+        if (weekly_report_day !== undefined) { toggleFields.push(`weekly_report_day = $${ti++}`); toggleParams.push(Number(weekly_report_day)); }
+        if (monthly_report_enabled !== undefined) { toggleFields.push(`monthly_report_enabled = $${ti++}`); toggleParams.push(Boolean(monthly_report_enabled)); }
+        if (monthly_report_day !== undefined) { toggleFields.push(`monthly_report_day = $${ti++}`); toggleParams.push(Number(monthly_report_day)); }
+        if (billing_alert_enabled !== undefined) { toggleFields.push(`billing_alert_enabled = $${ti++}`); toggleParams.push(Boolean(billing_alert_enabled)); }
+        if (billing_alert_min_interval_hours !== undefined) { toggleFields.push(`billing_alert_min_interval_hours = $${ti++}`); toggleParams.push(Number(billing_alert_min_interval_hours)); }
+        if (report_owner_phone !== undefined) { toggleFields.push(`report_owner_phone = $${ti++}`); toggleParams.push(report_owner_phone || null); }
+        if (toggleFields.length > 0) {
+            try {
+                toggleParams.push(account_id, userId);
+                await query(
+                    `UPDATE report_settings SET ${toggleFields.join(', ')} WHERE account_id = $${ti++} AND user_id = $${ti}`,
+                    toggleParams
+                );
+            } catch (e: any) { logger.warn('toggles report_settings falhou (migration 044 pendente?)', { error: e.message }); }
+        }
+
         res.json({ success: true, data: { message: 'Configurações salvas' } });
     } catch (error: any) {
         logger.error('Erro ao salvar configurações de relatório', { error: error.message });
@@ -528,6 +569,253 @@ router.post('/daily-whatsapp/send-account', async (req: Request, res: Response) 
     } catch (error: any) {
         logger.error('Erro ao enviar relatório diário WhatsApp', { error: error.message });
         res.status(500).json({ success: false, error: { message: error.message || 'Erro interno' } });
+    }
+});
+
+// ─── WHATSAPP DIÁRIO — CONFIGURAÇÕES POR CONTA ─────────────────────────────
+
+// GET /reports/whatsapp/variables — lista de placeholders disponíveis no template
+router.get('/whatsapp/variables', (_req: Request, res: Response) => {
+    res.json({
+        success: true,
+        data: {
+            variables: TEMPLATE_VARIABLES,
+            default_template: getDefaultTemplate(),
+        },
+    });
+});
+
+// GET /reports/whatsapp/accounts — lista todas as contas do usuário com seu status
+// de configuração do WhatsApp diário (ativo/inativo, telefone, horário, template custom?)
+router.get('/whatsapp/accounts', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const rows = await query<any>(
+            `SELECT
+                a.id AS account_id,
+                a.account_name,
+                a.meta_account_id,
+                a.is_client_active,
+                COALESCE(rs.client_name, a.account_name) AS client_name,
+                rs.client_phone,
+                rs.daily_whatsapp_enabled,
+                COALESCE(rs.daily_whatsapp_time, '11:15') AS daily_whatsapp_time,
+                rs.daily_whatsapp_last_sent_date,
+                (rs.daily_whatsapp_template IS NOT NULL AND rs.daily_whatsapp_template <> '') AS has_custom_template
+             FROM ad_accounts a
+             LEFT JOIN report_settings rs ON rs.account_id = a.id
+             WHERE a.user_id = $1
+             ORDER BY a.account_name ASC`,
+            [userId]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('Erro ao listar contas WhatsApp', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /reports/whatsapp/settings/:accountId — config completa (incluindo template)
+router.get('/whatsapp/settings/:accountId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { accountId } = req.params;
+
+        // Verifica ownership
+        const own = await query<any>(
+            `SELECT id, account_name FROM ad_accounts WHERE id = $1 AND user_id = $2`,
+            [accountId, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Conta não encontrada' } });
+
+        const rows = await query<any>(
+            `SELECT
+                rs.id, rs.account_id, rs.client_name, rs.client_phone,
+                rs.daily_whatsapp_enabled,
+                COALESCE(rs.daily_whatsapp_time, '11:15') AS daily_whatsapp_time,
+                rs.daily_whatsapp_last_sent_date,
+                rs.daily_whatsapp_template
+             FROM report_settings rs
+             WHERE rs.account_id = $1`,
+            [accountId]
+        );
+
+        const settings = rows[0] || {
+            account_id: accountId,
+            client_name: own[0].account_name,
+            client_phone: null,
+            daily_whatsapp_enabled: false,
+            daily_whatsapp_time: '11:15',
+            daily_whatsapp_last_sent_date: null,
+            daily_whatsapp_template: null,
+        };
+
+        res.json({
+            success: true,
+            data: {
+                ...settings,
+                effective_template: settings.daily_whatsapp_template || getDefaultTemplate(),
+                default_template: getDefaultTemplate(),
+            },
+        });
+    } catch (err: any) {
+        logger.error('Erro ao buscar settings WhatsApp', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// PUT /reports/whatsapp/settings/:accountId — atualiza qualquer combinação dos campos
+// Body: { client_name?, client_phone?, daily_whatsapp_enabled?, daily_whatsapp_time?, daily_whatsapp_template? }
+// Para limpar o template e voltar pro default: enviar daily_whatsapp_template: null
+router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { accountId } = req.params;
+        const { client_name, client_phone, daily_whatsapp_enabled, daily_whatsapp_time, daily_whatsapp_template } = req.body;
+
+        // Ownership
+        const own = await query<any>(
+            `SELECT id FROM ad_accounts WHERE id = $1 AND user_id = $2`,
+            [accountId, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Conta não encontrada' } });
+
+        // Validação leve do horário (HH:MM)
+        if (daily_whatsapp_time !== undefined && daily_whatsapp_time !== null) {
+            if (!/^\d{2}:\d{2}$/.test(String(daily_whatsapp_time))) {
+                return res.status(400).json({ success: false, error: { message: 'Horário inválido. Use HH:MM (24h, UTC).' } });
+            }
+        }
+
+        // Upsert
+        const exists = await query<any>(`SELECT id FROM report_settings WHERE account_id = $1`, [accountId]);
+
+        if (exists.length === 0) {
+            await query(
+                `INSERT INTO report_settings
+                 (user_id, account_id, client_name, client_phone, daily_whatsapp_enabled, daily_whatsapp_time, daily_whatsapp_template)
+                 VALUES ($1, $2, $3, $4, COALESCE($5, false), COALESCE($6, '11:15'), $7)`,
+                [
+                    userId, accountId,
+                    client_name ?? null,
+                    client_phone ?? null,
+                    daily_whatsapp_enabled,
+                    daily_whatsapp_time,
+                    // null explícito limpa o template
+                    daily_whatsapp_template === undefined ? null : daily_whatsapp_template,
+                ]
+            );
+        } else {
+            const fields: string[] = [];
+            const params: any[] = [];
+            let idx = 1;
+            if (client_name !== undefined)             { fields.push(`client_name = $${idx++}`); params.push(client_name); }
+            if (client_phone !== undefined)            { fields.push(`client_phone = $${idx++}`); params.push(client_phone); }
+            if (daily_whatsapp_enabled !== undefined)  { fields.push(`daily_whatsapp_enabled = $${idx++}`); params.push(Boolean(daily_whatsapp_enabled)); }
+            if (daily_whatsapp_time !== undefined)     { fields.push(`daily_whatsapp_time = $${idx++}`); params.push(daily_whatsapp_time); }
+            if (daily_whatsapp_template !== undefined) { fields.push(`daily_whatsapp_template = $${idx++}`); params.push(daily_whatsapp_template); }
+            if (fields.length === 0) {
+                return res.status(400).json({ success: false, error: { message: 'Nada para atualizar' } });
+            }
+            fields.push(`updated_at = NOW()`);
+            params.push(accountId);
+            await query(
+                `UPDATE report_settings SET ${fields.join(', ')} WHERE account_id = $${idx}`,
+                params
+            );
+        }
+
+        const updated = await query<any>(
+            `SELECT id, account_id, client_name, client_phone,
+                    daily_whatsapp_enabled,
+                    COALESCE(daily_whatsapp_time, '11:15') AS daily_whatsapp_time,
+                    daily_whatsapp_template
+             FROM report_settings WHERE account_id = $1`,
+            [accountId]
+        );
+
+        res.json({
+            success: true,
+            data: {
+                ...updated[0],
+                effective_template: updated[0]?.daily_whatsapp_template || getDefaultTemplate(),
+                default_template: getDefaultTemplate(),
+            },
+        });
+    } catch (err: any) {
+        logger.error('Erro ao atualizar settings WhatsApp', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /reports/whatsapp/preview/:accountId — renderiza preview da mensagem
+// Body opcional: { template?: string } — se vier, usa esse em vez do salvo
+// Sempre usa dados de EXEMPLO (não dados reais) pra preview ser rápido e não falhar
+// quando ainda não tem insights coletados.
+router.post('/whatsapp/preview/:accountId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { accountId } = req.params;
+
+        const acc = await query<any>(
+            `SELECT a.account_name, rs.client_name, rs.daily_whatsapp_template
+             FROM ad_accounts a
+             LEFT JOIN report_settings rs ON rs.account_id = a.id
+             WHERE a.id = $1 AND a.user_id = $2`,
+            [accountId, userId]
+        );
+        if (!acc.length) return res.status(404).json({ success: false, error: { message: 'Conta não encontrada' } });
+
+        const template = typeof req.body?.template === 'string'
+            ? req.body.template
+            : (acc[0].daily_whatsapp_template || getDefaultTemplate());
+
+        const clientName = acc[0].client_name || acc[0].account_name || 'Cliente';
+
+        // Dados de exemplo realistas
+        const sampleVars = buildTemplateVars({
+            client_name: clientName,
+            greeting: 'Bom dia',
+            today:  { metrics: { spend: 1234.56, impressions: 12345, leads: 23, cost_per_lead: 53.67, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 23 } as any, label: '28/06' },
+            last7d: { metrics: { spend: 8500.00, impressions: 85300, leads: 142, cost_per_lead: 59.86, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 142 } as any, label: '22/06 a 28/06' },
+            month:  { metrics: { spend: 24180.00, impressions: 320500, leads: 412, cost_per_lead: 58.69, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 412 } as any, label: '01/06 a 28/06' },
+            activeAds: 8,
+        });
+
+        const rendered = renderTemplate(template, sampleVars);
+
+        res.json({
+            success: true,
+            data: {
+                preview: rendered,
+                vars_used: Object.fromEntries(Object.entries(sampleVars).map(([k, v]) => [k, String(v)])),
+            },
+        });
+    } catch (err: any) {
+        logger.error('Erro ao gerar preview WhatsApp', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /reports/whatsapp/send-now/:accountId — dispara o envio AGORA (manual)
+// Útil pra testar a config sem esperar o horário agendado.
+router.post('/whatsapp/send-now/:accountId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { accountId } = req.params;
+        const own = await query<any>(
+            `SELECT id FROM ad_accounts WHERE id = $1 AND user_id = $2`,
+            [accountId, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Conta não encontrada' } });
+
+        // O service tem método sendDailyReports() mas dispara pra TODAS as habilitadas.
+        // Pra disparar pra UMA conta específica, chamamos o método específico.
+        await dailyWhatsAppService.sendNowForAccount(accountId);
+        res.json({ success: true, data: { sent: true } });
+    } catch (err: any) {
+        logger.error('Erro send-now WhatsApp', { error: err.message });
+        res.status(500).json({ success: false, error: { message: err.message || 'Erro interno' } });
     }
 });
 

@@ -24,6 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
                     zapi_instance_id,
                     notify_critical, notify_warning, notify_info,
                     quiet_hours_enabled, quiet_start, quiet_end,
+                    owner_whatsapp, daily_report_approval_required,
                     created_at, updated_at
              FROM notification_settings WHERE user_id = $1 LIMIT 1`,
             [userId]
@@ -52,6 +53,7 @@ router.put('/', async (req: Request, res: Response) => {
             zapi_instance_id, zapi_token, zapi_client_token,
             notify_critical, notify_warning, notify_info,
             quiet_hours_enabled, quiet_start, quiet_end,
+            owner_whatsapp, daily_report_approval_required,
         } = req.body;
 
         await query(
@@ -64,8 +66,9 @@ router.put('/', async (req: Request, res: Response) => {
                 zapi_instance_id, zapi_token, zapi_client_token,
                 notify_critical, notify_warning, notify_info,
                 quiet_hours_enabled, quiet_start, quiet_end,
+                owner_whatsapp, daily_report_approval_required,
                 updated_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW())
             ON CONFLICT (user_id) DO UPDATE SET
                 email_enabled = EXCLUDED.email_enabled,
                 notification_email = EXCLUDED.notification_email,
@@ -87,6 +90,8 @@ router.put('/', async (req: Request, res: Response) => {
                 quiet_hours_enabled = EXCLUDED.quiet_hours_enabled,
                 quiet_start = EXCLUDED.quiet_start,
                 quiet_end = EXCLUDED.quiet_end,
+                owner_whatsapp = EXCLUDED.owner_whatsapp,
+                daily_report_approval_required = EXCLUDED.daily_report_approval_required,
                 updated_at = NOW()`,
             [
                 userId,
@@ -97,6 +102,7 @@ router.put('/', async (req: Request, res: Response) => {
                 zapi_instance_id || null, zapi_token || null, zapi_client_token || null,
                 notify_critical ?? true, notify_warning ?? true, notify_info ?? false,
                 quiet_hours_enabled ?? false, quiet_start || '22:00', quiet_end || '08:00',
+                owner_whatsapp || null, daily_report_approval_required ?? false,
             ]
         );
 

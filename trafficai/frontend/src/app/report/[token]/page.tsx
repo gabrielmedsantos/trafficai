@@ -104,7 +104,7 @@ function PublicReportPageInner() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           </div>
           <div style={{ marginTop: '16px', fontSize: '14px' }}>Carregando relatório…</div>
-          <div style={{ width: '24px', height: '24px', border: '2.5px solid #1e2744', borderTopColor: '#6366f1', borderRadius: '50%', margin: '14px auto 0', animation: 'spin 0.75s linear infinite' }} />
+          <div style={{ width: '24px', height: '24px', border: '2.5px solid #1e2744', borderTopColor: '#ff6b35', borderRadius: '50%', margin: '14px auto 0', animation: 'spin 0.75s linear infinite' }} />
         </div>
       </div>
     );
@@ -189,7 +189,7 @@ function PublicReportPageInner() {
     { bg: 'rgba(239,68,68,0.08)',   border: '#ef4444', titleColor: '#fca5a5', dotColor: '#ef4444' },
     { bg: 'rgba(16,185,129,0.08)',  border: '#10b981', titleColor: '#6ee7b7', dotColor: '#10b981' },
     { bg: 'rgba(245,158,11,0.08)',  border: '#f59e0b', titleColor: '#fcd34d', dotColor: '#f59e0b' },
-    { bg: 'rgba(99,102,241,0.08)',  border: '#6366f1', titleColor: '#a5b4fc', dotColor: '#6366f1' },
+    { bg: 'rgba(255, 107, 53,0.08)',  border: '#ff6b35', titleColor: '#ffa46e', dotColor: '#ff6b35' },
   ];
 
   const maxCpa = Math.max(...topAds.map(a => a.cpa || 0), 1);
@@ -216,20 +216,20 @@ function PublicReportPageInner() {
       `}</style>
 
       {/* ── Hero ── */}
-      <div style={{ background: 'linear-gradient(160deg, #0e0b2e 0%, #16123a 40%, #0e0b2e 100%)', padding: '48px 24px 40px', borderBottom: '1px solid rgba(99,102,241,.18)', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: '-80px', right: '-40px', width: '320px', height: '320px', background: 'radial-gradient(circle, rgba(99,102,241,.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
+      <div style={{ background: 'linear-gradient(160deg, #0e0b2e 0%, #16123a 40%, #0e0b2e 100%)', padding: '48px 24px 40px', borderBottom: '1px solid rgba(255, 107, 53,.18)', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '-80px', right: '-40px', width: '320px', height: '320px', background: 'radial-gradient(circle, rgba(255, 107, 53,.12) 0%, transparent 70%)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', bottom: '-60px', left: '8%', width: '200px', height: '200px', background: 'radial-gradient(circle, rgba(124,58,237,.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
         <div style={{ maxWidth: '1000px', margin: '0 auto', position: 'relative' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px', marginBottom: '32px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(99,102,241,.4)' }} aria-hidden="true">
+              <div style={{ width: '36px', height: '36px', borderRadius: '9px', background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(255, 107, 53,.4)' }} aria-hidden="true">
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
               </div>
               <span style={{ fontSize: '14px', fontWeight: 800, color: 'rgba(255,255,255,.85)' }}>Alfamax Digital</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ background: 'rgba(99,102,241,.18)', color: '#a5b4fc', padding: '5px 14px', borderRadius: '20px', fontSize: '12.5px', fontWeight: 700, border: '1px solid rgba(99,102,241,.25)' }}>
+              <span style={{ background: 'rgba(255, 107, 53,.18)', color: '#ffa46e', padding: '5px 14px', borderRadius: '20px', fontSize: '12.5px', fontWeight: 700, border: '1px solid rgba(255, 107, 53,.25)' }}>
                 Relatório {typeLabel}
               </span>
               <button
@@ -258,8 +258,8 @@ function PublicReportPageInner() {
           </p>
 
           {(report.custom_note) && (
-            <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.07)', borderLeft: '3px solid rgba(99,102,241,.6)', borderRadius: '0 10px 10px 0', padding: '16px 20px' }}>
-              <p style={{ margin: 0, fontSize: '14px', lineHeight: 1.8, color: '#c7d2fe' }}>
+            <div style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.07)', borderLeft: '3px solid rgba(255, 107, 53,.6)', borderRadius: '0 10px 10px 0', padding: '16px 20px' }}>
+              <p style={{ margin: 0, fontSize: '14px', lineHeight: 1.8, color: '#ffcaa8' }}>
                 {report.custom_note}
               </p>
             </div>
@@ -276,7 +276,7 @@ function PublicReportPageInner() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '10px' }}>
             {/* Investimento */}
             <div style={{ background: '#141928', borderRadius: '12px', padding: '20px', border: '1px solid #1e2744', position: 'relative', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, #818cf833, #818cf8)' }} />
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: 'linear-gradient(90deg, #ff8b3d33, #ff8b3d)' }} />
               <div style={{ fontSize: '12px', color: '#4f6080', fontWeight: 600, marginBottom: '8px' }}>Investimento Total</div>
               <div style={{ fontSize: '26px', fontWeight: 900, color: '#eef2ff', letterSpacing: '-0.5px', marginBottom: '8px' }}>{fmt(m.total_spend)}</div>
               {changeBadge(m.spend_change_pct, false)}
@@ -338,7 +338,7 @@ function PublicReportPageInner() {
                       <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end' }}>
                         <div
                           title={`${d.date?.substring(5)}: ${fmt(d.spend)}`}
-                          style={{ width: '100%', height: `${Math.max(4, (d.spend / maxSpend) * 72)}px`, borderRadius: '3px 3px 0 0', background: 'linear-gradient(to top,#4f46e5,#818cf8)', opacity: 0.85, cursor: 'default', transition: 'opacity .15s' }}
+                          style={{ width: '100%', height: `${Math.max(4, (d.spend / maxSpend) * 72)}px`, borderRadius: '3px 3px 0 0', background: 'linear-gradient(to top,#4f46e5,#ff8b3d)', opacity: 0.85, cursor: 'default', transition: 'opacity .15s' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
                         />
@@ -453,7 +453,7 @@ function PublicReportPageInner() {
                   return (
                     <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', gap: '4px' }}>
                       {cpa > 0 && (
-                        <div style={{ fontSize: '11px', color: isVid ? '#a78bfa' : '#818cf8', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: '11px', color: isVid ? '#a78bfa' : '#ff8b3d', fontWeight: 700, whiteSpace: 'nowrap' }}>
                           {fmt(cpa)}
                         </div>
                       )}
@@ -462,7 +462,7 @@ function PublicReportPageInner() {
                         height: `${barH}px`,
                         background: isVid
                           ? 'linear-gradient(to top, #6d28d9, #8b5cf6)'
-                          : 'linear-gradient(to top, #4338ca, #6366f1)',
+                          : 'linear-gradient(to top, #4338ca, #ff6b35)',
                         borderRadius: '4px 4px 0 0',
                         minHeight: cpa > 0 ? '8px' : '0',
                       }} />
@@ -563,14 +563,14 @@ function PublicReportPageInner() {
                   <tbody>
                     {visibleCampaigns.map((c, i) => (
                       <tr key={i} style={{ borderBottom: i < visibleCampaigns.length - 1 ? '1px solid rgba(30,39,68,.6)' : 'none' }}>
-                        <td style={{ padding: '13px 16px', fontSize: '13px', fontWeight: 600, color: '#c7d2fe', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</td>
+                        <td style={{ padding: '13px 16px', fontSize: '13px', fontWeight: 600, color: '#ffcaa8', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</td>
                         <td style={{ padding: '13px 16px', textAlign: 'center' }}>
                           <span style={{ fontSize: '11px', fontWeight: 700, padding: '3px 9px', borderRadius: '10px', background: c.status === 'ACTIVE' ? 'rgba(16,185,129,.12)' : 'rgba(100,116,139,.1)', color: c.status === 'ACTIVE' ? '#34d399' : '#64748b', border: `1px solid ${c.status === 'ACTIVE' ? 'rgba(16,185,129,.2)' : 'rgba(100,116,139,.15)'}` }}>
                             {c.status === 'ACTIVE' ? 'Ativa' : 'Pausada'}
                           </span>
                         </td>
                         <td style={{ padding: '13px 16px', textAlign: 'center', fontSize: '13px', fontWeight: 600 }}>{fmt(c.spend)}</td>
-                        <td style={{ padding: '13px 16px', textAlign: 'center', fontSize: '13px', fontWeight: 700, color: '#a5b4fc' }}>{c.conversions}</td>
+                        <td style={{ padding: '13px 16px', textAlign: 'center', fontSize: '13px', fontWeight: 700, color: '#ffa46e' }}>{c.conversions}</td>
                         {m.avg_roas > 0 && (
                           <td style={{ padding: '13px 16px', textAlign: 'center', fontSize: '13px', fontWeight: 700, color: c.roas >= 2 ? '#34d399' : c.roas >= 1 ? '#fbbf24' : '#f87171' }}>
                             {c.roas.toFixed(2)}×
@@ -614,7 +614,7 @@ export default function PublicReportPage() {
 function SectionHeader({ title }: { title: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #131c30' }}>
-      <div style={{ width: '3px', height: '18px', background: 'linear-gradient(180deg, #6366f1, #8b5cf6)', borderRadius: '2px', flexShrink: 0 }} aria-hidden="true" />
+      <div style={{ width: '3px', height: '18px', background: 'linear-gradient(180deg, #ff6b35, #8b5cf6)', borderRadius: '2px', flexShrink: 0 }} aria-hidden="true" />
       <h2 style={{ fontSize: '15px', fontWeight: 800, color: '#eef2ff', letterSpacing: '-0.2px' }}>{title}</h2>
     </div>
   );
@@ -631,5 +631,5 @@ const logoMark: React.CSSProperties = {
   background: 'linear-gradient(135deg,#4f46e5,#7c3aed)',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   fontSize: '24px', margin: '0 auto',
-  boxShadow: '0 8px 24px rgba(99,102,241,.4)',
+  boxShadow: '0 8px 24px rgba(255, 107, 53,.4)',
 };

@@ -73,7 +73,7 @@ interface ContractForm {
 
 const emptyClientForm: ClientForm = {
     name: '', email: '', phone: '', company: '', status: 'ativo',
-    plan: '', notes: '', avatar_color: '#6366f1',
+    plan: '', notes: '', avatar_color: '#ff6b35',
 };
 
 const emptyContractForm: ContractForm = {
@@ -86,7 +86,7 @@ const emptyContractForm: ContractForm = {
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 const AVATAR_COLORS = [
-    '#6366f1', '#8b5cf6', '#ec4899', '#f97316', '#10b981',
+    '#ff6b35', '#8b5cf6', '#ec4899', '#f97316', '#10b981',
     '#3b82f6', '#f59e0b', '#ef4444', '#06b6d4', '#84cc16',
 ];
 
@@ -152,11 +152,17 @@ export default function ClientesPage() {
     const [deleteContractId, setDeleteContractId] = useState<string | null>(null);
     const [contractError, setContractError] = useState('');
 
-    // Meetings drawer
+    // Meetings (compartilhado com drawer único)
     const [meetingStatsMap, setMeetingStatsMap] = useState<Record<string, { this_month: number; last_month: number; risk: 'low' | 'medium' | 'high'; total_completed: number }>>({});
-    const [meetingsClient, setMeetingsClient] = useState<Client | null>(null);
+    const [meetingsClient, setMeetingsClient] = useState<Client | null>(null); // legacy alias
     const [clientMeetings, setClientMeetings] = useState<any[]>([]);
     const [loadingMeetings, setLoadingMeetings] = useState(false);
+
+    // Drawer único + ordenação
+    type SortKey = 'mrr_desc' | 'mrr_asc' | 'name_asc' | 'name_desc' | 'risk' | 'last_meeting';
+    const [sortBy, setSortBy] = useState<SortKey>('mrr_desc');
+    const [openClient, setOpenClient] = useState<Client | null>(null);
+    const [drawerTab, setDrawerTab] = useState<'overview' | 'contracts' | 'meetings'>('overview');
 
     const fetchClients = useCallback(async () => {
         setLoading(true);
@@ -220,6 +226,73 @@ export default function ClientesPage() {
         }, 0),
         churn: clients.filter(c => c.status === 'churned').length,
     };
+
+    // ── Helpers de ordenação e risco ──
+    function getMrr(c: Client): number {
+        return (c.active_contracts || [])
+            .filter(ct => ct.type === 'fixed' || ct.type === 'mixed')
+            .reduce((s, ct) => s + Number(ct.fixed_amount), 0);
+    }
+    function getRiskScore(c: Client): number {
+        // Maior score = mais arriscado
+        let s = 0;
+        if (c.status === 'churned') s += 100;
+        const billing = billingSummaryMap[c.id];
+        if (billing && Number(billing.total_owed) > 0) s += 40;
+        const ms = meetingStatsMap[c.id];
+        if (c.status === 'ativo' && ms) {
+            if (ms.risk === 'high') s += 30;
+            else if (ms.risk === 'medium') s += 10;
+        }
+        return s;
+    }
+    function getRiskLevel(c: Client): 'high' | 'medium' | 'low' | 'none' {
+        if (c.status !== 'ativo') return 'none';
+        const score = getRiskScore(c);
+        if (score >= 40) return 'high';
+        if (score >= 10) return 'medium';
+        return 'low';
+    }
+    function getLastMeetingMs(c: Client): number {
+        const ms = meetingStatsMap[c.id];
+        return ms?.this_month || 0;
+    }
+
+    // Lista ordenada conforme sortBy
+    const sortedClients = [...clients].sort((a, b) => {
+        switch (sortBy) {
+            case 'mrr_desc': return getMrr(b) - getMrr(a);
+            case 'mrr_asc': return getMrr(a) - getMrr(b);
+            case 'name_asc': return a.name.localeCompare(b.name, 'pt-BR');
+            case 'name_desc': return b.name.localeCompare(a.name, 'pt-BR');
+            case 'risk': return getRiskScore(b) - getRiskScore(a);
+            case 'last_meeting': return getLastMeetingMs(b) - getLastMeetingMs(a);
+            default: return 0;
+        }
+    });
+
+    // Clientes em risco (pra seção destacada no topo)
+    const atRiskClients = clients.filter(c => {
+        if (c.status !== 'ativo') return false;
+        const billing = billingSummaryMap[c.id];
+        const ms = meetingStatsMap[c.id];
+        return (billing && Number(billing.total_owed) > 0) || (ms?.risk === 'high');
+    }).sort((a, b) => getRiskScore(b) - getRiskScore(a));
+
+    // ── Drawer único ──
+    function openDrawer(client: Client, tab: 'overview' | 'contracts' | 'meetings' = 'overview') {
+        setOpenClient(client);
+        setDrawerTab(tab);
+        // Pre-carrega ambos os datasets (não é caro)
+        setContractsClient(client); fetchContracts(client.id);
+        setMeetingsClient(client); fetchClientMeetings(client.id);
+    }
+    function closeDrawer() {
+        setOpenClient(null);
+        setContractsClient(null); setContracts([]);
+        setMeetingsClient(null); setClientMeetings([]);
+        setShowContractModal(false); setEditingContract(null);
+    }
 
     // ── Client CRUD ──
     function openCreateClient() {
@@ -374,12 +447,14 @@ export default function ClientesPage() {
     ];
 
     return (
-        <div style={{ padding: '32px', maxWidth: 1200, margin: '0 auto' }}>
+        <div style={{ padding: '32px', maxWidth: 1400, margin: '0 auto' }}>
             {/* ─── Header ─── */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
                 <div>
                     <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Clientes</h1>
-                    <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>Gerencie seus clientes e contratos</p>
+                    <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
+                        {stats.total} cliente{stats.total !== 1 ? 's' : ''} · {stats.ativos} ativo{stats.ativos !== 1 ? 's' : ''} · MRR {formatBRL(stats.mrr)}
+                    </p>
                 </div>
                 <button
                     onClick={openCreateClient}
@@ -392,7 +467,7 @@ export default function ClientesPage() {
             {/* ─── Stats ─── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
                 {[
-                    { label: 'Total Clientes', value: stats.total, icon: Users, color: '#6366f1', bg: 'rgba(99,102,241,.12)' },
+                    { label: 'Total Clientes', value: stats.total, icon: Users, color: '#ff6b35', bg: 'rgba(255, 107, 53,.12)' },
                     { label: 'Ativos', value: stats.ativos, icon: TrendingUp, color: '#10b981', bg: 'rgba(16,185,129,.12)' },
                     { label: 'MRR Total', value: formatBRL(stats.mrr), icon: DollarSign, color: '#3b82f6', bg: 'rgba(59,130,246,.12)' },
                     { label: 'Churn', value: stats.churn, icon: UserMinus, color: '#ef4444', bg: 'rgba(239,68,68,.12)' },
@@ -409,8 +484,8 @@ export default function ClientesPage() {
                 ))}
             </div>
 
-            {/* ─── Filters ─── */}
-            <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* ─── Filters + Sort ─── */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 22, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
                     <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                     <input
@@ -419,159 +494,191 @@ export default function ClientesPage() {
                         style={{ width: '100%', padding: '10px 12px 10px 36px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
                     />
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 4 }}>
                     {STATUS_TABS.map(tab => (
                         <button key={tab.value} onClick={() => setStatusFilter(tab.value)}
-                            style={{ padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', border: '1px solid', background: statusFilter === tab.value ? 'var(--primary)' : 'transparent', borderColor: statusFilter === tab.value ? 'var(--primary)' : 'var(--border)', color: statusFilter === tab.value ? '#fff' : 'var(--text-muted)' }}>
+                            style={{ padding: '8px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: 'pointer', border: '1px solid', background: statusFilter === tab.value ? 'var(--bg-card-hover)' : 'transparent', borderColor: statusFilter === tab.value ? 'var(--border-strong)' : 'var(--border)', color: statusFilter === tab.value ? 'var(--text)' : 'var(--text-muted)' }}>
                             {tab.label}
                         </button>
                     ))}
                 </div>
+                <div style={{ position: 'relative' }}>
+                    <select value={sortBy} onChange={e => setSortBy(e.target.value as SortKey)}
+                        style={{ padding: '8px 32px 8px 12px', borderRadius: 8, fontSize: 13, background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer', outline: 'none', appearance: 'none', fontWeight: 500 }}>
+                        <option value="mrr_desc">MRR ↓ (maior primeiro)</option>
+                        <option value="mrr_asc">MRR ↑ (menor primeiro)</option>
+                        <option value="name_asc">Nome A–Z</option>
+                        <option value="name_desc">Nome Z–A</option>
+                        <option value="risk">Risco (maior primeiro)</option>
+                        <option value="last_meeting">Reuniões este mês ↓</option>
+                    </select>
+                    <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none' }} />
+                </div>
             </div>
 
-            {/* ─── Client Grid ─── */}
+            {/* ─── At-Risk section (só quando não há filtros) ─── */}
+            {!loading && atRiskClients.length > 0 && !statusFilter && !search && (
+                <div style={{ marginBottom: 20, background: 'rgba(239,68,68,.05)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 14, padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                        <AlertCircle size={16} color="#ef4444" />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#ef4444' }}>
+                            {atRiskClients.length} cliente{atRiskClients.length !== 1 ? 's' : ''} em risco
+                        </span>
+                        <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
+                            · Inadimplência ou poucas reuniões este mês
+                        </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                        {atRiskClients.slice(0, 6).map(c => {
+                            const billing = billingSummaryMap[c.id];
+                            const ms = meetingStatsMap[c.id];
+                            const overdue = billing && Number(billing.total_owed) > 0;
+                            return (
+                                <button key={c.id} onClick={() => openDrawer(c)} style={{
+                                    display: 'flex', alignItems: 'center', gap: 10,
+                                    padding: '10px 12px',
+                                    background: 'var(--bg-card)', border: '1px solid var(--border)',
+                                    borderRadius: 10, cursor: 'pointer', textAlign: 'left', width: '100%',
+                                }}>
+                                    <div style={{ width: 30, height: 30, borderRadius: 8, background: c.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                        {getInitials(c.name)}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                                        <div style={{ fontSize: 11.5, color: '#ef4444', marginTop: 1 }}>
+                                            {overdue && <>Deve {formatBRL(Number(billing.total_owed))}</>}
+                                            {overdue && ms?.risk === 'high' && ' · '}
+                                            {ms?.risk === 'high' && <>{ms.this_month} reuniões</>}
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Tabela densa ─── */}
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Carregando...</div>
-            ) : clients.length === 0 ? (
+            ) : sortedClients.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: 60, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, color: 'var(--text-muted)' }}>
                     <Building2 size={40} style={{ opacity: .3, marginBottom: 12 }} />
                     <p style={{ margin: 0, fontSize: 15 }}>Nenhum cliente encontrado</p>
                     <p style={{ margin: '8px 0 0', fontSize: 13 }}>Clique em "Novo Cliente" para adicionar</p>
                 </div>
             ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-                    {clients.map(client => {
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
+                    {/* Table header */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(220px, 2fr) 110px 140px 130px 110px 60px',
+                        gap: 16,
+                        padding: '12px 20px',
+                        background: 'var(--bg-surface-2)',
+                        borderBottom: '1px solid var(--border)',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        color: 'var(--text-muted)',
+                    }}>
+                        <div>Cliente</div>
+                        <div>Status</div>
+                        <div style={{ textAlign: 'right' }}>MRR/mês</div>
+                        <div>Pagamento</div>
+                        <div>Reuniões</div>
+                        <div></div>
+                    </div>
+
+                    {/* Rows */}
+                    {sortedClients.map((client, idx) => {
                         const cfg = STATUS_CONFIG[client.status] || STATUS_CONFIG.inativo;
                         const billing = billingSummaryMap[client.id];
                         const isOverdue = billing && Number(billing.total_owed) > 0;
-                        const hasContracts = (client.active_contracts || []).length > 0;
+                        const ms = meetingStatsMap[client.id];
+                        const mrr = getMrr(client);
+                        const risk = getRiskLevel(client);
+
                         return (
                             <div key={client.id}
-                                style={{ background: 'var(--bg-card)', border: `1px solid ${isOverdue ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, borderRadius: 16, padding: 22, display: 'flex', flexDirection: 'column', gap: 14, transition: 'border-color .15s, box-shadow .15s' }}
-                                onMouseOver={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)'; }}
-                                onMouseOut={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
+                                onClick={() => openDrawer(client)}
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'minmax(220px, 2fr) 110px 140px 130px 110px 60px',
+                                    gap: 16,
+                                    padding: '14px 20px',
+                                    alignItems: 'center',
+                                    borderBottom: idx < sortedClients.length - 1 ? '1px solid var(--border)' : 'none',
+                                    cursor: 'pointer',
+                                    transition: 'background .12s',
+                                }}
+                                onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+                                onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                             >
-                                {/* Top */}
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-                                    <div style={{ width: 48, height: 48, borderRadius: 14, background: client.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                {/* Coluna 1: Cliente */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                    <div style={{ width: 34, height: 34, borderRadius: 9, background: client.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                         {getInitials(client.name)}
                                     </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{client.name}</div>
-                                        {client.company && (
-                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                <Building2 size={12} /> {client.company}
-                                            </div>
-                                        )}
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {client.name}
+                                        </div>
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {client.company || client.email || '—'}
+                                        </div>
                                     </div>
-                                    <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                </div>
+
+                                {/* Coluna 2: Status */}
+                                <div>
+                                    <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`, whiteSpace: 'nowrap' }}>
                                         {cfg.label}
                                     </span>
                                 </div>
 
-                                {/* Billing status */}
-                                {hasContracts && (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, background: isOverdue ? 'rgba(239,68,68,.08)' : 'rgba(16,185,129,.08)', border: `1px solid ${isOverdue ? 'rgba(239,68,68,.2)' : 'rgba(16,185,129,.2)'}` }}>
-                                        {isOverdue ? (
-                                            <>
-                                                <AlertCircle size={14} color="#ef4444" />
-                                                <span style={{ fontSize: 13, fontWeight: 600, color: '#ef4444' }}>Inadimplente</span>
-                                                <span style={{ fontSize: 13, color: '#ef4444', marginLeft: 'auto' }}>{formatBRL(Number(billing.total_owed))}</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <CheckCircle2 size={14} color="#10b981" />
-                                                <span style={{ fontSize: 13, fontWeight: 600, color: '#10b981' }}>Em dia</span>
-                                            </>
-                                        )}
-                                    </div>
-                                )}
+                                {/* Coluna 3: MRR */}
+                                <div className="num" style={{ textAlign: 'right', fontSize: 14, fontWeight: 600, color: mrr > 0 ? 'var(--text)' : 'var(--text-muted)' }}>
+                                    {mrr > 0 ? formatBRL(mrr) : '—'}
+                                </div>
 
-                                {/* Contact */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                    {client.email && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-                                            <Mail size={13} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{client.email}</span>
-                                        </div>
-                                    )}
-                                    {client.phone && (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
-                                            <Phone size={13} /> {client.phone}
-                                        </div>
+                                {/* Coluna 4: Pagamento */}
+                                <div>
+                                    {!billing ? (
+                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                                    ) : isOverdue ? (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#ef4444' }}>
+                                            <AlertCircle size={12} />
+                                            {formatBRL(Number(billing.total_owed))}
+                                        </span>
+                                    ) : (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#10b981' }}>
+                                            <CheckCircle2 size={12} /> Em dia
+                                        </span>
                                     )}
                                 </div>
 
-                                {/* Plan & value badges from contracts */}
-                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                    {client.plan && (
-                                        <div style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 500, background: 'rgba(99,102,241,.1)', border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc' }}>
-                                            {client.plan}
-                                        </div>
+                                {/* Coluna 5: Reuniões */}
+                                <div>
+                                    {!ms || client.status !== 'ativo' ? (
+                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                                    ) : (
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: risk === 'high' ? '#ef4444' : risk === 'medium' ? '#f59e0b' : '#10b981' }}>
+                                            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} />
+                                            {ms.this_month} este mês
+                                        </span>
                                     )}
-                                    {(() => {
-                                        const cs = client.active_contracts || [];
-                                        const totalFixed = cs
-                                            .filter(c => c.type === 'fixed' || c.type === 'mixed')
-                                            .reduce((s, c) => s + Number(c.fixed_amount), 0);
-                                        return totalFixed > 0 ? (
-                                            <div style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)', color: '#34d399' }}>
-                                                {formatBRL(totalFixed)}/mês
-                                            </div>
-                                        ) : null;
-                                    })()}
-                                    {(client.active_contracts || [])
-                                        .filter(c => (c.type === 'percentage' || c.type === 'mixed') && c.percentage > 0)
-                                        .map((c, i) => (
-                                            <div key={i} style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(99,102,241,.1)', border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                                <Percent size={11} />
-                                                {c.percentage}% de {c.percentage_base}
-                                            </div>
-                                        ))
-                                    }
                                 </div>
 
-                                {/* Meeting frequency badge */}
-                                {(() => {
-                                    const ms = meetingStatsMap[client.id];
-                                    if (!ms || client.status !== 'ativo') return null;
-                                    const riskCfg = ms.risk === 'high'
-                                        ? { color: '#ef4444', bg: 'rgba(239,68,68,.08)', border: 'rgba(239,68,68,.2)', label: `${ms.this_month} reunião este mês — Risco de churn` }
-                                        : ms.risk === 'medium'
-                                        ? { color: '#f59e0b', bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.2)', label: `${ms.this_month} reunião este mês` }
-                                        : { color: '#22c55e', bg: 'rgba(34,197,94,.08)', border: 'rgba(34,197,94,.2)', label: `${ms.this_month} reuniões este mês` };
-                                    return (
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, background: riskCfg.bg, border: `1px solid ${riskCfg.border}`, fontSize: 12, fontWeight: 500, color: riskCfg.color }}>
-                                            <Calendar size={12} />
-                                            {riskCfg.label}
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* Actions */}
-                                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                                    <button
-                                        onClick={() => openMeetingsDrawer(client)}
-                                        style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px', borderRadius: 8, fontSize: 13, fontWeight: 500, background: 'rgba(99,102,241,.08)', border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc', cursor: 'pointer' }}
-                                    >
-                                        <Calendar size={14} /> Reuniões
-                                    </button>
-                                    <button
-                                        onClick={() => openContractsDrawer(client)}
-                                        style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px', borderRadius: 8, fontSize: 13, fontWeight: 500, background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.2)', color: '#34d399', cursor: 'pointer' }}
-                                    >
-                                        <FileText size={14} /> Contratos
-                                    </button>
+                                {/* Coluna 6: Actions */}
+                                <div style={{ display: 'flex', justifyContent: 'flex-end' }} onClick={e => e.stopPropagation()}>
                                     <button
                                         onClick={() => openEditClient(client)}
-                                        style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px', borderRadius: 8, fontSize: 13, fontWeight: 500, background: 'rgba(99,102,241,.1)', border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc', cursor: 'pointer' }}
+                                        title="Editar"
+                                        style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
                                     >
-                                        <Edit2 size={14} /> Editar
-                                    </button>
-                                    <button
-                                        onClick={() => setDeleteClientId(client.id)}
-                                        style={{ width: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', color: '#f87171', cursor: 'pointer' }}
-                                    >
-                                        <Trash2 size={14} />
+                                        <Edit2 size={13} />
                                     </button>
                                 </div>
                             </div>
@@ -580,88 +687,229 @@ export default function ClientesPage() {
                 </div>
             )}
 
-            {/* ─── Meetings Drawer ─── */}
-            {meetingsClient && (
+            {/* ─── Drawer único (Visão geral / Contratos / Reuniões) ─── */}
+            {openClient && (
                 <>
-                    <div onClick={closeMeetingsDrawer} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 200 }} />
-                    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 460, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 201, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div onClick={closeDrawer} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 200 }} />
+                    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 201, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         {/* Header */}
-                        <div style={{ padding: '24px 24px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
-                            <div style={{ width: 44, height: 44, borderRadius: 12, background: meetingsClient.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                {getInitials(meetingsClient.name)}
+                        <div style={{ padding: '22px 24px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div style={{ width: 48, height: 48, borderRadius: 12, background: openClient.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                {getInitials(openClient.name)}
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{meetingsClient.name}</div>
-                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Histórico de Reuniões</div>
+                                <div style={{ fontWeight: 700, fontSize: 17, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{openClient.name}</div>
+                                <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                    {openClient.company || '—'}
+                                    {' · '}
+                                    <span style={{ color: STATUS_CONFIG[openClient.status]?.color }}>{STATUS_CONFIG[openClient.status]?.label}</span>
+                                </div>
                             </div>
-                            <button onClick={closeMeetingsDrawer} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+                            <button onClick={() => openEditClient(openClient)} title="Editar" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                                <Edit2 size={14} />
+                            </button>
+                            <button onClick={() => setDeleteClientId(openClient.id)} title="Remover" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: '#f87171', cursor: 'pointer' }}>
+                                <Trash2 size={14} />
+                            </button>
+                            <button onClick={closeDrawer} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
                                 <X size={20} />
                             </button>
                         </div>
 
-                        {/* Stats summary */}
-                        {(() => {
-                            const ms = meetingStatsMap[meetingsClient.id];
-                            if (!ms) return null;
-                            const riskLabel = ms.risk === 'high' ? 'Alto risco de churn' : ms.risk === 'medium' ? 'Atenção' : 'Frequência ok';
-                            const riskColor = ms.risk === 'high' ? '#ef4444' : ms.risk === 'medium' ? '#f59e0b' : '#22c55e';
-                            return (
-                                <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12 }}>
-                                    <div style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-                                        <div style={{ fontSize: 22, fontWeight: 800, color: riskColor }}>{ms.this_month}</div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Este mês</div>
-                                    </div>
-                                    <div style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-                                        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>{ms.last_month}</div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Mês passado</div>
-                                    </div>
-                                    <div style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)' }}>
-                                        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>{ms.total_completed}</div>
-                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Total</div>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px', borderRadius: 10, background: ms.risk === 'high' ? 'rgba(239,68,68,.08)' : ms.risk === 'medium' ? 'rgba(245,158,11,.08)' : 'rgba(34,197,94,.08)', border: `1px solid ${ms.risk === 'high' ? 'rgba(239,68,68,.2)' : ms.risk === 'medium' ? 'rgba(245,158,11,.2)' : 'rgba(34,197,94,.2)'}`, minWidth: 90, flexDirection: 'column', gap: 4 }}>
-                                        <span style={{ fontSize: 18 }}>{ms.risk === 'high' ? '🔴' : ms.risk === 'medium' ? '🟡' : '🟢'}</span>
-                                        <span style={{ fontSize: 10, fontWeight: 600, color: riskColor, textAlign: 'center', lineHeight: 1.3 }}>{riskLabel}</span>
-                                    </div>
-                                </div>
-                            );
-                        })()}
+                        {/* Tabs */}
+                        <div style={{ display: 'flex', gap: 2, padding: '0 24px', borderBottom: '1px solid var(--border)' }}>
+                            {[
+                                { k: 'overview' as const, label: 'Visão geral' },
+                                { k: 'contracts' as const, label: `Contratos${contracts.length ? ` · ${contracts.length}` : ''}` },
+                                { k: 'meetings' as const, label: `Reuniões${clientMeetings.length ? ` · ${clientMeetings.length}` : ''}` },
+                            ].map(t => (
+                                <button key={t.k} onClick={() => setDrawerTab(t.k)}
+                                    style={{
+                                        padding: '11px 16px',
+                                        fontSize: 13.5,
+                                        fontWeight: drawerTab === t.k ? 600 : 500,
+                                        color: drawerTab === t.k ? 'var(--text)' : 'var(--text-muted)',
+                                        background: 'transparent',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        marginBottom: -1,
+                                        borderBottom: `2px solid ${drawerTab === t.k ? 'var(--primary)' : 'transparent'}`,
+                                    }}>
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
 
-                        {/* Meeting list */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {loadingMeetings ? (
-                                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 32, fontSize: 14 }}>Carregando...</div>
-                            ) : clientMeetings.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: 40 }}>
-                                    <Calendar size={36} color="var(--text-muted)" style={{ opacity: 0.4, marginBottom: 12 }} />
-                                    <div style={{ color: 'var(--text-muted)', fontSize: 14 }}>Nenhuma reunião registrada</div>
-                                    <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 6, opacity: 0.7 }}>Marque reuniões como realizadas na Agenda</div>
-                                </div>
-                            ) : (
-                                clientMeetings.map((m: any) => (
-                                    <div key={m.id} style={{ padding: '14px 16px', borderRadius: 10, background: 'var(--bg-secondary)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <Video size={13} color="#6366f1" />
-                                            <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', flex: 1 }}>{m.title}</span>
-                                            <span style={{ fontSize: 12, color: 'var(--text-muted)', flexShrink: 0 }}>
-                                                {new Date(m.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                            </span>
-                                        </div>
-                                        {m.summary && (
-                                            <div style={{ fontSize: 13, color: 'var(--text-muted)', paddingLeft: 21, lineHeight: 1.5 }}>{m.summary}</div>
+                        {/* Tab: Visão geral */}
+                        {drawerTab === 'overview' && (
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+                                {/* Contato */}
+                                <div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>Contato</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        {openClient.email && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: 'var(--text)' }}>
+                                                <Mail size={13} color="var(--text-muted)" /> {openClient.email}
+                                            </div>
                                         )}
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 21 }}>
-                                            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
-                                            <span style={{ fontSize: 11, color: '#22c55e', fontWeight: 500 }}>Realizada</span>
-                                        </div>
+                                        {openClient.phone && (
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: 'var(--text)' }}>
+                                                <Phone size={13} color="var(--text-muted)" /> {openClient.phone}
+                                            </div>
+                                        )}
+                                        {!openClient.email && !openClient.phone && (
+                                            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Sem contatos cadastrados</span>
+                                        )}
                                     </div>
-                                ))
-                            )}
-                        </div>
+                                </div>
 
-                        <div style={{ padding: '12px 24px', borderTop: '1px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
-                            Meta: mínimo 2 reuniões por mês para reduzir risco de churn
-                        </div>
+                                {/* MRR + Status pagamento */}
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                                    <div style={{ padding: '14px 16px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>MRR</div>
+                                        <div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)', marginTop: 4 }}>{formatBRL(getMrr(openClient))}</div>
+                                    </div>
+                                    <div style={{ padding: '14px 16px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Pagamento</div>
+                                        {(() => {
+                                            const b = billingSummaryMap[openClient.id];
+                                            const od = b && Number(b.total_owed) > 0;
+                                            if (!b) return <div style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 4 }}>Sem cobranças</div>;
+                                            return od ? (
+                                                <div style={{ fontSize: 15, fontWeight: 700, color: '#ef4444', marginTop: 4 }}>{formatBRL(Number(b.total_owed))}</div>
+                                            ) : (
+                                                <div style={{ fontSize: 14, fontWeight: 600, color: '#10b981', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                    <CheckCircle2 size={14} /> Em dia
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Plano */}
+                                {openClient.plan && (
+                                    <div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>Plano</div>
+                                        <span style={{ padding: '5px 12px', borderRadius: 999, fontSize: 13, fontWeight: 500, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}>{openClient.plan}</span>
+                                    </div>
+                                )}
+
+                                {/* Observações */}
+                                {openClient.notes && (
+                                    <div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>Observações</div>
+                                        <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{openClient.notes}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Tab: Contratos */}
+                        {drawerTab === 'contracts' && (
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <button onClick={openCreateContract}
+                                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px', borderRadius: 10, background: 'var(--primary)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                                    <Plus size={16} /> Novo Contrato
+                                </button>
+                                {loadingContracts ? (
+                                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Carregando...</div>
+                                ) : contracts.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                                        <FileText size={32} style={{ opacity: .25, marginBottom: 8 }} />
+                                        <p style={{ margin: 0, fontSize: 13.5 }}>Nenhum contrato cadastrado</p>
+                                    </div>
+                                ) : contracts.map(c => {
+                                    const sc = CONTRACT_STATUS_CONFIG[c.status] || CONTRACT_STATUS_CONFIG.ended;
+                                    return (
+                                        <div key={c.id} style={{ background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{c.description}</div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{CONTRACT_TYPE_LABELS[c.type]} · vence dia {c.billing_day}</div>
+                                                </div>
+                                                <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                                    <sc.Icon size={12} /> {sc.label}
+                                                </span>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                                                {(c.type === 'fixed' || c.type === 'mixed') && c.fixed_amount > 0 && (
+                                                    <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.25)', color: '#10b981' }}>
+                                                        {formatBRL(Number(c.fixed_amount))}/mês
+                                                    </span>
+                                                )}
+                                                {(c.type === 'percentage' || c.type === 'mixed') && c.percentage > 0 && (
+                                                    <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'var(--bg-card)', border: '1px solid var(--border-strong)', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                                        <Percent size={11} /> {c.percentage}% de {c.percentage_base}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {c.notes && <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 4 }}>{c.notes}</div>}
+                                            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                                                <button onClick={() => openEditContract(c)} style={{ flex: 1, padding: '6px 10px', fontSize: 12.5, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                                                    Editar
+                                                </button>
+                                                <button onClick={() => setDeleteContractId(c.id)} style={{ padding: '6px 10px', fontSize: 12.5, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: '#f87171', cursor: 'pointer' }}>
+                                                    Remover
+                                                </button>
+                                                {c.contract_file_url && (
+                                                    <a href={c.contract_file_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12.5, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', textDecoration: 'none' }}>
+                                                        <ExternalLink size={11} /> PDF
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* Tab: Reuniões */}
+                        {drawerTab === 'meetings' && (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                                {/* Stats compactas */}
+                                {(() => {
+                                    const ms = meetingStatsMap[openClient.id];
+                                    if (!ms) return null;
+                                    const riskColor = ms.risk === 'high' ? '#ef4444' : ms.risk === 'medium' ? '#f59e0b' : '#10b981';
+                                    return (
+                                        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                                            {[
+                                                { label: 'Este mês', value: ms.this_month, color: riskColor },
+                                                { label: 'Mês passado', value: ms.last_month },
+                                                { label: 'Total', value: ms.total_completed },
+                                            ].map(s => (
+                                                <div key={s.label} style={{ padding: '10px 12px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10, textAlign: 'center' }}>
+                                                    <div className="num" style={{ fontSize: 20, fontWeight: 700, color: s.color || 'var(--text)' }}>{s.value}</div>
+                                                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.4, fontWeight: 600 }}>{s.label}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })()}
+                                {/* Lista */}
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '14px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {loadingMeetings ? (
+                                        <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)', fontSize: 13.5 }}>Carregando...</div>
+                                    ) : clientMeetings.length === 0 ? (
+                                        <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                                            <Calendar size={28} style={{ opacity: .3, marginBottom: 8 }} />
+                                            <div style={{ fontSize: 13.5 }}>Nenhuma reunião registrada</div>
+                                        </div>
+                                    ) : clientMeetings.map((m: any) => (
+                                        <div key={m.id} style={{ padding: '12px 14px', borderRadius: 10, background: 'var(--bg-surface-2)', border: '1px solid var(--border)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: m.summary ? 6 : 0 }}>
+                                                <Video size={13} color="var(--text-muted)" />
+                                                <span style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--text)', flex: 1 }}>{m.title}</span>
+                                                <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexShrink: 0 }}>
+                                                    {new Date(m.event_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                                                </span>
+                                            </div>
+                                            {m.summary && <div style={{ fontSize: 12.5, color: 'var(--text-muted)', paddingLeft: 21, lineHeight: 1.5 }}>{m.summary}</div>}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </>
             )}
@@ -732,113 +980,7 @@ export default function ClientesPage() {
                 </div>
             )}
 
-            {/* ─── Contracts Drawer ─── */}
-            {contractsClient && (
-                <>
-                    {/* Overlay */}
-                    <div onClick={closeContractsDrawer} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 200 }} />
-                    {/* Drawer */}
-                    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 201, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                        {/* Header */}
-                        <div style={{ padding: '24px 24px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
-                            <div style={{ width: 44, height: 44, borderRadius: 12, background: contractsClient.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
-                                {getInitials(contractsClient.name)}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contractsClient.name}</div>
-                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Contratos e Recorrências</div>
-                            </div>
-                            <button onClick={closeContractsDrawer} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
-                                <X size={20} />
-                            </button>
-                        </div>
-
-                        {/* Add button */}
-                        <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border)' }}>
-                            <button onClick={openCreateContract}
-                                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px', borderRadius: 10, background: 'var(--primary)', border: 'none', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                                <Plus size={16} /> Novo Contrato
-                            </button>
-                        </div>
-
-                        {/* List */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            {loadingContracts ? (
-                                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Carregando...</div>
-                            ) : contracts.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                                    <FileText size={36} style={{ opacity: .25, marginBottom: 10 }} />
-                                    <p style={{ margin: 0, fontSize: 14 }}>Nenhum contrato cadastrado</p>
-                                </div>
-                            ) : contracts.map(c => {
-                                const sc = CONTRACT_STATUS_CONFIG[c.status] || CONTRACT_STATUS_CONFIG.ended;
-                                return (
-                                    <div key={c.id} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px 18px' }}>
-                                        {/* Title row */}
-                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-                                            <div style={{ flex: 1 }}>
-                                                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{c.description}</div>
-                                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3 }}>{CONTRACT_TYPE_LABELS[c.type]}</div>
-                                            </div>
-                                            <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                <sc.Icon size={12} /> {sc.label}
-                                            </span>
-                                        </div>
-
-                                        {/* Values */}
-                                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                                            {(c.type === 'fixed' || c.type === 'mixed') && c.fixed_amount > 0 && (
-                                                <div style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)', color: '#34d399' }}>
-                                                    {formatBRL(Number(c.fixed_amount))}/mês
-                                                </div>
-                                            )}
-                                            {(c.type === 'percentage' || c.type === 'mixed') && c.percentage > 0 && (
-                                                <div style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: 'rgba(99,102,241,.1)', border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                    <Percent size={11} /> {c.percentage}% de {c.percentage_base}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Meta */}
-                                        <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                                            <span>Vence dia <strong style={{ color: 'var(--text)' }}>{c.billing_day}</strong></span>
-                                            {c.start_date && <span>Início: <strong style={{ color: 'var(--text)' }}>{formatDate(c.start_date)}</strong></span>}
-                                            {c.end_date && <span>Fim: <strong style={{ color: 'var(--text)' }}>{formatDate(c.end_date)}</strong></span>}
-                                            {c.payment_method && <span>{c.payment_method}</span>}
-                                        </div>
-
-                                        {/* Contract file */}
-                                        {c.contract_file_url && (
-                                            <a
-                                                href={c.contract_file_url} target="_blank" rel="noopener noreferrer"
-                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8, fontSize: 12, color: '#6366f1', textDecoration: 'none' }}
-                                            >
-                                                <ExternalLink size={12} /> Ver arquivo do contrato
-                                            </a>
-                                        )}
-
-                                        {c.notes && (
-                                            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', borderTop: '1px solid var(--border)', paddingTop: 8 }}>{c.notes}</div>
-                                        )}
-
-                                        {/* Actions */}
-                                        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                                            <button onClick={() => openEditContract(c)}
-                                                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '7px', borderRadius: 8, fontSize: 12, background: 'rgba(99,102,241,.1)', border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc', cursor: 'pointer' }}>
-                                                <Edit2 size={12} /> Editar
-                                            </button>
-                                            <button onClick={() => setDeleteContractId(c.id)}
-                                                style={{ width: 34, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', color: '#f87171', cursor: 'pointer' }}>
-                                                <Trash2 size={12} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </>
-            )}
+            {/* (Contracts Drawer antigo removido — agora é uma aba dentro do drawer único acima) */}
 
             {/* ─── Contract Modal ─── */}
             {showContractModal && contractsClient && (
@@ -938,7 +1080,7 @@ export default function ClientesPage() {
                                 />
                                 {contractForm.contract_file_url && (
                                     <a href={contractForm.contract_file_url} target="_blank" rel="noopener noreferrer"
-                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 5, fontSize: 12, color: '#6366f1' }}>
+                                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 5, fontSize: 12, color: '#ff6b35' }}>
                                         <ExternalLink size={11} /> Visualizar arquivo
                                     </a>
                                 )}

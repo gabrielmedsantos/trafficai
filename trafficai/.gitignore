@@ -25,3 +25,12 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/
+.agents/
+skills-lock.json
+
+# Client-specific working directories (não código)
+google ads/
+
+# Backup files
+*.mine-backup
+*.orig

@@ -35,7 +35,27 @@ interface Source {
     crm_subdomain?: string | null;
     crm_access_token?: string | null;
     last_backfill_at?: string | null;
+    // Health signals
+    last_event_at?: string | null;
+    last_pixel_event_at?: string | null;
+    pending_retries?: number | string;
+    status?: {
+        state: 'healthy' | 'active' | 'idle' | 'dead' | 'pixel_missing' | 'error_rate' | 'inactive' | 'test_mode';
+        detail: string;
+        severity: 'ok' | 'info' | 'warn' | 'error';
+    };
 }
+
+const STATUS_VISUAL: Record<string, { label: string; color: string; bg: string }> = {
+    healthy:        { label: 'Saudável',        color: '#10b981', bg: 'rgba(16,185,129,.12)' },
+    active:         { label: 'Ativo',           color: '#10b981', bg: 'rgba(16,185,129,.10)' },
+    idle:           { label: 'Ocioso',          color: '#94a3b8', bg: 'rgba(148,163,184,.12)' },
+    dead:           { label: 'Sem atividade',   color: '#ef4444', bg: 'rgba(239,68,68,.12)' },
+    pixel_missing:  { label: 'Pixel ausente',   color: '#f59e0b', bg: 'rgba(245,158,11,.12)' },
+    error_rate:     { label: 'Erros altos',     color: '#ef4444', bg: 'rgba(239,68,68,.12)' },
+    inactive:       { label: 'Desativada',      color: '#94a3b8', bg: 'rgba(148,163,184,.10)' },
+    test_mode:      { label: 'Modo teste',      color: '#f59e0b', bg: 'rgba(245,158,11,.14)' },
+};
 
 interface FormState {
     name: string;
@@ -175,16 +195,18 @@ function SourceCard({ source, onOpen, onEdit }: {
     const errors = Number(source.errors_7d || 0);
     const emq = Number(source.avg_emq_7d || 0);
     const emqColor = emq >= 7 ? 'var(--accent-green)' : emq >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)';
-    const hasCredentials = !!source.pixel_id;
+    const status = source.status;
+    const visual = status ? STATUS_VISUAL[status.state] : null;
+    const dotColor = visual?.color || (source.is_active ? 'var(--accent-green)' : 'var(--text-muted)');
 
     return (
         <div className="card" style={{ cursor: 'pointer', padding: 18 }} onClick={onOpen}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{
+                        <span title={status?.detail || ''} style={{
                             width: 8, height: 8, borderRadius: '50%',
-                            background: source.is_active ? 'var(--accent-green)' : 'var(--text-muted)',
+                            background: dotColor,
                         }} />
                         <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }} className="truncate">
                             {source.name}
@@ -205,16 +227,61 @@ function SourceCard({ source, onOpen, onEdit }: {
                 </button>
             </div>
 
-            {!hasCredentials && (
-                <div style={{
+            {/* Status pill — só aparece quando há algo a destacar */}
+            {visual && (status?.severity === 'warn' || status?.severity === 'error' || status?.state === 'inactive') && (
+                <div title={status.detail} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5,
-                    fontSize: 11.5, color: 'var(--accent-yellow)',
+                    fontSize: 11.5, color: visual.color,
                     padding: '3px 8px', borderRadius: 999,
-                    background: 'rgba(245, 158, 11, 0.10)',
-                    border: '1px solid rgba(245, 158, 11, 0.22)',
+                    background: visual.bg,
+                    border: `1px solid ${visual.color}33`,
                     marginBottom: 10,
                 }}>
-                    <CircleAlert size={12} /> Pixel ID / token não configurados
+                    <CircleAlert size={12} /> {visual.label} — {status.detail}
+                </div>
+            )}
+            {visual && status?.severity === 'ok' && events > 0 && (
+                <div title={status.detail} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    fontSize: 11, color: visual.color,
+                    padding: '2px 7px', borderRadius: 999,
+                    background: visual.bg,
+                    marginBottom: 10,
+                }}>
+                    {visual.label}
+                </div>
+            )}
+
+            {/* Aviso de EMQ baixo persistente — geralmente sinal de webhook Kommo sem token API */}
+            {emq > 0 && emq < 4 && events > 10 && !source.crm_type && (
+                <div title="EMQ médio < 4 indica que a Meta está recebendo eventos sem email/telefone do contato. Configure a Integração CRM (Kommo) em Editar credenciais pra enriquecer automaticamente."
+                    style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        fontSize: 11, color: 'var(--accent-yellow)',
+                        padding: '3px 8px', borderRadius: 999,
+                        background: 'rgba(245,158,11,.10)',
+                        border: '1px solid rgba(245,158,11,.25)',
+                        marginBottom: 10,
+                    }}>
+                    <CircleAlert size={11} /> PII fraca — configure CRM pra enriquecer
+                </div>
+            )}
+
+            {/* Auto-sync chip — fonte com CRM configurado sincroniza automaticamente 1x/dia */}
+            {source.crm_type && (
+                <div title={source.last_backfill_at
+                    ? `Auto-sync diário às 01:30 BRT — varre leads ganhos no Kommo e dispara Purchase pra Meta. Última execução: ${fmtRelative(source.last_backfill_at)}. Pra real-time, configure Salesbot no Kommo.`
+                    : `Auto-sync ativa — leads ganhos viram Purchase automaticamente 1x/dia. Pra real-time, configure Salesbot no Kommo.`}
+                    style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        fontSize: 11, color: 'var(--accent-green)',
+                        padding: '3px 8px', borderRadius: 999,
+                        background: 'rgba(16,185,129,.10)',
+                        border: '1px solid rgba(16,185,129,.25)',
+                        marginBottom: 10,
+                    }}>
+                    <Zap size={11} />
+                    Auto-sync diário · {source.last_backfill_at ? fmtRelative(source.last_backfill_at) : 'aguardando 1º ciclo'}
                 </div>
             )}
 
@@ -246,20 +313,60 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [detail, setDetail] = useState<Source | null>(null);
     const [stats, setStats] = useState<any>(null);
     const [events, setEvents] = useState<any[]>([]);
+    const [eventsTotal, setEventsTotal] = useState(0);
+    const [eventsOffset, setEventsOffset] = useState(0);
+    const [eventSearch, setEventSearch] = useState('');
+    const [eventStatusFilter, setEventStatusFilter] = useState<'' | 'sent' | 'failed'>('');
+    const [eventFrom, setEventFrom] = useState('');
+    const [eventTo, setEventTo] = useState('');
+    const [eventsLoading, setEventsLoading] = useState(false);
+    const [health, setHealth] = useState<any>(null);
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState<string>('');
     const [rotating, setRotating] = useState(false);
 
+    // Modal tab navigation
+    type TabKey = 'overview' | 'events' | 'install' | 'crm';
+    const [activeTab, setActiveTab] = useState<TabKey>('overview');
+
+    // Auth method segmented control (na aba CRM)
+    type AuthMethod = 'bearer' | 'key' | 'hmac';
+    const [authMethod, setAuthMethod] = useState<AuthMethod>('bearer');
+
+    const EVENTS_PER_PAGE = 25;
+
+    const loadEvents = useCallback(async (offset = 0) => {
+        setEventsLoading(true);
+        try {
+            const r = await api.getTrackingEvents(source.id, {
+                limit: EVENTS_PER_PAGE,
+                offset,
+                status: eventStatusFilter || undefined,
+                from: eventFrom ? new Date(eventFrom + 'T00:00:00').toISOString() : undefined,
+                to: eventTo ? new Date(eventTo + 'T23:59:59').toISOString() : undefined,
+                search: eventSearch.trim() || undefined,
+            });
+            setEvents(r.data);
+            setEventsTotal(r.total);
+            setEventsOffset(r.offset);
+        } catch {
+            setEvents([]);
+            setEventsTotal(0);
+        } finally {
+            setEventsLoading(false);
+        }
+    }, [source.id, eventStatusFilter, eventFrom, eventTo, eventSearch]);
+
     const load = useCallback(async () => {
         try {
-            const [d, s, e] = await Promise.all([
+            const [d, s, h] = await Promise.all([
                 api.getTrackingSource(source.id),
                 api.getTrackingStats(source.id, 7).catch(() => null),
-                api.getTrackingEvents(source.id, { limit: 30 }).catch(() => []),
+                api.getTrackingHealth(source.id).catch(() => null),
             ]);
             setDetail(d);
             setStats(s);
-            setEvents(e);
+            setHealth(h);
         } catch {
             /* ignore */
         }
@@ -271,6 +378,15 @@ function SourceDetail({ source, onClose, onEdit }: {
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [load, onClose]);
+
+    // Lazy load: só carrega eventos quando entrar na aba "events" pela primeira vez
+    const [eventsLoaded, setEventsLoaded] = useState(false);
+    useEffect(() => {
+        if (activeTab === 'events' && !eventsLoaded) {
+            loadEvents(0);
+            setEventsLoaded(true);
+        }
+    }, [activeTab, eventsLoaded, loadEvents]);
 
     async function runTest() {
         setTesting(true); setTestResult('');
@@ -290,6 +406,23 @@ function SourceDetail({ source, onClose, onEdit }: {
             await api.rotateTrackingWebhook(source.id);
             await load();
         } finally { setRotating(false); }
+    }
+
+    const [retrying, setRetrying] = useState(false);
+    const [retryResult, setRetryResult] = useState<string>('');
+    async function retryFailed() {
+        setRetrying(true); setRetryResult('');
+        try {
+            const r = await api.retryTrackingFailed(source.id);
+            if (r.attempted === 0) {
+                setRetryResult('Nenhum evento falho elegível');
+            } else {
+                setRetryResult(`${r.succeeded}/${r.attempted} recuperado${r.succeeded !== 1 ? 's' : ''}`);
+            }
+            setTimeout(load, 800);
+        } catch (err: any) {
+            setRetryResult('Erro: ' + (err.message || 'falha'));
+        } finally { setRetrying(false); }
     }
 
     // CRM backfill state + handlers
@@ -380,9 +513,66 @@ function SourceDetail({ source, onClose, onEdit }: {
                     <button className="modal-close" onClick={onClose} type="button"><X size={16} /></button>
                 </div>
 
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={runTest} disabled={testing}>
+                        <Sparkles size={13} /> {testing ? 'Testando…' : 'Disparar evento de teste'}
+                    </button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>
+                        <Pencil size={13} /> Editar credenciais
+                    </button>
+                    {Number(stats?.totals?.failed || 0) > 0 && (
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={retryFailed} disabled={retrying}
+                            title="Reenvia todos os eventos que falharam nas últimas 24h">
+                            <RefreshCw size={13} style={retrying ? { animation: 'spin 1s linear infinite' } : undefined} />
+                            {retrying ? 'Reenviando…' : `Reenviar ${stats?.totals?.failed || ''} falho${Number(stats?.totals?.failed || 0) !== 1 ? 's' : ''}`}
+                        </button>
+                    )}
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={load}>
+                        <RefreshCw size={13} /> Atualizar
+                    </button>
+                    {testResult && (
+                        <span style={{
+                            fontSize: 12, color: testResult.startsWith('OK') ? 'var(--accent-green)' : 'var(--accent-red)',
+                            alignSelf: 'center',
+                        }}>
+                            {testResult}
+                        </span>
+                    )}
+                    {retryResult && (
+                        <span style={{
+                            fontSize: 12,
+                            color: retryResult.startsWith('Erro') || retryResult.startsWith('Nenhum')
+                                ? 'var(--text-muted)' : 'var(--accent-green)',
+                            alignSelf: 'center',
+                        }}>
+                            {retryResult}
+                        </span>
+                    )}
+                </div>
+
+                {/* Tab navigation */}
+                <ModalTabs
+                    active={activeTab}
+                    onChange={setActiveTab}
+                    badges={{
+                        events: stats?.totals?.failed > 0 ? Number(stats.totals.failed) : undefined,
+                        crm: source.crm_type ? 'on' : undefined,
+                    }}
+                />
+
+                {/* ───────── TAB: VISÃO GERAL ───────── */}
+                {activeTab === 'overview' && (
+                <div className="tab-fade-in">
+
+                {/* Health banner */}
+                {health && (
+                    <HealthBanner health={health} />
+                )}
+
                 {/* Stats */}
                 {stats && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 24 }}>
                         <MiniKpi label="Total 7d" value={Number(stats.totals.total || 0).toLocaleString('pt-BR')} />
                         <MiniKpi label="Enviados" value={Number(stats.totals.sent || 0).toLocaleString('pt-BR')} color="var(--accent-green)" />
                         <MiniKpi label="Falhas" value={Number(stats.totals.failed || 0).toLocaleString('pt-BR')}
@@ -396,27 +586,6 @@ function SourceDetail({ source, onClose, onEdit }: {
                             } />
                     </div>
                 )}
-
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-                    <button type="button" className="btn btn-primary btn-sm" onClick={runTest} disabled={testing}>
-                        <Sparkles size={13} /> {testing ? 'Testando…' : 'Disparar evento de teste'}
-                    </button>
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={onEdit}>
-                        <Pencil size={13} /> Editar credenciais
-                    </button>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={load}>
-                        <RefreshCw size={13} /> Atualizar
-                    </button>
-                    {testResult && (
-                        <span style={{
-                            fontSize: 12, color: testResult.startsWith('OK') ? 'var(--accent-green)' : 'var(--accent-red)',
-                            alignSelf: 'center',
-                        }}>
-                            {testResult}
-                        </span>
-                    )}
-                </div>
 
                 {/* Performance do cliente */}
                 <Section title="Performance do cliente">
@@ -599,28 +768,33 @@ function SourceDetail({ source, onClose, onEdit }: {
                     )}
                 </Section>
 
+                </div>
+                )}
+                {/* ───────── TAB: INSTALAÇÃO ───────── */}
+                {activeTab === 'install' && (
+                <div className="tab-fade-in">
+
                 {/* Integration */}
-                <Section title="Instalação no site">
-                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
-                        Cole o script abaixo antes do fechamento de <span className="mono">&lt;/head&gt;</span> no site do cliente.
-                        Ele dispara PageView automaticamente e expõe <span className="mono">window.TrafficAI.track(...)</span>.
+                <Section title="Pixel do site">
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+                        Cole antes do fechamento de <span className="mono">&lt;/head&gt;</span>. Dispara PageView automaticamente e
+                        expõe <span className="mono">window.TrafficAI.track(...)</span>.
                     </p>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Script de instalação</div>
                     <CopyBlock value={embed} />
-                    <div style={{ marginTop: 14 }}>
-                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>URL do pixel:</div>
+                    <div style={{ marginTop: 16 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>URL do pixel</div>
                         <CopyBlock value={pixelUrl} small />
                     </div>
                 </Section>
 
                 {/* ── WhatsApp Click-to-Message (Evolution API) ─────────── */}
-                <Section title="WhatsApp Click-to-Message (ctwa_clid)">
-                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
-                        Conecte o Evolution API / Chatwoot pra capturar leads que vieram de <strong>anúncios WhatsApp</strong>.
-                        Quando a primeira mensagem do usuário traz <span className="mono">ctwaClid</span>, nosso sistema
-                        captura o telefone, busca o pixel do anúncio automaticamente e dispara <span className="mono">LeadSubmitted</span> com
-                        <span className="mono"> action_source=business_messaging</span> + <span className="mono">messaging_channel=whatsapp</span>.
+                <Section title="WhatsApp Click-to-Message">
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+                        Captura leads vindos de anúncios WhatsApp usando o <span className="mono">ctwa_clid</span> da primeira mensagem.
+                        Dispara Lead com <span className="mono">action_source=business_messaging</span>.
                     </p>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Endpoint Evolution API:</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Endpoint Evolution API</div>
                     <CopyBlock
                         value={detail?.webhook_secret
                             ? `${API_BASE}/track/whatsapp/${source.public_token}?key=${detail.webhook_secret}`
@@ -636,83 +810,154 @@ function SourceDetail({ source, onClose, onEdit }: {
                     </div>
                 </Section>
 
-                <Section title="Webhook para CRM (Kommo, RD Station)">
-                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>
-                        Configure no seu CRM para disparar em Lead, Qualificação, Agendamento e Venda.
-                        Aceita 3 formas de autenticação (escolhe a que seu CRM suportar).
+                </div>
+                )}
+                {/* ───────── TAB: CRM ───────── */}
+                {activeTab === 'crm' && (
+                <div className="tab-fade-in">
+
+                <Section title="Webhook do CRM">
+                    <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+                        Endpoint pra disparar eventos do funil (Lead, Qualificado, Agendado, Venda) direto pra Meta CAPI.
                     </p>
 
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Endpoint:</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Endpoint</div>
                     <CopyBlock value={webhookUrl} small />
 
-                    <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ marginTop: 16, display: 'flex', alignItems: 'flex-end', gap: 8 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Secret:</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Secret</div>
                             <CopyBlock value={detail?.webhook_secret || '••••••••••••'} small masked={!detail?.webhook_secret} />
                         </div>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={rotate} disabled={rotating}
-                            style={{ alignSelf: 'flex-end' }}>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={rotate} disabled={rotating}>
                             {rotating ? 'Rotacionando…' : 'Rotacionar'}
                         </button>
                     </div>
 
-                    {detail?.webhook_secret && (
-                        <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
-                                    Opção 1 — Authorization Bearer (recomendado p/ Kommo)
-                                </div>
-                                <CopyBlock value={`Authorization: Bearer ${detail.webhook_secret}`} small />
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
-                                    Opção 2 — URL com key (CRMs limitados)
-                                </div>
-                                <CopyBlock value={`${webhookUrl}?key=${detail.webhook_secret}`} small />
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
-                                    Opção 3 — HMAC SHA-256 (mais seguro, exige middleware)
-                                </div>
-                                <CopyBlock value={`X-TAI-Signature: sha256(body, ${detail.webhook_secret.slice(0, 8)}…)`} small />
-                            </div>
-                        </div>
-                    )}
+                    {detail?.webhook_secret && (() => {
+                        const AUTH_OPTIONS: { key: AuthMethod; label: string; tag?: string; value: string; hint: string }[] = [
+                            {
+                                key: 'bearer',
+                                label: 'Bearer',
+                                tag: 'recomendado',
+                                value: `Authorization: Bearer ${detail.webhook_secret}`,
+                                hint: 'Adicione esse header no webhook do CRM. Funciona com Kommo.',
+                            },
+                            {
+                                key: 'key',
+                                label: 'URL key',
+                                value: `${webhookUrl}?key=${detail.webhook_secret}`,
+                                hint: 'Use quando o CRM não permite header customizado.',
+                            },
+                            {
+                                key: 'hmac',
+                                label: 'HMAC SHA-256',
+                                value: `X-TAI-Signature: sha256(body, ${detail.webhook_secret.slice(0, 8)}…)`,
+                                hint: 'Mais seguro — exige middleware que assine o body.',
+                            },
+                        ];
+                        const selected = AUTH_OPTIONS.find(o => o.key === authMethod) || AUTH_OPTIONS[0];
 
-                    {/* URLs prontas por estágio — só cola uma em cada bot do Kommo */}
+                        return (
+                            <div style={{ marginTop: 18 }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+                                    Método de autenticação
+                                </div>
+                                {/* Segmented control */}
+                                <div role="tablist" style={{
+                                    display: 'inline-flex',
+                                    padding: 3,
+                                    background: 'var(--bg-surface-2)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 8,
+                                    marginBottom: 12,
+                                }}>
+                                    {AUTH_OPTIONS.map(opt => {
+                                        const isActive = authMethod === opt.key;
+                                        return (
+                                            <button
+                                                key={opt.key}
+                                                role="tab"
+                                                type="button"
+                                                aria-selected={isActive}
+                                                onClick={() => setAuthMethod(opt.key)}
+                                                style={{
+                                                    padding: '6px 14px',
+                                                    fontSize: 12.5,
+                                                    fontWeight: 600,
+                                                    color: isActive ? '#fff' : 'var(--text-muted)',
+                                                    background: isActive ? 'var(--primary)' : 'transparent',
+                                                    border: 'none',
+                                                    borderRadius: 6,
+                                                    cursor: 'pointer',
+                                                    transition: 'background 150ms ease, color 150ms ease',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                }}
+                                            >
+                                                {opt.label}
+                                                {opt.tag && (
+                                                    <span style={{
+                                                        fontSize: 9.5,
+                                                        fontWeight: 700,
+                                                        textTransform: 'uppercase',
+                                                        letterSpacing: 0.4,
+                                                        padding: '2px 5px',
+                                                        borderRadius: 4,
+                                                        background: isActive ? 'rgba(255,255,255,.22)' : 'rgba(16,185,129,.16)',
+                                                        color: isActive ? '#fff' : 'var(--accent-green)',
+                                                    }}>
+                                                        {opt.tag}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <CopyBlock value={selected.value} small />
+                                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
+                                    {selected.hint}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* URLs prontas por estágio — layout mais denso, 2 colunas no desktop */}
                     {detail?.webhook_secret && (
-                        <div style={{ marginTop: 18 }}>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
-                                URLs prontas por estágio do pipeline
+                        <div style={{ marginTop: 24 }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
+                                    URLs por estágio do pipeline
+                                </div>
+                                <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                    1 URL por Salesbot do Kommo
+                                </span>
                             </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-                                Copia uma URL por estágio e cola no Salesbot correspondente do Kommo.
-                                As 5 etapas padrão do funil são pré-configuradas abaixo.
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
                                 {[
-                                    { label: 'Lead entrou', event: 'Lead', color: 'var(--accent-blue)' },
-                                    { label: 'Qualificado', event: 'Contact', color: 'var(--primary)' },
-                                    { label: 'Agendou reunião', event: 'Schedule', color: 'var(--accent-cyan)' },
-                                    { label: 'Venda fechada', event: 'Purchase', color: 'var(--accent-green)' },
-                                    { label: 'Perdido / Desqualificado', event: 'Lead_Desqualificado', color: 'var(--accent-red)' },
+                                    { label: 'Lead entrou',              event: 'Lead',                color: 'var(--accent-blue)' },
+                                    { label: 'Qualificado',              event: 'Contact',             color: 'var(--primary)' },
+                                    { label: 'Agendou reunião',          event: 'Schedule',            color: 'var(--accent-cyan)' },
+                                    { label: 'Venda fechada',            event: 'Purchase',            color: 'var(--accent-green)' },
+                                    { label: 'Perdido/Desqualificado',   event: 'Lead_Desqualificado', color: 'var(--accent-red)' },
                                 ].map(stage => (
                                     <div key={stage.event} style={{
                                         display: 'grid',
-                                        gridTemplateColumns: '160px 1fr',
+                                        gridTemplateColumns: '170px 1fr',
                                         gap: 10,
                                         alignItems: 'center',
+                                        padding: '4px 0',
                                     }}>
                                         <div style={{
                                             display: 'inline-flex',
                                             alignItems: 'center',
-                                            gap: 6,
+                                            gap: 8,
                                             fontSize: 12.5,
                                             color: 'var(--text-primary)',
-                                            fontWeight: 500,
                                         }}>
                                             <span style={{
-                                                width: 6, height: 6, borderRadius: '50%',
+                                                width: 7, height: 7, borderRadius: '50%',
                                                 background: stage.color, flexShrink: 0,
                                             }} />
                                             {stage.label}
@@ -727,8 +972,8 @@ function SourceDetail({ source, onClose, onEdit }: {
                             <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                                 <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
                                 <span>
-                                    No Kommo: <strong>Leads → Funis → ⚡ Automação → Adicionar Salesbot</strong>. Cria 1 bot por etapa,
-                                    gatilho "Mudança de status", ação <strong>Enviar um webhook</strong> com a URL correspondente.
+                                    No Kommo: <strong>Leads → Funis → Automação → Adicionar Salesbot</strong> · gatilho "Mudança de status" ·
+                                    ação <strong>Enviar um webhook</strong> com a URL correspondente.
                                 </span>
                             </div>
                         </div>
@@ -916,6 +1161,12 @@ function SourceDetail({ source, onClose, onEdit }: {
                     )}
                 </Section>
 
+                </div>
+                )}
+                {/* ───────── TAB: EVENTOS ───────── */}
+                {activeTab === 'events' && (
+                <div className="tab-fade-in">
+
                 {/* Breakdown */}
                 {stats?.by_event && stats.by_event.length > 0 && (
                     <Section title="Por evento (últimos 7 dias)">
@@ -948,52 +1199,160 @@ function SourceDetail({ source, onClose, onEdit }: {
                     </Section>
                 )}
 
-                {/* Recent events */}
-                <Section title="Eventos recentes">
+                {/* Events explorer with filters */}
+                <Section title={`Eventos${eventsTotal > 0 ? ` (${eventsTotal.toLocaleString('pt-BR')})` : ''}`}>
+                    {/* Filtros */}
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                            type="search"
+                            placeholder="Buscar por event_id, external_id, fbtrace_id…"
+                            value={eventSearch}
+                            onChange={e => setEventSearch(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') loadEvents(0); }}
+                            style={{
+                                flex: '1 1 220px', minWidth: 200, padding: '6px 10px', fontSize: 12.5,
+                                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                                borderRadius: 8, color: 'var(--text-primary)',
+                            }}
+                        />
+                        <select
+                            value={eventStatusFilter}
+                            onChange={e => { setEventStatusFilter(e.target.value as any); }}
+                            style={{
+                                padding: '6px 8px', fontSize: 12.5,
+                                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                                borderRadius: 8, color: 'var(--text-primary)',
+                            }}
+                        >
+                            <option value="">Todos status</option>
+                            <option value="sent">Enviados</option>
+                            <option value="failed">Falhos</option>
+                        </select>
+                        <input
+                            type="date"
+                            value={eventFrom}
+                            onChange={e => setEventFrom(e.target.value)}
+                            title="De"
+                            style={{
+                                padding: '6px 8px', fontSize: 12.5,
+                                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                                borderRadius: 8, color: 'var(--text-primary)',
+                            }}
+                        />
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>até</span>
+                        <input
+                            type="date"
+                            value={eventTo}
+                            onChange={e => setEventTo(e.target.value)}
+                            title="Até"
+                            style={{
+                                padding: '6px 8px', fontSize: 12.5,
+                                background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+                                borderRadius: 8, color: 'var(--text-primary)',
+                            }}
+                        />
+                        <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => loadEvents(0)}
+                            disabled={eventsLoading}
+                        >
+                            {eventsLoading ? 'Filtrando…' : 'Aplicar'}
+                        </button>
+                        {(eventSearch || eventStatusFilter || eventFrom || eventTo) && (
+                            <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => {
+                                    setEventSearch(''); setEventStatusFilter(''); setEventFrom(''); setEventTo('');
+                                    setTimeout(() => loadEvents(0), 0);
+                                }}
+                            >
+                                Limpar
+                            </button>
+                        )}
+                    </div>
+
                     {events.length === 0 ? (
                         <div style={{ textAlign: 'center', padding: 20, fontSize: 13, color: 'var(--text-muted)' }}>
-                            Nenhum evento ainda
+                            {eventsTotal === 0 && !(eventSearch || eventStatusFilter || eventFrom || eventTo)
+                                ? 'Nenhum evento ainda'
+                                : 'Nenhum evento corresponde aos filtros'}
                         </div>
                     ) : (
-                        <div className="table-container" style={{ border: '1px solid var(--border)' }}>
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Evento</th>
-                                        <th>Status</th>
-                                        <th className="num">EMQ</th>
-                                        <th>Origem</th>
-                                        <th className="num">Quando</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {events.slice(0, 15).map(e => (
-                                        <tr key={e.id} onClick={() => setInspectEventId(e.id)} style={{ cursor: 'pointer' }}>
-                                            <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
-                                                {e.event_name}
-                                                {e.value != null && (
-                                                    <span className="num" style={{ fontSize: 11, color: 'var(--accent-green)', marginLeft: 6 }}>
-                                                        +{e.currency || 'R$'} {Number(e.value).toFixed(2)}
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td>
-                                                <span className={`badge ${e.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`}>
-                                                    {e.meta_status || '—'}
-                                                </span>
-                                            </td>
-                                            <td className="num">{e.emq_score || 0}</td>
-                                            <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                                {e.action_source}
-                                            </td>
-                                            <td className="num" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                                {fmtRelative(e.created_at)}
-                                            </td>
+                        <>
+                            <div className="table-container" style={{ border: '1px solid var(--border)' }}>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Evento</th>
+                                            <th>Status</th>
+                                            <th className="num">EMQ</th>
+                                            <th>Origem</th>
+                                            <th className="num">Quando</th>
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                    </thead>
+                                    <tbody>
+                                        {events.map(e => (
+                                            <tr key={e.id} onClick={() => setInspectEventId(e.id)} style={{ cursor: 'pointer' }}>
+                                                <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                                                    {e.event_name}
+                                                    {e.value != null && (
+                                                        <span className="num" style={{ fontSize: 11, color: 'var(--accent-green)', marginLeft: 6 }}>
+                                                            +{e.currency || 'R$'} {Number(e.value).toFixed(2)}
+                                                        </span>
+                                                    )}
+                                                    {Number(e.retry_count) > 0 && (
+                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 6 }}>
+                                                            (r{e.retry_count})
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    <span className={`badge ${e.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`}>
+                                                        {e.meta_status || '—'}
+                                                    </span>
+                                                </td>
+                                                <td className="num">{e.emq_score || 0}</td>
+                                                <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    {e.action_source}
+                                                </td>
+                                                <td className="num" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    {fmtRelative(e.created_at)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Paginação */}
+                            {eventsTotal > EVENTS_PER_PAGE && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        {eventsOffset + 1}–{Math.min(eventsOffset + events.length, eventsTotal)} de {eventsTotal.toLocaleString('pt-BR')}
+                                    </span>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost btn-sm"
+                                            onClick={() => loadEvents(Math.max(0, eventsOffset - EVENTS_PER_PAGE))}
+                                            disabled={eventsLoading || eventsOffset === 0}
+                                        >
+                                            ‹ Anterior
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="btn btn-ghost btn-sm"
+                                            onClick={() => loadEvents(eventsOffset + EVENTS_PER_PAGE)}
+                                            disabled={eventsLoading || eventsOffset + EVENTS_PER_PAGE >= eventsTotal}
+                                        >
+                                            Próxima ›
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
                     )}
                 </Section>
 
@@ -1018,6 +1377,10 @@ function SourceDetail({ source, onClose, onEdit }: {
                     </Section>
                 )}
 
+                </div>
+                )}
+                {/* ───────── end tab content ───────── */}
+
                 <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
                     <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Fechar</button>
                 </div>
@@ -1039,19 +1402,34 @@ function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () =
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [retrying, setRetrying] = useState(false);
+    const [retryMsg, setRetryMsg] = useState('');
 
-    useEffect(() => {
-        let cancelled = false;
+    const reload = useCallback(() => {
         setLoading(true); setError('');
         api.getTrackingEvent(eventId)
-            .then((d) => { if (!cancelled) setData(d); })
-            .catch((e: any) => { if (!cancelled) setError(e.message || 'Falha ao carregar'); })
-            .finally(() => { if (!cancelled) setLoading(false); });
+            .then((d) => setData(d))
+            .catch((e: any) => setError(e.message || 'Falha ao carregar'))
+            .finally(() => setLoading(false));
+    }, [eventId]);
 
+    useEffect(() => {
+        reload();
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
         window.addEventListener('keydown', handler);
-        return () => { cancelled = true; window.removeEventListener('keydown', handler); };
-    }, [eventId, onClose]);
+        return () => { window.removeEventListener('keydown', handler); };
+    }, [reload, onClose]);
+
+    async function retry() {
+        setRetrying(true); setRetryMsg('');
+        try {
+            const r = await api.retryTrackingEvent(eventId);
+            setRetryMsg(r.ok ? `Reenviado · tentativa ${r.retry_count}` : `Falhou novamente: ${r.error || 'erro Meta'}`);
+            setTimeout(reload, 800);
+        } catch (e: any) {
+            setRetryMsg('Erro: ' + (e.message || 'falha'));
+        } finally { setRetrying(false); }
+    }
 
     return (
         <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
@@ -1087,10 +1465,17 @@ function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () =
 
                 {data && (
                     <>
+                        {/* Veredicto Meta — parsa o response e diz na cara o que aconteceu */}
+                        <MetaVerdict data={data} />
+
                         {/* Status bar */}
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 20 }}>
                             <MiniKpi label="Status" value={data.meta_status || '—'}
-                                color={data.meta_status === 'sent' ? 'var(--accent-green)' : 'var(--accent-red)'} />
+                                color={
+                                    data.meta_status === 'sent' ? 'var(--accent-green)' :
+                                    data.meta_status === 'test_only' ? 'var(--accent-yellow)' :
+                                    'var(--accent-red)'
+                                } />
                             <MiniKpi label="EMQ" value={String(data.emq_score || 0)}
                                 color={data.emq_score >= 7 ? 'var(--accent-green)' : data.emq_score >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)'} />
                             <MiniKpi label="Origem" value={data.action_source} />
@@ -1167,11 +1552,219 @@ function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () =
                             {data.meta_response && <PayloadJson value={data.meta_response} />}
                         </AuditSection>
 
-                        <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+                        <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                {data.meta_status === 'failed' && (
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary btn-sm"
+                                        onClick={retry}
+                                        disabled={retrying || (Number(data.retry_count) >= 3)}
+                                        title={Number(data.retry_count) >= 3 ? 'Limite de 3 tentativas atingido' : 'Reenviar pra Meta'}
+                                    >
+                                        <RefreshCw size={13} style={retrying ? { animation: 'spin 1s linear infinite' } : undefined} />
+                                        {retrying ? 'Reenviando…' : 'Retentar envio'}
+                                    </button>
+                                )}
+                                {retryMsg && (
+                                    <span style={{
+                                        fontSize: 12,
+                                        color: retryMsg.startsWith('Reenviado') ? 'var(--accent-green)' : 'var(--accent-red)',
+                                    }}>
+                                        {retryMsg}
+                                    </span>
+                                )}
+                                {Number(data.retry_count) > 0 && (
+                                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                        {data.retry_count} tentativa{Number(data.retry_count) !== 1 ? 's' : ''} prévia{Number(data.retry_count) !== 1 ? 's' : ''}
+                                    </span>
+                                )}
+                            </div>
                             <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Fechar</button>
                         </div>
                     </>
                 )}
+            </div>
+        </div>
+    );
+}
+
+// ─── Meta Verdict — destrincha o response do Meta CAPI ─────────────────────
+// Lê meta_response.events_received, messages, e meta_request.body.test_event_code
+// pra dar um veredicto claro: chegou? ficou só em teste? rejeitado?
+function MetaVerdict({ data }: { data: any }) {
+    const response = data?.meta_response;
+    const request = data?.meta_request;
+
+    // Parse response (pode vir como objeto JSONB ou string)
+    let parsedResponse: any = response;
+    if (typeof response === 'string') {
+        try { parsedResponse = JSON.parse(response); } catch { parsedResponse = null; }
+    }
+
+    const eventsReceived = parsedResponse?.events_received;
+    const messages: string[] = Array.isArray(parsedResponse?.messages)
+        ? parsedResponse.messages.map(String)
+        : [];
+    const testEventCode = request?.body?.test_event_code;
+    const pixelIdFromUrl = (() => {
+        const url: string = request?.url || '';
+        const m = url.match(/\/(\d{8,20})\/events/);
+        return m ? m[1] : null;
+    })();
+
+    // Decide o veredicto
+    type Severity = 'success' | 'warn' | 'error' | 'unknown';
+    let severity: Severity;
+    let title: string;
+    let detail: React.ReactNode;
+    let action: React.ReactNode = null;
+
+    // Detecta erros do nosso PRE-CHECK (antes do HTTP) — credencial faltando, fonte off, etc.
+    // Nesses casos a Meta nunca foi chamada, e o "Payload enviado" embaixo é uma
+    // RECONSTRUÇÃO baseada na config atual, não o que efetivamente saiu.
+    const isPreCheckError = !!data.meta_error && !parsedResponse && (
+        /Access Token|Pixel ID|Fonte desativada|Credenciais Meta/i.test(data.meta_error)
+    );
+
+    if (isPreCheckError) {
+        severity = 'error';
+        title = 'A Meta NÃO foi chamada — credencial faltando';
+        detail = (
+            <>
+                <strong>Motivo:</strong> <span className="mono">{data.meta_error}</span>
+                <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>
+                    O bloco "Payload enviado pra Meta CAPI" abaixo é uma <em>simulação</em> usando a config atual —
+                    a chamada HTTP nunca aconteceu.
+                </div>
+            </>
+        );
+    } else if (data.meta_error && eventsReceived === undefined) {
+        // Falhou no HTTP
+        severity = 'error';
+        title = 'Não foi entregue à Meta';
+        detail = (
+            <>
+                <strong>Erro:</strong> <span className="mono">{data.meta_error}</span>
+                {data.meta_fbtrace_id && (
+                    <div style={{ marginTop: 4, fontSize: 12 }}>
+                        fbtrace_id: <span className="mono">{data.meta_fbtrace_id}</span>
+                    </div>
+                )}
+            </>
+        );
+    } else if (testEventCode) {
+        // Test event — não conta em produção
+        severity = 'warn';
+        title = 'Evento de teste — não conta em produção';
+        detail = (
+            <>
+                A request tem <span className="mono">test_event_code="{testEventCode}"</span>.
+                A Meta arquivou esse evento na aba <strong>"Eventos de Teste"</strong> do Events Manager —
+                ele <strong>NÃO</strong> aparece em "Visão geral", não otimiza campanha, não atribui conversão.
+            </>
+        );
+        action = (
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                ↳ Remova o <span className="mono">test_event_code</span> em <strong>Editar credenciais</strong> pra parar.
+            </span>
+        );
+    } else if (eventsReceived === 0) {
+        // Meta aceitou JSON mas rejeitou evento
+        severity = 'error';
+        title = 'Meta recebeu o request mas REJEITOU o evento';
+        detail = (
+            <>
+                <span className="mono">events_received: 0</span> — o JSON foi válido mas a Meta não creditou.
+                Causas típicas: action_source não permitido, PII insuficiente, pixel inativo/excluído,
+                ou access_token sem permissão neste pixel.
+            </>
+        );
+    } else if (eventsReceived >= 1) {
+        // Sucesso!
+        severity = 'success';
+        title = `Meta confirmou recebimento (events_received: ${eventsReceived})`;
+        detail = (
+            <>
+                Evento creditado no pixel <span className="mono">{pixelIdFromUrl || '—'}</span>.
+                Deve aparecer no Events Manager na aba <strong>Visão geral</strong> em até alguns minutos.
+                {data.emq_score < 5 && (
+                    <div style={{ marginTop: 6, color: 'var(--accent-yellow)' }}>
+                        ⚠ EMQ baixo ({data.emq_score}) — atribuição pode ficar limitada. Envie email + telefone + nome
+                        no <span className="mono">user_data</span> pra melhorar.
+                    </div>
+                )}
+            </>
+        );
+    } else if (data.meta_status === 'sent' && eventsReceived === undefined) {
+        // Status sent mas sem response parseável — código antigo
+        severity = 'unknown';
+        title = 'Resposta da Meta não capturada';
+        detail = (
+            <>
+                Esse evento foi marcado <strong>sent</strong> pelo código antigo que não checava
+                <span className="mono"> events_received</span>. Não dá pra saber retroativamente se chegou. Clique em
+                <strong> Retentar envio</strong> abaixo pra reenviar com o code novo e ver a resposta real.
+            </>
+        );
+    } else {
+        severity = 'unknown';
+        title = 'Sem dados suficientes pra diagnosticar';
+        detail = 'O response da Meta não foi armazenado.';
+    }
+
+    const colors: Record<Severity, { bg: string; border: string; text: string; icon: string }> = {
+        success: { bg: 'rgba(16,185,129,.08)',  border: 'rgba(16,185,129,.3)',  text: 'var(--accent-green)',  icon: '✓' },
+        warn:    { bg: 'rgba(245,158,11,.08)',  border: 'rgba(245,158,11,.3)',  text: 'var(--accent-yellow)', icon: '⚠' },
+        error:   { bg: 'rgba(239,68,68,.08)',   border: 'rgba(239,68,68,.3)',   text: 'var(--accent-red)',    icon: '✕' },
+        unknown: { bg: 'rgba(148,163,184,.08)', border: 'rgba(148,163,184,.3)', text: 'var(--text-muted)',    icon: '?' },
+    };
+    const c = colors[severity];
+
+    return (
+        <div style={{
+            background: c.bg,
+            border: `1px solid ${c.border}`,
+            borderRadius: 'var(--radius-md)',
+            padding: '14px 16px',
+            marginBottom: 18,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: 22, height: 22, borderRadius: '50%',
+                    background: c.text, color: '#fff', fontSize: 13, fontWeight: 700,
+                    flexShrink: 0,
+                }}>
+                    {c.icon}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: c.text, marginBottom: 4 }}>
+                        {title}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                        {detail}
+                    </div>
+                    {messages.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                                Mensagens da Meta
+                            </div>
+                            {messages.map((m, i) => (
+                                <div key={i} className="mono" style={{
+                                    fontSize: 11.5, padding: '6px 8px', marginBottom: 4,
+                                    background: 'var(--bg-surface-2)',
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 'var(--radius-sm)',
+                                    color: 'var(--text-secondary)',
+                                }}>
+                                    {m}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    {action && <div style={{ marginTop: 8 }}>{action}</div>}
+                </div>
             </div>
         </div>
     );
@@ -1231,6 +1824,155 @@ function PayloadJson({ value }: { value: any }) {
             >
                 {copied ? <Check size={13} color="var(--accent-green)" /> : <Copy size={13} />}
             </button>
+        </div>
+    );
+}
+
+// ─── Modal tabs ────────────────────────────────────────────────────────────
+
+const TAB_DEFS = [
+    { key: 'overview', label: 'Visão geral' },
+    { key: 'events',   label: 'Eventos' },
+    { key: 'install',  label: 'Instalação' },
+    { key: 'crm',      label: 'CRM' },
+] as const;
+
+function ModalTabs({
+    active,
+    onChange,
+    badges,
+}: {
+    active: 'overview' | 'events' | 'install' | 'crm';
+    onChange: (k: 'overview' | 'events' | 'install' | 'crm') => void;
+    badges?: { events?: number; crm?: string };
+}) {
+    return (
+        <div
+            role="tablist"
+            style={{
+                display: 'flex',
+                gap: 2,
+                marginBottom: 24,
+                borderBottom: '1px solid var(--border)',
+                overflowX: 'auto',
+            }}
+        >
+            {TAB_DEFS.map(tab => {
+                const isActive = active === tab.key;
+                const badge = tab.key === 'events' ? badges?.events : tab.key === 'crm' ? badges?.crm : undefined;
+                return (
+                    <button
+                        key={tab.key}
+                        role="tab"
+                        aria-selected={isActive}
+                        type="button"
+                        onClick={() => onChange(tab.key)}
+                        style={{
+                            position: 'relative',
+                            padding: '11px 18px',
+                            fontSize: 13.5,
+                            fontWeight: isActive ? 600 : 500,
+                            color: isActive ? 'var(--text-primary)' : 'var(--text-muted)',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            marginBottom: -1,
+                            borderBottom: `2px solid ${isActive ? 'var(--primary)' : 'transparent'}`,
+                            transition: 'color 150ms ease, border-color 150ms ease',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                        }}
+                    >
+                        {tab.label}
+                        {badge !== undefined && (
+                            <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                minWidth: 18,
+                                height: 18,
+                                padding: '0 6px',
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                borderRadius: 999,
+                                background: typeof badge === 'number'
+                                    ? 'rgba(239,68,68,.16)'
+                                    : 'rgba(16,185,129,.16)',
+                                color: typeof badge === 'number'
+                                    ? 'var(--accent-red)'
+                                    : 'var(--accent-green)',
+                            }}>
+                                {typeof badge === 'number' ? (badge > 99 ? '99+' : badge) : badge}
+                            </span>
+                        )}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+function HealthBanner({ health }: { health: any }) {
+    if (!health?.status) return null;
+    const visual = STATUS_VISUAL[health.status.state] || STATUS_VISUAL.idle;
+    const severity = health.status.severity as 'ok' | 'info' | 'warn' | 'error';
+
+    const sig = health.signals || {};
+    const lastEvent = sig.last_event_at ? fmtRelative(sig.last_event_at) : '—';
+    const lastPixel = sig.last_pixel_event_at ? fmtRelative(sig.last_pixel_event_at) : 'nunca';
+
+    return (
+        <div style={{
+            marginBottom: 18,
+            background: visual.bg,
+            border: `1px solid ${visual.color}33`,
+            borderRadius: 'var(--radius-md)',
+            padding: 14,
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                <span style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: visual.color,
+                    boxShadow: severity === 'ok' ? `0 0 0 4px ${visual.color}22` : 'none',
+                }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: visual.color }}>{visual.label}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>· {health.status.detail}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)' }}>
+                    Último evento: <strong style={{ color: 'var(--text-primary)' }}>{lastEvent}</strong>
+                    {' · '}Pixel browser: <strong style={{ color: 'var(--text-primary)' }}>{lastPixel}</strong>
+                </span>
+            </div>
+
+            {/* Checklist */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
+                {(health.checklist || []).map((c: any) => (
+                    <div key={c.key} title={c.hint} style={{
+                        display: 'flex', alignItems: 'flex-start', gap: 8,
+                        padding: '8px 10px',
+                        background: 'var(--bg-surface-2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-sm)',
+                    }}>
+                        <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                            background: c.ok ? 'var(--accent-green)' : 'rgba(245,158,11,.18)',
+                            color: c.ok ? '#fff' : 'var(--accent-yellow)',
+                            marginTop: 1,
+                        }}>
+                            {c.ok ? <Check size={11} strokeWidth={3} /> : <CircleAlert size={12} />}
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12.5, color: 'var(--text-primary)', fontWeight: 500 }}>{c.label}</div>
+                            {c.hint && !c.ok && (
+                                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{c.hint}</div>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }
@@ -1540,36 +2282,43 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                 <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0 14px' }} />
 
                 <div className="form-group">
-                    <label className="form-label">Pixel ID da Meta</label>
+                    <label className="form-label">Pixel ID (Conjunto de Dados)</label>
                     <input
                         type="text" className="form-input"
                         value={form.pixel_id}
                         onChange={e => upd('pixel_id', e.target.value)}
-                        placeholder="ex: 123456789012345"
+                        placeholder="ex: 26710064741954259"
                     />
-                    <span className="form-hint">Encontre em Gerenciador de Anúncios &rsaquo; Gerenciador de Eventos &rsaquo; Pixel.</span>
+                    <span className="form-hint">
+                        Events Manager &rsaquo; abre o pixel &rsaquo; copia o número embaixo do nome ("Identificação").
+                    </span>
                 </div>
 
                 <div className="form-group">
-                    <label className="form-label">Conversions API Access Token</label>
+                    <label className="form-label">Token de Acesso do Pixel <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Conversions API)</span></label>
                     <input
                         type="password" className="form-input"
                         value={form.access_token}
                         onChange={e => upd('access_token', e.target.value)}
-                        placeholder={mode === 'edit' ? 'Deixe vazio para manter' : 'Gerado em Events Manager → Settings → CAPI'}
+                        placeholder={mode === 'edit' ? 'Deixe vazio pra manter o atual' : 'Cole o token gerado no pixel (começa com EAA...)'}
                         autoComplete="off"
                     />
+                    <span className="form-hint">
+                        <strong>Token DO PIXEL, não do app.</strong> Events Manager &rsaquo; abre o pixel &rsaquo; aba <strong>Configurações</strong> &rsaquo; rola até "Token de acesso da API de Conversões" &rsaquo; <strong>Gerar token de acesso</strong>. É permanente, não expira.
+                    </span>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 24 }}>
-                    <label className="form-label">Test Event Code (opcional)</label>
+                    <label className="form-label">Test Event Code <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(opcional — só pra debug)</span></label>
                     <input
                         type="text" className="form-input"
                         value={form.test_event_code}
                         onChange={e => upd('test_event_code', e.target.value)}
-                        placeholder="TESTxxxxx"
+                        placeholder="TESTxxxxx · DEIXE VAZIO em produção"
                     />
-                    <span className="form-hint">Use durante o setup para ver eventos na aba Test Events da Meta.</span>
+                    <span className="form-hint" style={{ color: 'var(--accent-yellow)' }}>
+                        ⚠ Com isso preenchido, os eventos vão SÓ pra aba "Eventos de teste" da Meta — não contam em produção, não otimizam campanha.
+                    </span>
                 </div>
 
                 {/* ── Integração CRM (opcional) ──────────────────────────── */}
@@ -1577,10 +2326,22 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                     <>
                         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 18, marginBottom: 14 }}>
                             <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
-                                Integração CRM (opcional)
+                                Conexão com o CRM <span style={{ color: 'var(--accent-green)' }}>· recomendado</span>
                             </div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-                                Conecta um CRM para enriquecer eventos antigos e sincronizar vendas fechadas como Purchase.
+                            <div style={{
+                                marginTop: 8, marginBottom: 14,
+                                padding: '10px 12px',
+                                background: 'rgba(245,158,11,.08)',
+                                border: '1px solid rgba(245,158,11,.25)',
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: 12.5,
+                                color: 'var(--text-primary)',
+                                lineHeight: 1.55,
+                            }}>
+                                <strong style={{ color: 'var(--accent-yellow)' }}>Importante:</strong> o webhook do Kommo (Salesbot) raramente envia
+                                email/telefone do contato no payload. Sem essas credenciais, o backend não consegue
+                                <strong> enriquecer o evento via API do Kommo</strong> e a Meta recebe os eventos com PII vazia (EMQ ~2,
+                                atribuição ruim). Configure pra ter EMQ 7+ e otimização real de campanha.
                             </div>
                         </div>
 
@@ -1591,7 +2352,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                                 value={form.crm_type}
                                 onChange={e => upd('crm_type', e.target.value)}
                             >
-                                <option value="">— Nenhum —</option>
+                                <option value="">— Nenhum (não recomendado) —</option>
                                 <option value="kommo">Kommo</option>
                             </select>
                         </div>
@@ -1606,17 +2367,23 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                                         onChange={e => upd('crm_subdomain', e.target.value)}
                                         placeholder="ex: alinemeloce"
                                     />
-                                    <span className="form-hint">Parte antes de .kommo.com na URL que você acessa.</span>
+                                    <span className="form-hint">
+                                        A parte antes de <span className="mono">.kommo.com</span> na URL que você usa pra logar.
+                                    </span>
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Access Token Kommo</label>
+                                    <label className="form-label">Token de Acesso do Kommo <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(API privada)</span></label>
                                     <input
                                         type="password" className="form-input"
                                         value={form.crm_access_token}
                                         onChange={e => upd('crm_access_token', e.target.value)}
-                                        placeholder={source?.crm_access_token ? 'Deixe vazio para manter o atual' : 'Configurações → Integrações → Privada → Access Token'}
+                                        placeholder={source?.crm_access_token ? 'Deixe vazio pra manter o atual' : 'Token de integração privada do Kommo'}
                                         autoComplete="off"
                                     />
+                                    <span className="form-hint">
+                                        No Kommo: <strong>Configurações &rsaquo; Integrações &rsaquo; aba Integrações privadas &rsaquo; Criar integração</strong> &rsaquo;
+                                        marca permissões <span className="mono">Leads</span> e <span className="mono">Contatos</span> (read), salva, copia o <strong>Access Token de longa duração</strong>.
+                                    </span>
                                 </div>
                             </>
                         )}

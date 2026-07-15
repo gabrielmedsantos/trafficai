@@ -91,7 +91,7 @@ const TASK_LABELS: Record<string, string> = {
     checkin_fri: 'Check-in Sex',
 };
 
-const AVATAR_COLORS = ['#6366f1', '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
+const AVATAR_COLORS = ['#ff6b35', '#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
 
 const DEFAULT_FORM: MemberForm = {
     name: '',
@@ -100,7 +100,7 @@ const DEFAULT_FORM: MemberForm = {
     role: 'member',
     department: '',
     job_title: '',
-    avatar_color: '#6366f1',
+    avatar_color: '#ff6b35',
 };
 
 type RangeMode = 'week' | 'month' | 'custom';
@@ -119,6 +119,7 @@ export default function TeamPage() {
     const [selectedDept, setSelectedDept] = useState('');
     const [sortBy, setSortBy] = useState<'tasks_done' | 'total_seconds' | 'clients_served'>('tasks_done');
     const [detail, setDetail] = useState<MemberStats | null>(null);
+    const [drawerTab, setDrawerTab] = useState<'overview' | 'breakdown'>('overview');
     const [editing, setEditing] = useState<Member | null>(null);
     const [showCreate, setShowCreate] = useState(false);
 
@@ -187,59 +188,61 @@ export default function TeamPage() {
 
     const maxDone = Math.max(1, ...filtered.map(m => m.tasks_done));
 
+    // Top performer + needs-attention pra banner
+    const topPerformer = filtered.length > 1 && totalDone > 0 ? filtered[0] : null;
+    const needsAttention = filtered.filter(m => m.tasks_total > 0 && m.tasks_done / m.tasks_total < 0.5);
+
     return (
-        <div className="fade-in">
-            {/* Header */}
-            <div className="page-header">
+        <div style={{ padding: '32px', maxWidth: 1400, margin: '0 auto' }}>
+            {/* ─── Header ─── */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
                 <div>
-                    <h1>Time</h1>
-                    <p>Produtividade, tarefas e tempo trabalhado · {rangeLabel.toLowerCase()}</p>
+                    <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Time</h1>
+                    <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
+                        {filtered.length} membro{filtered.length !== 1 ? 's' : ''} · {totalDone} tarefa{totalDone !== 1 ? 's' : ''} · {fmtSeconds(totalSeconds)} · {completionPct}% conclusão
+                    </p>
                 </div>
-                <div className="page-header-actions">
-                    {isAdmin && (
-                        <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() => setShowCreate(true)}
-                        >
-                            <Plus size={14} /> Adicionar membro
-                        </button>
-                    )}
-                </div>
+                {isAdmin && (
+                    <button
+                        type="button"
+                        onClick={() => setShowCreate(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                        <Plus size={16} /> Adicionar membro
+                    </button>
+                )}
             </div>
 
-            {/* Filter bar */}
-            <div className="team-filters">
-                <div className="segment-control">
+            {/* ─── Filter bar ─── */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap', alignItems: 'center' }}>
+                {/* Segmented control: período */}
+                <div style={{ display: 'inline-flex', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
                     {(['week', 'month', 'custom'] as RangeMode[]).map(m => (
-                        <button
-                            key={m}
-                            onClick={() => setRangeMode(m)}
-                            className={rangeMode === m ? 'active' : ''}
-                            type="button"
-                        >
-                            {m === 'week' ? 'Semana' : m === 'month' ? 'Mês' : 'Período'}
+                        <button key={m} type="button" onClick={() => setRangeMode(m)}
+                            style={{
+                                padding: '6px 14px',
+                                fontSize: 12.5,
+                                fontWeight: 600,
+                                color: rangeMode === m ? '#fff' : 'var(--text-muted)',
+                                background: rangeMode === m ? 'var(--primary)' : 'transparent',
+                                border: 'none', borderRadius: 6, cursor: 'pointer',
+                                transition: 'background 150ms ease, color 150ms ease',
+                            }}>
+                            {m === 'week' ? 'Semana' : m === 'month' ? 'Mês' : 'Personalizado'}
                         </button>
                     ))}
                 </div>
 
+                {/* Navegador de período */}
                 {rangeMode === 'week' && (
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <button
-                            type="button"
-                            className="btn btn-secondary btn-icon btn-sm"
-                            onClick={() => setWeekStart(d => addDays(d, -7))}
-                        >
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '4px 8px' }}>
+                        <button type="button" onClick={() => setWeekStart(d => addDays(d, -7))}
+                            style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', borderRadius: 6 }}>
                             <ChevronLeft size={14} />
                         </button>
-                        <span style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)', minWidth: 170, textAlign: 'center' }}>
-                            {rangeLabel}
-                        </span>
-                        <button
-                            type="button"
-                            className="btn btn-secondary btn-icon btn-sm"
-                            onClick={() => setWeekStart(d => addDays(d, 7))}
-                        >
+                        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', minWidth: 150, textAlign: 'center' }}>{rangeLabel}</span>
+                        <button type="button" onClick={() => setWeekStart(d => addDays(d, 7))}
+                            style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', borderRadius: 6 }}>
                             <ChevronRight size={14} />
                         </button>
                     </div>
@@ -247,206 +250,379 @@ export default function TeamPage() {
 
                 {rangeMode === 'custom' && (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <input
-                            type="date"
-                            value={customSince}
-                            onChange={e => setCustomSince(e.target.value)}
-                            className="form-input"
-                            style={{ minHeight: 32, padding: '6px 10px', fontSize: 12.5, width: 150 }}
-                        />
+                        <input type="date" value={customSince} onChange={e => setCustomSince(e.target.value)}
+                            style={{ padding: '7px 10px', fontSize: 12.5, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', outline: 'none' }} />
                         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>até</span>
-                        <input
-                            type="date"
-                            value={customUntil}
-                            onChange={e => setCustomUntil(e.target.value)}
-                            className="form-input"
-                            style={{ minHeight: 32, padding: '6px 10px', fontSize: 12.5, width: 150 }}
-                        />
+                        <input type="date" value={customUntil} onChange={e => setCustomUntil(e.target.value)}
+                            style={{ padding: '7px 10px', fontSize: 12.5, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', outline: 'none' }} />
                     </div>
                 )}
 
-                <div style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8 }}>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                     {departments.length > 1 && (
-                        <select
-                            value={selectedDept}
-                            onChange={e => setSelectedDept(e.target.value)}
-                            className="form-select"
-                            style={{ minHeight: 32, padding: '6px 10px', fontSize: 12.5, width: 160 }}
-                        >
-                            <option value="">Todas as áreas</option>
-                            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
+                        <div style={{ position: 'relative' }}>
+                            <select value={selectedDept} onChange={e => setSelectedDept(e.target.value)}
+                                style={{ padding: '7px 30px 7px 12px', fontSize: 12.5, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', cursor: 'pointer', outline: 'none', appearance: 'none' }}>
+                                <option value="">Todas as áreas</option>
+                                {departments.map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                        </div>
                     )}
-
-                    <select
-                        value={sortBy}
-                        onChange={e => setSortBy(e.target.value as any)}
-                        className="form-select"
-                        style={{ minHeight: 32, padding: '6px 10px', fontSize: 12.5, width: 200 }}
-                    >
-                        <option value="tasks_done">Tarefas concluídas</option>
-                        <option value="total_seconds">Tempo trabalhado</option>
-                        <option value="clients_served">Clientes atendidos</option>
-                    </select>
+                    <div style={{ position: 'relative' }}>
+                        <select value={sortBy} onChange={e => setSortBy(e.target.value as any)}
+                            style={{ padding: '7px 30px 7px 12px', fontSize: 12.5, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text)', cursor: 'pointer', outline: 'none', appearance: 'none', fontWeight: 500 }}>
+                            <option value="tasks_done">↓ Tarefas concluídas</option>
+                            <option value="total_seconds">↓ Tempo trabalhado</option>
+                            <option value="clients_served">↓ Clientes atendidos</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
-            {/* Summary cards */}
-            <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-                <SummaryCard label="Membros ativos" value={filtered.length} />
-                <SummaryCard label="Tarefas concluídas" value={totalDone} />
-                <SummaryCard label="Tarefas pendentes" value={totalPending} />
-                <SummaryCard label="Tempo total" value={fmtSeconds(totalSeconds)} />
-                <SummaryCard label="Taxa de conclusão" value={`${completionPct}%`} />
+            {/* ─── KPI cards ─── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 22 }}>
+                {[
+                    { label: 'Membros ativos', value: filtered.length },
+                    { label: 'Tarefas concluídas', value: totalDone, color: 'var(--accent-green)' },
+                    { label: 'Tarefas pendentes', value: totalPending, color: totalPending > 0 ? 'var(--accent-yellow)' : undefined },
+                    { label: 'Tempo total', value: fmtSeconds(totalSeconds) },
+                    { label: 'Taxa de conclusão', value: `${completionPct}%`, color: completionPct >= 80 ? 'var(--accent-green)' : completionPct >= 50 ? undefined : 'var(--accent-yellow)' },
+                ].map(k => (
+                    <div key={k.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{k.label}</div>
+                        <div className="num" style={{ fontSize: 22, fontWeight: 700, color: k.color || 'var(--text)', marginTop: 4 }}>{k.value}</div>
+                    </div>
+                ))}
             </div>
 
-            {/* Hint quando só tem admin sem outros membros */}
+            {/* ─── Hint quando só tem admin ─── */}
             {!loading && filtered.length <= 1 && isAdmin && (
-                <div
-                    style={{
-                        padding: '14px 18px',
-                        background: 'var(--primary-soft)',
-                        border: '1px solid rgba(99, 102, 241, 0.22)',
-                        borderRadius: 'var(--radius-md)',
-                        marginBottom: 16,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 16,
-                    }}
-                >
+                <div style={{
+                    padding: '14px 18px',
+                    background: 'rgba(255, 107, 53, 0.07)',
+                    border: '1px solid rgba(255, 107, 53, 0.22)',
+                    borderRadius: 12,
+                    marginBottom: 18,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16, flexWrap: 'wrap',
+                }}>
                     <div>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>
-                            Você ainda é o único no time
-                        </div>
-                        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                            Adicione seus gestores e analistas para acompanhar a produtividade de cada um.
-                        </div>
+                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Você ainda é o único no time</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>Adicione gestores e analistas pra acompanhar a produtividade individual.</div>
                     </div>
-                    <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={() => setShowCreate(true)}
-                    >
+                    <button type="button" onClick={() => setShowCreate(true)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                         <Plus size={14} /> Adicionar membro
                     </button>
                 </div>
             )}
 
-            {/* Team table */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div className="section-header" style={{ padding: '16px 20px', marginBottom: 0, borderBottom: '1px solid var(--border)' }}>
-                    <span className="section-title">Ranking do time</span>
-                    <span className="section-subtitle">Clique em um membro para ver o detalhamento</span>
-                </div>
-
-                {loading ? (
-                    <div className="loading-spinner"><div className="spinner" /></div>
-                ) : filtered.length === 0 ? (
-                    <div className="empty-state">
-                        <div className="empty-state-icon"><Users size={20} /></div>
-                        <h3>Nenhum membro no período</h3>
-                        <p>Adicione pessoas ao time para começar a acompanhar.</p>
+            {/* ─── Top performer banner ─── */}
+            {topPerformer && (
+                <div style={{
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    padding: '12px 16px',
+                    background: 'linear-gradient(90deg, rgba(255,107,53,.08), transparent)',
+                    border: '1px solid var(--border)',
+                    borderLeft: '3px solid var(--primary)',
+                    borderRadius: 12,
+                    marginBottom: 18,
+                }}>
+                    <Avatar color={topPerformer.avatar_color} initials={getInitials(topPerformer.name)} size={36} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, marginBottom: 2 }}>Top performer no período</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+                            {topPerformer.name}
+                            <span style={{ color: 'var(--text-muted)', fontWeight: 500, marginLeft: 8 }}>
+                                · {topPerformer.tasks_done} tarefas · {fmtSeconds(topPerformer.total_seconds)} · {topPerformer.clients_served} clientes
+                            </span>
+                        </div>
                     </div>
-                ) : (
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style={{ width: 48 }}>#</th>
-                                <th>Membro</th>
-                                <th>Área</th>
-                                <th className="num">Concluídas</th>
-                                <th className="num">Pendentes</th>
-                                <th className="num">Tempo</th>
-                                <th className="num">Clientes</th>
-                                <th style={{ width: 140 }}>Desempenho</th>
-                                <th style={{ width: 32 }} />
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filtered.map((member, i) => {
-                                const pct = member.tasks_total > 0
-                                    ? Math.round((member.tasks_done / member.tasks_total) * 100)
-                                    : 0;
-                                const barWidth = (member.tasks_done / maxDone) * 100;
-                                return (
-                                    <tr key={member.user_id} onClick={() => setDetail(member)} style={{ cursor: 'pointer' }}>
-                                        <td>
-                                            <span style={{ fontSize: 12.5, fontWeight: 500, color: i < 3 ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                                                {i + 1}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                                <Avatar color={member.avatar_color} initials={getInitials(member.name)} size={28} />
-                                                <div style={{ minWidth: 0 }}>
-                                                    <div style={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: 13 }} className="truncate">
-                                                        {member.name}
-                                                    </div>
-                                                    {member.job_title && (
-                                                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                                                            {member.job_title}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            {member.department ? (
-                                                <span className="badge badge-gray">{member.department}</span>
-                                            ) : (
-                                                <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
-                                            )}
-                                        </td>
-                                        <td className="num" style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                                            {member.tasks_done}
-                                        </td>
-                                        <td className="num">{member.tasks_pending}</td>
-                                        <td className="num">{fmtSeconds(member.total_seconds)}</td>
-                                        <td className="num">{member.clients_served}</td>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                                                    <div style={{
-                                                        height: '100%',
-                                                        width: `${barWidth}%`,
-                                                        background: 'var(--primary)',
-                                                        borderRadius: 2,
-                                                        transition: 'width 300ms ease',
-                                                    }} />
-                                                </div>
-                                                <span style={{ fontSize: 11.5, color: 'var(--text-muted)', minWidth: 34, textAlign: 'right' }}>
-                                                    {pct}%
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <ArrowUpRight size={14} style={{ color: 'var(--text-muted)' }} />
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                )}
-            </div>
-
-            {/* Detail modal */}
-            {detail && (
-                <MemberDetailModal
-                    stats={detail}
-                    rangeLabel={rangeLabel}
-                    onClose={() => setDetail(null)}
-                    canEdit={isAdmin}
-                    onEdit={() => {
-                        const record = memberIndex[detail.user_id];
-                        if (record) {
-                            setEditing(record);
-                            setDetail(null);
-                        }
-                    }}
-                />
+                </div>
             )}
+
+            {/* ─── Needs attention banner ─── */}
+            {needsAttention.length > 0 && filtered.length > 2 && (
+                <div style={{
+                    padding: '14px 18px',
+                    background: 'rgba(239,68,68,.05)',
+                    border: '1px solid rgba(239,68,68,.2)',
+                    borderRadius: 12,
+                    marginBottom: 18,
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#ef4444' }}>
+                            {needsAttention.length} {needsAttention.length === 1 ? 'membro precisa' : 'membros precisam'} de atenção
+                        </span>
+                        <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>· Menos de 50% das tarefas concluídas</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {needsAttention.slice(0, 6).map(m => (
+                            <button key={m.user_id} onClick={() => { setDetail(m); setDrawerTab('overview'); }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 999, cursor: 'pointer' }}>
+                                <Avatar color={m.avatar_color} initials={getInitials(m.name)} size={20} />
+                                <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>{m.name}</span>
+                                <span style={{ fontSize: 11, color: '#ef4444' }}>{Math.round((m.tasks_done / m.tasks_total) * 100)}%</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Ranking table ─── */}
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>Carregando...</div>
+            ) : filtered.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 60, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, color: 'var(--text-muted)' }}>
+                    <Users size={36} style={{ opacity: .3, marginBottom: 10 }} />
+                    <p style={{ margin: 0, fontSize: 14.5 }}>Nenhum membro no período</p>
+                    <p style={{ margin: '6px 0 0', fontSize: 12.5 }}>Adicione pessoas ao time para começar a acompanhar.</p>
+                </div>
+            ) : (
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
+                    {/* Table header */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '48px minmax(220px, 2fr) 130px 110px 110px 130px 100px 150px 40px',
+                        gap: 12,
+                        padding: '12px 20px',
+                        background: 'var(--bg-surface-2)',
+                        borderBottom: '1px solid var(--border)',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        color: 'var(--text-muted)',
+                    }}>
+                        <div>#</div>
+                        <div>Membro</div>
+                        <div>Área</div>
+                        <div style={{ textAlign: 'right' }}>Concluídas</div>
+                        <div style={{ textAlign: 'right' }}>Pendentes</div>
+                        <div style={{ textAlign: 'right' }}>Tempo</div>
+                        <div style={{ textAlign: 'right' }}>Clientes</div>
+                        <div>Desempenho</div>
+                        <div></div>
+                    </div>
+
+                    {filtered.map((member, i) => {
+                        const pct = member.tasks_total > 0 ? Math.round((member.tasks_done / member.tasks_total) * 100) : 0;
+                        const barWidth = (member.tasks_done / maxDone) * 100;
+                        const perfColor = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
+                        const medalColor = i === 0 ? '#fbbf24' : i === 1 ? '#94a3b8' : i === 2 ? '#cd7f32' : 'var(--text-muted)';
+
+                        return (
+                            <div key={member.user_id}
+                                onClick={() => { setDetail(member); setDrawerTab('overview'); }}
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: '48px minmax(220px, 2fr) 130px 110px 110px 130px 100px 150px 40px',
+                                    gap: 12,
+                                    padding: '14px 20px',
+                                    alignItems: 'center',
+                                    borderBottom: i < filtered.length - 1 ? '1px solid var(--border)' : 'none',
+                                    cursor: 'pointer',
+                                    transition: 'background .12s',
+                                }}
+                                onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-hover)'; }}
+                                onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                            >
+                                {/* # */}
+                                <div style={{ fontSize: 13, fontWeight: 700, color: medalColor }}>
+                                    {i + 1}
+                                </div>
+
+                                {/* Membro */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                                    <Avatar color={member.avatar_color} initials={getInitials(member.name)} size={30} />
+                                    <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                            {member.name}
+                                        </div>
+                                        {member.job_title && (
+                                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                {member.job_title}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Área */}
+                                <div>
+                                    {member.department ? (
+                                        <span style={{ padding: '3px 9px', borderRadius: 999, fontSize: 11.5, fontWeight: 500, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{member.department}</span>
+                                    ) : (
+                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
+                                    )}
+                                </div>
+
+                                {/* Concluídas */}
+                                <div className="num" style={{ textAlign: 'right', fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
+                                    {member.tasks_done}
+                                </div>
+
+                                {/* Pendentes */}
+                                <div className="num" style={{ textAlign: 'right', fontSize: 13.5, color: member.tasks_pending > 0 ? 'var(--accent-yellow)' : 'var(--text-muted)' }}>
+                                    {member.tasks_pending || '—'}
+                                </div>
+
+                                {/* Tempo */}
+                                <div className="num" style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>
+                                    {member.total_seconds > 0 ? fmtSeconds(member.total_seconds) : '—'}
+                                </div>
+
+                                {/* Clientes */}
+                                <div className="num" style={{ textAlign: 'right', fontSize: 13, color: 'var(--text-secondary)' }}>
+                                    {member.clients_served || '—'}
+                                </div>
+
+                                {/* Desempenho */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'rgba(255,255,255,.06)', overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', width: `${barWidth}%`, background: perfColor, borderRadius: 3, transition: 'width 300ms ease' }} />
+                                    </div>
+                                    <span className="num" style={{ fontSize: 11.5, color: perfColor, minWidth: 32, textAlign: 'right', fontWeight: 600 }}>{pct}%</span>
+                                </div>
+
+                                {/* Arrow */}
+                                <div>
+                                    <ArrowUpRight size={14} style={{ color: 'var(--text-muted)' }} />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ─── Drawer único (substitui o modal de detalhe) ─── */}
+            {detail && (() => {
+                const stats = detail;
+                const cPct = stats.tasks_total > 0 ? Math.round((stats.tasks_done / stats.tasks_total) * 100) : 0;
+                return (
+                    <>
+                        <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 200 }} />
+                        <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 201, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                            {/* Header */}
+                            <div style={{ padding: '22px 24px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
+                                <Avatar color={stats.avatar_color} initials={getInitials(stats.name)} size={46} />
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 700, fontSize: 16.5, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{stats.name}</div>
+                                    <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                        {stats.job_title || 'Sem cargo'}
+                                        {stats.department && <> · {stats.department}</>}
+                                    </div>
+                                </div>
+                                {isAdmin && (
+                                    <button onClick={() => { const r = memberIndex[stats.user_id]; if (r) { setEditing(r); setDetail(null); } }}
+                                        title="Editar" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                                        <Pencil size={14} />
+                                    </button>
+                                )}
+                                <button onClick={() => setDetail(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+                                    <X size={20} />
+                                </button>
+                            </div>
+
+                            {/* Tabs */}
+                            <div style={{ display: 'flex', gap: 2, padding: '0 24px', borderBottom: '1px solid var(--border)' }}>
+                                {[
+                                    { k: 'overview' as const, label: 'Visão geral' },
+                                    { k: 'breakdown' as const, label: `Por tipo${Object.keys(stats.by_type).length ? ` · ${Object.keys(stats.by_type).length}` : ''}` },
+                                ].map(t => (
+                                    <button key={t.k} onClick={() => setDrawerTab(t.k)}
+                                        style={{
+                                            padding: '11px 16px', fontSize: 13.5,
+                                            fontWeight: drawerTab === t.k ? 600 : 500,
+                                            color: drawerTab === t.k ? 'var(--text)' : 'var(--text-muted)',
+                                            background: 'transparent', border: 'none', cursor: 'pointer',
+                                            marginBottom: -1,
+                                            borderBottom: `2px solid ${drawerTab === t.k ? 'var(--primary)' : 'transparent'}`,
+                                        }}>
+                                        {t.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Tab: Overview */}
+                            {drawerTab === 'overview' && (
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                                    {/* Contato */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                                        <Mail size={13} color="var(--text-muted)" />
+                                        <span style={{ fontSize: 13.5, color: 'var(--text)' }}>{stats.email}</span>
+                                    </div>
+
+                                    {/* KPI grid */}
+                                    <div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 10 }}>Período · {rangeLabel}</div>
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                                            {[
+                                                { icon: CheckCircle2, label: 'Concluídas', value: stats.tasks_done },
+                                                { icon: Clock, label: 'Tempo', value: fmtSeconds(stats.total_seconds) },
+                                                { icon: Building2, label: 'Clientes', value: stats.clients_served },
+                                                { icon: TrendingUp, label: 'Conclusão', value: `${cPct}%`, color: cPct >= 80 ? 'var(--accent-green)' : cPct >= 50 ? 'var(--accent-yellow)' : 'var(--accent-red)' },
+                                            ].map(k => (
+                                                <div key={k.label} style={{ padding: '11px 12px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                                                        <k.icon size={11} color="var(--text-muted)" />
+                                                        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>{k.label}</span>
+                                                    </div>
+                                                    <div className="num" style={{ fontSize: 16.5, fontWeight: 700, color: k.color || 'var(--text)' }}>{k.value}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Progress: concluídas / pendentes / puladas */}
+                                    <div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 10 }}>Tarefas</div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                            <ProgressRow label="Concluídas" value={stats.tasks_done} max={stats.tasks_total} color="#10b981" />
+                                            <ProgressRow label="Pendentes" value={stats.tasks_pending} max={stats.tasks_total} color="#f59e0b" />
+                                            <ProgressRow label="Puladas" value={stats.tasks_skipped} max={stats.tasks_total} color="var(--text-muted)" />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Tab: Por tipo */}
+                            {drawerTab === 'breakdown' && (
+                                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+                                    {Object.keys(stats.by_type).length === 0 ? (
+                                        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13.5 }}>
+                                            Nenhum tipo de tarefa no período
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                            {Object.entries(stats.by_type)
+                                                .sort((a, b) => b[1].count - a[1].count)
+                                                .map(([type, data]) => (
+                                                    <div key={type} style={{
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                        padding: '12px 14px',
+                                                        background: 'var(--bg-surface-2)',
+                                                        border: '1px solid var(--border)',
+                                                        borderRadius: 10,
+                                                    }}>
+                                                        <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--text)' }}>{TASK_LABELS[type] || type}</span>
+                                                        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                                                            <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>{data.count} {data.count === 1 ? 'tarefa' : 'tarefas'}</span>
+                                                            {data.total_seconds > 0 && (
+                                                                <span className="num" style={{ fontSize: 12.5, color: 'var(--text-secondary)', minWidth: 70, textAlign: 'right' }}>{fmtSeconds(data.total_seconds)}</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                );
+            })()}
 
             {/* Create modal */}
             {showCreate && (
@@ -467,43 +643,6 @@ export default function TeamPage() {
                     onSaved={() => { setEditing(null); fetchAll(); }}
                 />
             )}
-
-            <style jsx>{`
-                .team-filters {
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    margin-bottom: 20px;
-                    flex-wrap: wrap;
-                }
-                .segment-control {
-                    display: inline-flex;
-                    background: var(--bg-surface);
-                    border: 1px solid var(--border);
-                    border-radius: var(--radius-sm);
-                    padding: 3px;
-                    gap: 2px;
-                }
-                .segment-control button {
-                    padding: 5px 12px;
-                    border-radius: 4px;
-                    border: none;
-                    background: transparent;
-                    color: var(--text-muted);
-                    font-size: 12.5px;
-                    font-weight: 500;
-                    cursor: pointer;
-                    transition: var(--transition);
-                }
-                .segment-control button:hover {
-                    color: var(--text-primary);
-                }
-                .segment-control button.active {
-                    background: var(--bg-surface-2);
-                    color: var(--text-primary);
-                    box-shadow: var(--shadow-xs);
-                }
-            `}</style>
         </div>
     );
 }
@@ -721,7 +860,7 @@ function MemberFormModal({ mode, member, currentUserId, onClose, onSaved }: {
                 role: member.role,
                 department: member.department || '',
                 job_title: member.job_title || '',
-                avatar_color: member.avatar_color || '#6366f1',
+                avatar_color: member.avatar_color || '#ff6b35',
             };
         }
         return DEFAULT_FORM;

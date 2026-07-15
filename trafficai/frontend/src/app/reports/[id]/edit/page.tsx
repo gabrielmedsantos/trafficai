@@ -339,8 +339,8 @@ export default function EditReportPage() {
                       <button key={c.id} onClick={() => toggleCampaign(c.id)}
                         style={{
                           display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-                          background: selectedIds.has(c.id) ? 'rgba(99,102,241,.08)' : 'var(--bg-input)',
-                          border: `1px solid ${selectedIds.has(c.id) ? 'rgba(99,102,241,.3)' : 'var(--border)'}`,
+                          background: selectedIds.has(c.id) ? 'rgba(255, 107, 53,.08)' : 'var(--bg-input)',
+                          border: `1px solid ${selectedIds.has(c.id) ? 'rgba(255, 107, 53,.3)' : 'var(--border)'}`,
                           borderRadius: '6px', cursor: 'pointer', textAlign: 'left', width: '100%',
                         }}>
                         {selectedIds.has(c.id)
@@ -416,7 +416,7 @@ export default function EditReportPage() {
           <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {editedRecs.map((rec, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(99,102,241,.2)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: 'rgba(255, 107, 53,.2)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
                 <input value={rec} onChange={e => updateRec(i, e.target.value)} style={{ ...inputStyle, flex: 1 }} placeholder="Recomendação..." />
                 <button onClick={() => removeRec(i)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}>✕</button>
               </div>

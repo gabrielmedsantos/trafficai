@@ -74,7 +74,7 @@ const WORKFLOW_TASK_CFG = {
 const GOOGLE_COLORS: Record<string, string> = {
     '1': '#ef4444', '2': '#f97316', '3': '#f59e0b', '4': '#eab308',
     '5': '#22c55e', '6': '#16a34a', '7': '#06b6d4', '8': '#3b82f6',
-    '9': '#8b5cf6', '10': '#ec4899', '11': '#6b7280', 'task': '#6366f1',
+    '9': '#8b5cf6', '10': '#ec4899', '11': '#6b7280', 'task': '#ff6b35',
 };
 
 const COLOR_OPTIONS = [
@@ -466,7 +466,7 @@ function CalendarApp() {
                             </button>
                         )
                     )}
-                    <button onClick={() => openCreate(new Date())} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                    <button onClick={() => openCreate(new Date())} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#ff6b35', color: 'white', border: 'none', borderRadius: 8, padding: '8px 16px', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                         <Plus size={15} /> Novo evento
                     </button>
                 </div>
@@ -510,13 +510,13 @@ function CalendarApp() {
                             const isToday = toDateStr(day) === today;
                             return (
                                 <div key={toDateStr(day)} style={{ padding: '8px 6px', textAlign: 'center', borderRight: '1px solid var(--border)', position: 'relative' }}>
-                                    <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? '#6366f1' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? '#ff6b35' : '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                         {DAY_SHORT[day.getDay()]}
                                     </div>
                                     <div
                                         onClick={() => setCurrentDate(day)}
-                                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: '50%', marginTop: 2, background: isToday ? '#6366f1' : 'transparent', color: isToday ? 'white' : 'var(--text-primary)', fontSize: 18, fontWeight: 700, cursor: 'pointer', transition: 'background .15s' }}
-                                        onMouseEnter={e => { if (!isToday) e.currentTarget.style.background = 'rgba(99,102,241,.15)'; }}
+                                        style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: '50%', marginTop: 2, background: isToday ? '#ff6b35' : 'transparent', color: isToday ? 'white' : 'var(--text-primary)', fontSize: 18, fontWeight: 700, cursor: 'pointer', transition: 'background .15s' }}
+                                        onMouseEnter={e => { if (!isToday) e.currentTarget.style.background = 'rgba(255, 107, 53,.15)'; }}
                                         onMouseLeave={e => { if (!isToday) e.currentTarget.style.background = 'transparent'; }}
                                     >
                                         {day.getDate()}
@@ -554,11 +554,11 @@ function CalendarApp() {
                                 const dayEvs = allEvents.filter(e => !e.allDay && new Date(e.start).toISOString().startsWith(ds));
                                 const laid = layoutEvents(dayEvs);
                                 return (
-                                    <div key={ds} style={{ borderRight: '1px solid var(--border)', position: 'relative', background: isToday ? 'rgba(99,102,241,.025)' : 'transparent' }}>
+                                    <div key={ds} style={{ borderRight: '1px solid var(--border)', position: 'relative', background: isToday ? 'rgba(255, 107, 53,.025)' : 'transparent' }}>
                                         {HOURS.map(h => (
                                             <div key={h} onClick={() => openCreate(day, h)}
                                                 style={{ height: HOUR_HEIGHT, borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,.06)')}
+                                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 107, 53,.06)')}
                                                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                                             />
                                         ))}
@@ -588,7 +588,7 @@ function CalendarApp() {
                             <input autoFocus placeholder="Adicionar título" value={form.title}
                                 onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                                 onKeyDown={e => e.key === 'Enter' && handleSave()}
-                                style={{ background: 'transparent', border: 'none', borderBottom: '2px solid #6366f1', color: 'var(--text-primary)', fontSize: 17, fontWeight: 600, padding: '4px 0', outline: 'none', width: '100%', fontFamily: 'inherit' }}
+                                style={{ background: 'transparent', border: 'none', borderBottom: '2px solid #ff6b35', color: 'var(--text-primary)', fontSize: 17, fontWeight: 600, padding: '4px 0', outline: 'none', width: '100%', fontFamily: 'inherit' }}
                             />
 
                             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
@@ -634,16 +634,16 @@ function CalendarApp() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 <button
                                     onClick={() => setForm(p => ({ ...p, createMeet: !p.createMeet }))}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 10, background: form.createMeet ? 'rgba(99,102,241,.12)' : 'var(--bg-secondary)', border: `1px solid ${form.createMeet ? '#6366f1' : 'var(--border)'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', color: form.createMeet ? '#a5b4fc' : 'var(--text-secondary)', fontWeight: 600, fontSize: 13, width: '100%', transition: 'all .15s' }}>
-                                    <Video size={16} color={form.createMeet ? '#6366f1' : '#64748b'} />
+                                    style={{ display: 'flex', alignItems: 'center', gap: 10, background: form.createMeet ? 'rgba(255, 107, 53,.12)' : 'var(--bg-secondary)', border: `1px solid ${form.createMeet ? '#ff6b35' : 'var(--border)'}`, borderRadius: 8, padding: '10px 14px', cursor: 'pointer', color: form.createMeet ? '#ffa46e' : 'var(--text-secondary)', fontWeight: 600, fontSize: 13, width: '100%', transition: 'all .15s' }}>
+                                    <Video size={16} color={form.createMeet ? '#ff6b35' : '#64748b'} />
                                     <span>{form.createMeet ? 'Google Meet adicionado' : 'Adicionar Google Meet'}</span>
-                                    {form.createMeet && <Check size={14} style={{ marginLeft: 'auto', color: '#6366f1' }} />}
+                                    {form.createMeet && <Check size={14} style={{ marginLeft: 'auto', color: '#ff6b35' }} />}
                                 </button>
 
                                 {/* Meet link existente (edição) */}
                                 {editingEvent?.meetLink && (
                                     <a href={editingEvent.meetLink} target="_blank" rel="noreferrer"
-                                        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#6366f1', padding: '8px 12px', background: 'rgba(99,102,241,.08)', borderRadius: 7, border: '1px solid rgba(99,102,241,.25)', textDecoration: 'none', fontWeight: 600 }}>
+                                        style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#ff6b35', padding: '8px 12px', background: 'rgba(255, 107, 53,.08)', borderRadius: 7, border: '1px solid rgba(255, 107, 53,.25)', textDecoration: 'none', fontWeight: 600 }}>
                                         <Video size={14} />
                                         Abrir reunião Meet
                                         <ExternalLink size={12} style={{ marginLeft: 'auto' }} />
@@ -674,7 +674,7 @@ function CalendarApp() {
                                             const email = form.guestInput.trim().replace(/,/g, '');
                                             if (email && email.includes('@') && !form.attendees.includes(email)) setForm(p => ({ ...p, attendees: [...p.attendees, email], guestInput: '' }));
                                         }}
-                                        style={{ background: '#6366f1', color: 'white', border: 'none', borderRadius: 6, padding: '0 14px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                        style={{ background: '#ff6b35', color: 'white', border: 'none', borderRadius: 6, padding: '0 14px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                                         <UserPlus size={15} />
                                     </button>
                                 </div>
@@ -683,7 +683,7 @@ function CalendarApp() {
                                 {form.attendees.length > 0 && (
                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                                         {form.attendees.map(email => (
-                                            <div key={email} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.25)', borderRadius: 20, padding: '3px 10px 3px 12px', fontSize: 12, color: '#a5b4fc', fontWeight: 500 }}>
+                                            <div key={email} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255, 107, 53,.12)', border: '1px solid rgba(255, 107, 53,.25)', borderRadius: 20, padding: '3px 10px 3px 12px', fontSize: 12, color: '#ffa46e', fontWeight: 500 }}>
                                                 {email}
                                                 <button onClick={() => setForm(p => ({ ...p, attendees: p.attendees.filter(a => a !== email) }))}
                                                     style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: 0, lineHeight: 1, display: 'flex' }}>
@@ -752,7 +752,7 @@ function CalendarApp() {
                                 Cancelar
                             </button>
                             <button onClick={handleSave} disabled={saving}
-                                style={{ background: '#6366f1', color: 'white', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 600, fontSize: 13, cursor: saving ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: saving ? 0.7 : 1 }}>
+                                style={{ background: '#ff6b35', color: 'white', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 600, fontSize: 13, cursor: saving ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: saving ? 0.7 : 1 }}>
                                 {saving ? 'Salvando...' : <><Check size={14} /> Salvar</>}
                             </button>
                         </div>
@@ -797,7 +797,7 @@ function MiniCalendar({ currentDate, onDayClick }: { currentDate: Date; onDayCli
                     const inWeek = selectedWeek.includes(ds);
                     return (
                         <div key={i} onClick={() => onDayClick(new Date(yr, mo, day))}
-                            style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', cursor: 'pointer', fontSize: 12, fontWeight: isToday ? 700 : 400, background: isToday ? '#6366f1' : inWeek ? 'rgba(99,102,241,.18)' : 'transparent', color: isToday ? 'white' : inWeek ? '#a5b4fc' : '#94a3b8', margin: 'auto' }}>
+                            style={{ width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%', cursor: 'pointer', fontSize: 12, fontWeight: isToday ? 700 : 400, background: isToday ? '#ff6b35' : inWeek ? 'rgba(255, 107, 53,.18)' : 'transparent', color: isToday ? 'white' : inWeek ? '#ffa46e' : '#94a3b8', margin: 'auto' }}>
                             {day}
                         </div>
                     );
@@ -812,7 +812,7 @@ function MiniCalendar({ currentDate, onDayClick }: { currentDate: Date; onDayCli
 function EventBlock({ event, onClick }: { event: LayoutEvent; onClick: () => void }) {
     const top = evTop(event.start);
     const height = evHeight(event.start, event.end);
-    const color = event.color || (event.colorId ? GOOGLE_COLORS[event.colorId] : '#6366f1') || '#6366f1';
+    const color = event.color || (event.colorId ? GOOGLE_COLORS[event.colorId] : '#ff6b35') || '#ff6b35';
     const short = height < 44;
     const isTask = event.source === 'task';
 

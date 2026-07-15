@@ -177,6 +177,60 @@ export class MetaService {
     }
 
     /**
+     * Top ads da conta ordenados por spend nos últimos N dias.
+     * Retorna cada ad com stats agregadas + thumbnail + video_id (se houver).
+     * Usado pela análise de Top Criativos com IA.
+     */
+    async getTopAdsForAccount(
+        userId: string,
+        accessToken: string,
+        metaAccountId: string,
+        days: number = 30,
+        limit: number = 10,
+    ): Promise<any[]> {
+        const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            try {
+                const client = this.createClient(accessToken);
+                const preset = days <= 7 ? 'last_7d' : days <= 14 ? 'last_14d' : days <= 30 ? 'last_30d' : 'last_90d';
+
+                // 1) insights level=ad ordenados por spend desc
+                const insightsResp = await client.get(`/${acctPath}/insights`, {
+                    params: {
+                        level: 'ad',
+                        fields: 'ad_id,ad_name,campaign_name,spend,impressions,clicks,ctr,cpc,cpm,actions,cost_per_action_type',
+                        date_preset: preset,
+                        limit,
+                        sort: 'spend_descending',
+                    },
+                });
+                const insights: any[] = insightsResp.data?.data || [];
+                if (!insights.length) return [];
+
+                // 2) buscar creative (thumbnail + video_id) pra cada top ad
+                const ids = insights.map(i => i.ad_id).filter(Boolean);
+                if (!ids.length) return insights;
+
+                const creativesResp = await client.get('/', {
+                    params: {
+                        ids: ids.join(','),
+                        fields: 'id,name,creative{id,name,object_type,thumbnail_url,image_url,video_id,instagram_permalink_url}',
+                    },
+                });
+                const byId: Record<string, any> = creativesResp.data || {};
+
+                return insights.map(ins => ({
+                    ...ins,
+                    creative: byId[ins.ad_id]?.creative || null,
+                }));
+            } catch (error: any) {
+                this.handleMetaError(error);
+                return [];
+            }
+        }) as Promise<any[]>;
+    }
+
+    /**
      * Sync das campanhas + insights de uma conta específica num período.
      * Usado por relatórios e pelo botão "Sincronizar" na UI.
      */

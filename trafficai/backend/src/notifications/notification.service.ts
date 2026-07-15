@@ -216,10 +216,14 @@ export class NotificationService {
     private async sendWhatsApp(settings: NotificationSettings, alert: AlertPayload): Promise<void> {
         const message = this.buildWhatsAppMessage(alert);
 
+        // Default: Evolution se ENV global configurado, senão UazAPI
+        const envEvolutionConfigured = !!process.env.EVOLUTION_API_BASE_URL && !!process.env.EVOLUTION_API_KEY;
+        const provider = settings.whatsapp_provider || (envEvolutionConfigured ? 'evolution' : 'uazapi');
+
         try {
-            if (settings.whatsapp_provider === 'uazapi') {
+            if (provider === 'uazapi') {
                 await this.sendViaUazapi(settings, message);
-            } else if (settings.whatsapp_provider === 'zapi') {
+            } else if (provider === 'zapi') {
                 await this.sendViaZapi(settings, message);
             } else {
                 await this.sendViaEvolution(settings, message);
@@ -256,19 +260,42 @@ export class NotificationService {
     }
 
     private async sendViaEvolution(settings: NotificationSettings, message: string): Promise<void> {
-        if (!settings.evolution_api_url || !settings.evolution_instance) {
-            throw new Error('Evolution API não configurada');
+        // Fallbacks: per-user → ENV global → comm_integrations conectada
+        let baseUrl = settings.evolution_api_url || process.env.EVOLUTION_API_BASE_URL || '';
+        let apiKey = settings.evolution_api_key || process.env.EVOLUTION_API_KEY || '';
+        let instance = settings.evolution_instance || '';
+
+        if (!instance) {
+            try {
+                const integ = await query<any>(
+                    `SELECT config, credentials FROM comm_integrations
+                     WHERE user_id = $1 AND type = 'whatsapp_evolution' AND status = 'connected'
+                     ORDER BY connected_at DESC NULLS LAST LIMIT 1`,
+                    [settings.user_id]
+                );
+                if (integ.length) {
+                    const cfg = integ[0].config || {};
+                    const creds = integ[0].credentials || {};
+                    instance = cfg.instanceName || cfg.instance || '';
+                    if (!baseUrl) baseUrl = cfg.baseUrl || cfg.evolutionBaseUrl || '';
+                    if (!apiKey) apiKey = creds.apiKey || creds.evolutionApiKey || '';
+                }
+            } catch { /* ignore */ }
         }
 
-        const url = `${settings.evolution_api_url}/message/sendText/${settings.evolution_instance}`;
+        if (!baseUrl || !instance) {
+            throw new Error('Evolution API não configurada — defina ENV ou conecte uma instância em /comercial/integrations');
+        }
+
+        const url = `${baseUrl.replace(/\/$/, '')}/message/sendText/${instance}`;
         const number = this.normalizePhone(settings.whatsapp_number!);
 
         await axios.post(url, {
             number,
-            textMessage: { text: message },
+            text: message,           // v2 payload
         }, {
             headers: {
-                apikey: settings.evolution_api_key || '',
+                apikey: apiKey,
                 'Content-Type': 'application/json',
             },
             timeout: 15000,

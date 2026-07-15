@@ -318,13 +318,16 @@ router.post('/:id/timer/start', async (req: Request, res: Response) => {
 });
 
 // ─── POST /tasks/:id/timer/stop ──────────────────────────────────────────
+// Pausar = concluir: marca a tarefa como done e fecha o cronômetro.
+// Body opcional { complete: false } pra apenas pausar sem concluir.
 router.post('/:id/timer/stop', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
+        const complete = (req.body?.complete ?? true) !== false;
 
         const current = await query<any>(
-            `SELECT timer_started_at, time_spent_seconds FROM client_workflow_tasks WHERE id = $1 AND user_id = $2`,
+            `SELECT timer_started_at, time_spent_seconds, status FROM client_workflow_tasks WHERE id = $1 AND user_id = $2`,
             [id, userId]
         );
 
@@ -333,15 +336,27 @@ router.post('/:id/timer/stop', async (req: Request, res: Response) => {
 
         const elapsed = Math.round((Date.now() - new Date(current[0].timer_started_at).getTime()) / 1000);
         const totalSeconds = (Number(current[0].time_spent_seconds) || 0) + elapsed;
+        const newStatus = complete && current[0].status === 'pending' ? 'done' : current[0].status;
+        const completeTouch = complete && current[0].status === 'pending'
+            ? `, completed_at = NOW()`
+            : '';
 
-        await query(
+        const updated = await query<any>(
             `UPDATE client_workflow_tasks
-             SET timer_started_at = NULL, time_spent_seconds = $3, updated_at = NOW()
-             WHERE id = $1 AND user_id = $2`,
-            [id, userId, totalSeconds]
+             SET timer_started_at = NULL, time_spent_seconds = $3, status = $4${completeTouch}, updated_at = NOW()
+             WHERE id = $1 AND user_id = $2
+             RETURNING *`,
+            [id, userId, totalSeconds, newStatus]
         );
 
-        res.json({ success: true, data: { time_spent_seconds: totalSeconds, elapsed_seconds: elapsed } });
+        res.json({
+            success: true,
+            data: {
+                ...updated[0],
+                time_spent_seconds: totalSeconds,
+                elapsed_seconds: elapsed,
+            },
+        });
     } catch (error: any) {
         logger.error('Erro ao parar timer', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });

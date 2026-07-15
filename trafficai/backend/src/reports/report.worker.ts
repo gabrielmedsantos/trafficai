@@ -39,15 +39,16 @@ export function startReportWorker() {
         }
     }, { timezone: 'America/Sao_Paulo' });
 
-    // Relatório diário em texto via WhatsApp — todo dia às 08:15
-    cron.schedule('15 8 * * *', async () => {
-        logger.info('📱 Report worker: enviando relatórios diários via WhatsApp');
+    // Relatório diário em texto via WhatsApp — roda a cada 15min e dispara
+    // pra cada conta cujo daily_whatsapp_time bata com o slot atual (HH:MM em UTC).
+    // Cada conta só envia uma vez por dia (controle via daily_whatsapp_last_sent_date).
+    cron.schedule('*/15 * * * *', async () => {
         try {
-            await dailyWhatsAppService.sendDailyReports();
+            await dailyWhatsAppService.sendScheduledReports();
         } catch (error: any) {
             logger.error('Erro nos relatórios diários WhatsApp', { error: error.message });
         }
-    }, { timezone: 'America/Sao_Paulo' });
+    });
 
-    logger.info('📊 Report worker iniciado (diário 08h | semanal seg 08h | mensal dia 1 08h | whatsapp diário 08h15)');
+    logger.info('📊 Report worker iniciado (diário 08h | semanal seg 08h | mensal dia 1 08h | whatsapp por conta a cada 15min)');
 }

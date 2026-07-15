@@ -97,7 +97,7 @@ router.get('/clients-summary', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { title, description, status, priority, project, client_id, due_date, checklist } = req.body;
+        const { title, description, status, priority, project, client_id, due_date, checklist, campaign_id, google_campaign_id } = req.body;
 
         if (!title || typeof title !== 'string' || title.trim().length === 0) {
             return res.status(400).json({ success: false, error: { message: 'Título obrigatório' } });
@@ -126,8 +126,8 @@ router.post('/', async (req: Request, res: Response) => {
 
         const row = await query<any>(
             `INSERT INTO board_cards
-                (user_id, title, description, status, priority, project, client_id, due_date, position, checklist)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+                (user_id, title, description, status, priority, project, client_id, due_date, position, checklist, campaign_id, google_campaign_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
              RETURNING id`,
             [
                 userId,
@@ -140,6 +140,8 @@ router.post('/', async (req: Request, res: Response) => {
                 due_date || null,
                 position,
                 JSON.stringify(sanitizeChecklist(checklist)),
+                campaign_id || null,
+                google_campaign_id || null,
             ]
         );
 

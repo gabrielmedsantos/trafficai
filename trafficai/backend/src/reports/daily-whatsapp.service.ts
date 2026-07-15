@@ -15,6 +15,8 @@ interface AccountWithSettings {
     meta_account_id: string;
     client_name: string | null;
     client_phone: string | null;
+    // template custom (NULL = usa default)
+    daily_whatsapp_template?: string | null;
     // notification_settings
     whatsapp_provider: 'uazapi' | 'evolution' | 'zapi' | null;
     uazapi_url: string | null;
@@ -28,6 +30,171 @@ interface AccountWithSettings {
     // approval workflow
     owner_whatsapp: string | null;
     daily_report_approval_required: boolean | null;
+}
+
+// ─── Template variables disponíveis ────────────────────────────────────────
+// Expostas pra UI mostrar autocomplete + lista de placeholders válidos.
+export const TEMPLATE_VARIABLES = [
+    { key: 'client_name',         label: 'Nome do cliente',                example: 'CLIENTE ABC' },
+    { key: 'greeting',             label: 'Saudação (Bom dia / Boa tarde)', example: 'Bom dia' },
+    { key: 'today_label',          label: 'Data de ontem (DD/MM)',          example: '28/06' },
+    { key: 'today_spend',          label: 'Investimento ontem',             example: 'R$ 1.234,56' },
+    { key: 'today_impressions',    label: 'Impressões ontem',                example: '12.345' },
+    { key: 'today_leads',          label: 'Leads/conversões ontem',          example: '23' },
+    { key: 'today_cpl',            label: 'Custo por lead ontem',            example: 'R$ 53,67' },
+    { key: 'today_action_label',   label: 'Label da ação (lead/compra)',     example: 'lead' },
+    { key: 'last7_label',          label: 'Período últimos 7 dias',          example: '22/06 a 28/06' },
+    { key: 'last7_spend',          label: 'Investimento últimos 7d',         example: 'R$ 8.500,00' },
+    { key: 'last7_impressions',    label: 'Impressões últimos 7d',           example: '85.300' },
+    { key: 'last7_leads',          label: 'Leads últimos 7d',                example: '142' },
+    { key: 'last7_cpl',            label: 'CPL últimos 7d',                  example: 'R$ 59,86' },
+    { key: 'last7_action_label',   label: 'Label da ação (últimos 7d)',      example: 'lead' },
+    { key: 'month_label',          label: 'Período do mês',                  example: '01/06 a 28/06' },
+    { key: 'month_spend',          label: 'Investimento do mês',             example: 'R$ 24.180,00' },
+    { key: 'month_impressions',    label: 'Impressões do mês',               example: '320.500' },
+    { key: 'month_leads',          label: 'Leads do mês',                    example: '412' },
+    { key: 'month_cpl',            label: 'CPL do mês',                      example: 'R$ 58,69' },
+    { key: 'month_action_label',   label: 'Label da ação (mês)',             example: 'lead' },
+    { key: 'active_ads',           label: 'Anúncios ativos / em análise',    example: '8' },
+] as const;
+
+/** Template default — usado quando daily_whatsapp_template é NULL. */
+export function getTemplateByName(name?: string): string {
+    switch (name) {
+        case 'executive':   return TPL_EXECUTIVE;
+        case 'detailed':    return TPL_DETAILED;
+        case 'whatsapp_focus': return TPL_WHATSAPP_FOCUS;
+        default:            return getDefaultTemplate();
+    }
+}
+
+const TPL_EXECUTIVE = [
+    '{greeting} *{client_name}*',
+    '',
+    '📅 {today_label} — resumo executivo:',
+    '',
+    '💰 R$ {today_spend} · 📊 {today_leads} {today_action_label} · R$ {today_cpl}/{today_action_label_singular}',
+    '',
+    '📈 Últimos 7 dias: R$ {last7d_spend} → {last7d_leads} {last7d_action_label}',
+    '📊 No mês: R$ {month_spend} → {month_leads} {month_action_label}',
+    '',
+    '🏷️ {activeAds} anúncios rodando.',
+].join('\n');
+
+const TPL_DETAILED = [
+    '{greeting} *{client_name}*, aqui está o relatório completo:',
+    '',
+    '━━━ 📅 ONTEM ({today_label}) ━━━',
+    '💰 Investimento: R$ {today_spend}',
+    '⚡️ Impressões: {today_impressions}',
+    '🎯 {today_action_label}: {today_leads}',
+    '💸 Custo por {today_action_label_singular}: R$ {today_cpl}',
+    '',
+    '━━━ 📊 ÚLTIMOS 7 DIAS ({last7d_label}) ━━━',
+    '💰 R$ {last7d_spend} · 📊 {last7d_leads} · R$ {last7d_cpl}/lead',
+    '',
+    '━━━ 📆 MÊS ({month_label}) ━━━',
+    '💰 R$ {month_spend} · 📊 {month_leads} · R$ {month_cpl}/lead',
+    '',
+    '🏷️ Anúncios rodando ou em análise: {activeAds}',
+].join('\n');
+
+const TPL_WHATSAPP_FOCUS = [
+    '{greeting} *{client_name}*!',
+    '',
+    '💬 Focados em conversas via WhatsApp:',
+    '',
+    '📅 Ontem: *{today_leads}* conversas iniciadas',
+    '💰 Investimento: R$ {today_spend}',
+    '💸 Custo por conversa: R$ {today_cpl}',
+    '',
+    '📊 Últimos 7 dias: {last7d_leads} conversas · R$ {last7d_cpl}/conversa',
+    '📈 No mês: {month_leads} conversas · R$ {month_cpl}/conversa',
+    '',
+    '🏷️ {activeAds} anúncios ativos direcionando pro WhatsApp.',
+].join('\n');
+
+export function getDefaultTemplate(): string {
+    return [
+        '{greeting} *{client_name}*, tudo bem?',
+        '',
+        'Resumo de Ontem:',
+        '> [{today_label}]',
+        '',
+        '💰 Investimento de {today_spend}',
+        '⚡️ Impressões: {today_impressions}',
+        '📊 Total de {today_leads} {today_action_label}',
+        '💰 Custo por {today_action_label} de {today_cpl}',
+        '',
+        'Resumo de nossas campanhas nos últimos 7 dias:',
+        '> [{last7_label}]',
+        '',
+        '💰 Investimento de {last7_spend}',
+        '⚡️ Impressões: {last7_impressions}',
+        '📊 Total de {last7_leads} {last7_action_label}',
+        '💰 Custo por {last7_action_label} de {last7_cpl}',
+        '',
+        'Resumo desse mês:',
+        '> [{month_label}]',
+        '',
+        '💰 Investimento de {month_spend}',
+        '⚡️ Impressões: {month_impressions}',
+        '📊 Total de {month_leads} {month_action_label}',
+        '💰 Custo por {month_action_label} de {month_cpl}',
+        '',
+        '🏷️ Anúncios rodando ou em análise: {active_ads}',
+    ].join('\n');
+}
+
+/** Renderiza um template substituindo {placeholders} pelos valores. */
+export function renderTemplate(template: string, vars: Record<string, string | number>): string {
+    return template.replace(/\{(\w+)\}/g, (match, key: string) => {
+        if (Object.prototype.hasOwnProperty.call(vars, key)) {
+            return String(vars[key]);
+        }
+        return match; // mantém {placeholder} desconhecido sem substituir
+    });
+}
+
+/** Builda o dicionário de vars a partir das métricas — sem ler do banco. */
+export function buildTemplateVars(data: {
+    client_name: string;
+    greeting: string;
+    today: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
+    last7d: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
+    month: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
+    activeAds: number;
+}): Record<string, string | number> {
+    const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fmtNum = (v: number) => v.toLocaleString('pt-BR');
+
+    return {
+        client_name: data.client_name.toUpperCase(),
+        greeting: data.greeting,
+        // Today
+        today_label: data.today.label,
+        today_spend: fmtBRL(data.today.metrics.spend),
+        today_impressions: fmtNum(data.today.metrics.impressions),
+        today_leads: fmtNum(data.today.metrics.leads),
+        today_cpl: fmtBRL(data.today.metrics.cost_per_lead),
+        today_action_label: data.today.metrics.leads === 1 ? data.today.metrics.primary_action_label.replace(/s$/, '') : data.today.metrics.primary_action_label,
+        // Last 7 days
+        last7_label: data.last7d.label,
+        last7_spend: fmtBRL(data.last7d.metrics.spend),
+        last7_impressions: fmtNum(data.last7d.metrics.impressions),
+        last7_leads: fmtNum(data.last7d.metrics.leads),
+        last7_cpl: fmtBRL(data.last7d.metrics.cost_per_lead),
+        last7_action_label: data.last7d.metrics.primary_action_label,
+        // Month
+        month_label: data.month.label,
+        month_spend: fmtBRL(data.month.metrics.spend),
+        month_impressions: fmtNum(data.month.metrics.impressions),
+        month_leads: fmtNum(data.month.metrics.leads),
+        month_cpl: fmtBRL(data.month.metrics.cost_per_lead),
+        month_action_label: data.month.metrics.primary_action_label,
+        // Active ads
+        active_ads: data.activeAds,
+    };
 }
 
 const PUBLIC_BASE_URL = process.env.PUBLIC_API_URL || 'https://api.alfamaxdigital.com.br';
@@ -81,6 +248,8 @@ export class DailyWhatsAppService {
                 SELECT
                     a.id, a.user_id, a.account_name, a.meta_account_id,
                     rs.client_name, rs.client_phone,
+                    rs.daily_whatsapp_template,
+                    rs.report_template,
                     ns.whatsapp_provider,
                     ns.uazapi_url, ns.uazapi_token,
                     ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
@@ -132,6 +301,46 @@ export class DailyWhatsAppService {
     }
 
     /**
+     * Envia o relatório AGORA pra uma única conta (chamado manual via endpoint).
+     * Bypass horário/dedupe — usado pra teste do template + config.
+     */
+    async sendNowForAccount(accountId: string): Promise<void> {
+        const accounts = await query<AccountWithSettings>(`
+            SELECT
+                a.id, a.user_id, a.account_name, a.meta_account_id,
+                rs.client_name, rs.client_phone,
+                rs.daily_whatsapp_template,
+                    rs.report_template,
+                ns.whatsapp_provider,
+                ns.uazapi_url, ns.uazapi_token,
+                ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
+                ns.zapi_instance_id, ns.zapi_token, ns.zapi_client_token,
+                ns.owner_whatsapp, ns.daily_report_approval_required
+            FROM ad_accounts a
+            LEFT JOIN report_settings rs ON rs.account_id = a.id
+            LEFT JOIN notification_settings ns ON ns.user_id = a.user_id
+            WHERE a.id = $1
+        `, [accountId]);
+        if (!accounts.length) throw new Error('Conta não encontrada');
+        const acc = accounts[0];
+        if (!acc.client_phone) throw new Error('Telefone/grupo do cliente não configurado');
+        if (acc.client_phone.startsWith('https://chat.whatsapp.com/')) {
+            throw new Error('Use ID do grupo (xxx@g.us) ou número, não link convite');
+        }
+
+        const dateStr = yesterdayBRT();
+        const message = await this.buildFullReport(acc, dateStr);
+
+        if (acc.daily_report_approval_required && acc.owner_whatsapp) {
+            await this.queueForApproval(acc, message, dateStr);
+            logger.info(`📤 Envio manual p/ aprovação: ${acc.account_name}`);
+        } else {
+            await this.send(acc, acc.client_phone, message);
+            logger.info(`✅ Envio manual concluído: ${acc.account_name} → ${acc.client_phone}`);
+        }
+    }
+
+    /**
      * Envia relatório diário de texto via WhatsApp para todas as contas habilitadas.
      * Chamado manualmente — sem filtro de horário, sem dedupe diário.
      */
@@ -143,6 +352,8 @@ export class DailyWhatsAppService {
                 SELECT
                     a.id, a.user_id, a.account_name, a.meta_account_id,
                     rs.client_name, rs.client_phone,
+                    rs.daily_whatsapp_template,
+                    rs.report_template,
                     ns.whatsapp_provider,
                     ns.uazapi_url, ns.uazapi_token,
                     ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
@@ -301,37 +512,24 @@ export class DailyWhatsAppService {
             activeAds: number;
         }
     ): string {
-        const clientName = (acc.client_name || acc.account_name || 'Cliente').toUpperCase();
+        const clientName = acc.client_name || acc.account_name || 'Cliente';
         const greeting = this.greetingPrefix();
-        const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        const fmtNum = (v: number) => v.toLocaleString('pt-BR');
 
-        const block = (m: RangeMetrics) =>
-            `💰 Investimento de ${fmtBRL(m.spend)}\n` +
-            `⚡️ Impressões: ${fmtNum(m.impressions)}\n` +
-            `📊 Total de ${fmtNum(m.leads)} ${m.leads === 1 ? 'lead' : 'leads'}\n` +
-            `💰 Custo por lead de ${fmtBRL(m.cost_per_lead)}`;
+        // Prioridade: template customizado > template predefinido > default
+        const template = (acc.daily_whatsapp_template && acc.daily_whatsapp_template.trim())
+            ? acc.daily_whatsapp_template
+            : getTemplateByName((acc as any).report_template || 'default');
 
-        return [
-            `${greeting} *${clientName}*, tudo bem?`,
-            '',
-            'Resumo de Ontem:',
-            `> [${data.today.label}]`,
-            '',
-            block(data.today.metrics),
-            '',
-            'Resumo de nossas campanhas nos últimos 7 dias:',
-            `> [${data.last7d.label}]`,
-            '',
-            block(data.last7d.metrics),
-            '',
-            'Resumo desse mês:',
-            `> [${data.month.label}]`,
-            '',
-            block(data.month.metrics),
-            '',
-            `🏷️ Anúncios rodando ou em análise: ${data.activeAds}`,
-        ].join('\n');
+        const vars = buildTemplateVars({
+            client_name: clientName,
+            greeting,
+            today: data.today,
+            last7d: data.last7d,
+            month: data.month,
+            activeAds: data.activeAds,
+        });
+
+        return renderTemplate(template, vars);
     }
 
     /**

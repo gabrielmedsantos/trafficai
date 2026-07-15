@@ -7,7 +7,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "migrate": "ts-node -r dotenv/config src/database/run-migrations.ts"
+    "migrate": "ts-node -r dotenv/config src/database/run-migrations.ts",
+    "seed:commercial": "ts-node -r dotenv/config src/commercial/seed.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

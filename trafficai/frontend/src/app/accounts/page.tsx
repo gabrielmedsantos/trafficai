@@ -781,8 +781,8 @@ export default function AccountsPage() {
                     {!isEditingBilling && account.payment_type && (
                       <span style={{
                         padding: '2px 8px',
-                        background: account.payment_type === 'pix' ? 'rgba(34,197,94,.12)' : 'rgba(99,102,241,.12)',
-                        border: `1px solid ${account.payment_type === 'pix' ? 'rgba(34,197,94,.3)' : 'rgba(99,102,241,.3)'}`,
+                        background: account.payment_type === 'pix' ? 'rgba(34,197,94,.12)' : 'rgba(255, 107, 53,.12)',
+                        border: `1px solid ${account.payment_type === 'pix' ? 'rgba(34,197,94,.3)' : 'rgba(255, 107, 53,.3)'}`,
                         borderRadius: '6px',
                         fontSize: '11px',
                         fontWeight: 700,
@@ -891,7 +891,7 @@ export default function AccountsPage() {
                               : '1px solid var(--border)',
                             borderRadius: '8px',
                             background: billingDraft.payment_type === 'card'
-                              ? 'rgba(99,102,241,.12)'
+                              ? 'rgba(255, 107, 53,.12)'
                               : 'var(--bg)',
                             color: billingDraft.payment_type === 'card'
                               ? 'var(--primary)'

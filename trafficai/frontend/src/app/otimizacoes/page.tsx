@@ -369,7 +369,7 @@ function TaskCard({ task, onClick, onTimerToggle }: { task: Task; onClick: () =>
                         )}
                         <button
                             onClick={(e) => { e.stopPropagation(); onTimerToggle(task); }}
-                            title={isRunning ? 'Parar cronômetro' : 'Iniciar cronômetro'}
+                            title={isRunning ? 'Parar cronômetro e marcar como concluído' : 'Iniciar cronômetro'}
                             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: `1px solid ${isRunning ? 'rgba(34,197,94,.4)' : 'var(--border)'}`, background: isRunning ? 'rgba(34,197,94,.12)' : 'var(--bg-secondary)', cursor: 'pointer', color: isRunning ? '#22c55e' : 'var(--text-muted)', transition: 'all .15s', flexShrink: 0 }}
                         >
                             {isRunning
@@ -637,7 +637,7 @@ function BoardCardChip({ card, onToggle, overdue }: {
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                             <span style={{
                                 width: 7, height: 7, borderRadius: 4,
-                                background: card.client_avatar_color || '#6366f1',
+                                background: card.client_avatar_color || '#ff6b35',
                                 display: 'inline-block',
                             }} />
                             {card.client_name}
@@ -1151,13 +1151,13 @@ function GenerateConfirmModal({
                             width: 40,
                             height: 40,
                             borderRadius: 12,
-                            background: 'rgba(99,102,241,.15)',
+                            background: 'rgba(255, 107, 53,.15)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                         }}
                     >
-                        <Zap size={20} color="#6366f1" />
+                        <Zap size={20} color="#ff6b35" />
                     </div>
                     <div>
                         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>Regerar Semana</div>
@@ -1191,7 +1191,7 @@ function GenerateConfirmModal({
                             padding: '9px 20px',
                             borderRadius: 8,
                             border: 'none',
-                            background: generating ? 'rgba(99,102,241,.4)' : '#6366f1',
+                            background: generating ? 'rgba(255, 107, 53,.4)' : '#ff6b35',
                             color: '#fff',
                             fontSize: 13,
                             fontWeight: 600,
@@ -1420,10 +1420,18 @@ export default function OtimizacoesPage() {
             const endpoint = isRunning ? `/tasks/${task.id}/timer/stop` : `/tasks/${task.id}/timer/start`;
             const result = await apiFetch(endpoint, { method: 'POST' });
             if (isRunning) {
+                // Pause = concluir: a resposta do backend traz a task atualizada com status='done'
                 setTasks(prev => prev.map(t => t.id === task.id
-                    ? { ...t, timer_started_at: null, time_spent_seconds: result.time_spent_seconds ?? t.time_spent_seconds }
+                    ? {
+                        ...t,
+                        ...result,
+                        timer_started_at: null,
+                        time_spent_seconds: result.time_spent_seconds ?? t.time_spent_seconds,
+                        status: result.status ?? 'done',
+                    }
                     : t
                 ));
+                fetchSummary();
             } else {
                 setTasks(prev => prev.map(t => t.id === task.id
                     ? { ...t, timer_started_at: result.timer_started_at ?? new Date().toISOString() }
@@ -1480,6 +1488,22 @@ export default function OtimizacoesPage() {
         c.due_date && c.status !== 'done' && String(c.due_date).substring(0, 10) < todayStr
     );
 
+    // Todas as demandas pendentes da semana (atrasadas + da semana atual), ordenadas
+    const weekStartStr = toISO(weekDays[0]);
+    const weekEndStr = toISO(weekDays[6]);
+    const weekBoardCards = [...boardCards]
+        .filter(c => c.status !== 'done')
+        .filter(c => {
+            if (!c.due_date) return false;
+            const d = String(c.due_date).substring(0, 10);
+            return d < todayStr || (d >= weekStartStr && d <= weekEndStr);
+        })
+        .sort((a, b) => {
+            const da = String(a.due_date).substring(0, 10);
+            const db = String(b.due_date).substring(0, 10);
+            return da.localeCompare(db);
+        });
+
     const pendingCount = tasks.filter((t) => t.status === 'pending').length;
     const doneCount = tasks.filter((t) => t.status === 'done').length;
     const clientsWithPending = new Set(
@@ -1524,7 +1548,7 @@ export default function OtimizacoesPage() {
         padding: '8px 20px',
         borderRadius: 8,
         border: 'none',
-        background: active ? 'var(--primary, #6366f1)' : 'transparent',
+        background: active ? 'var(--primary, #ff6b35)' : 'transparent',
         color: active ? '#fff' : 'var(--text-muted)',
         fontSize: 13,
         fontWeight: active ? 600 : 400,
@@ -1552,13 +1576,13 @@ export default function OtimizacoesPage() {
                                     width: 36,
                                     height: 36,
                                     borderRadius: 10,
-                                    background: 'rgba(99,102,241,.15)',
+                                    background: 'rgba(255, 107, 53,.15)',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                 }}
                             >
-                                <ClipboardList size={18} color="#6366f1" />
+                                <ClipboardList size={18} color="#ff6b35" />
                             </div>
                             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>
                                 Agenda
@@ -1599,6 +1623,61 @@ export default function OtimizacoesPage() {
             {/* ── AGENDA TAB ── */}
             {activeTab === 'agenda' && (
                 <>
+                    {/* Demandas em destaque (atrasadas + da semana) */}
+                    {weekBoardCards.length > 0 && (
+                        <div
+                            style={{
+                                marginBottom: 18,
+                                padding: '14px 16px',
+                                background: 'var(--bg-card)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 12,
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div style={{ width: 28, height: 28, borderRadius: 8, background: 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <KanbanSquare size={14} color="#f59e0b" />
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Demandas</div>
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                            {overdueBoardCards.length > 0 && (
+                                                <span style={{ color: 'var(--accent-red, #ef4444)', fontWeight: 600 }}>
+                                                    {overdueBoardCards.length} atrasada{overdueBoardCards.length > 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                            {overdueBoardCards.length > 0 && ' · '}
+                                            {weekBoardCards.length - overdueBoardCards.length} pendente{(weekBoardCards.length - overdueBoardCards.length) !== 1 ? 's' : ''} na semana
+                                        </div>
+                                    </div>
+                                </div>
+                                <a href="/board" style={{ fontSize: 12, color: 'var(--text-muted)', textDecoration: 'none' }}>
+                                    Abrir Demandas →
+                                </a>
+                            </div>
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+                                    gap: 8,
+                                }}
+                            >
+                                {weekBoardCards.map(c => {
+                                    const isOverdue = c.due_date && String(c.due_date).substring(0, 10) < todayStr;
+                                    return (
+                                        <BoardCardChip
+                                            key={'top-' + c.id}
+                                            card={c}
+                                            overdue={isOverdue}
+                                            onToggle={() => toggleBoardCardDone(c)}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Week navigator + generate button */}
                     <div
                         style={{
@@ -1690,7 +1769,7 @@ export default function OtimizacoesPage() {
                                 </span>
                                 <span style={{ color: 'var(--border)' }}>·</span>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                    <Users size={12} color="#6366f1" />
+                                    <Users size={12} color="#ff6b35" />
                                     <strong style={{ color: 'var(--text)' }}>{clientsWithPending}</strong> clientes
                                 </span>
                             </div>
@@ -1701,9 +1780,9 @@ export default function OtimizacoesPage() {
                                 style={{
                                     padding: '8px 16px',
                                     borderRadius: 8,
-                                    border: '1px solid rgba(99,102,241,.4)',
-                                    background: 'rgba(99,102,241,.1)',
-                                    color: '#6366f1',
+                                    border: '1px solid rgba(255, 107, 53,.4)',
+                                    background: 'rgba(255, 107, 53,.1)',
+                                    color: '#ff6b35',
                                     fontSize: 13,
                                     fontWeight: 600,
                                     cursor: 'pointer',
@@ -1765,16 +1844,16 @@ export default function OtimizacoesPage() {
                                                     padding: '8px 12px',
                                                     borderRadius: 10,
                                                     background: isToday
-                                                        ? 'rgba(99,102,241,.1)'
+                                                        ? 'rgba(255, 107, 53,.1)'
                                                         : 'var(--bg-card)',
-                                                    border: `1px solid ${isToday ? 'rgba(99,102,241,.3)' : 'var(--border)'}`,
+                                                    border: `1px solid ${isToday ? 'rgba(255, 107, 53,.3)' : 'var(--border)'}`,
                                                 }}
                                             >
                                                 <span
                                                     style={{
                                                         fontSize: 13,
                                                         fontWeight: 700,
-                                                        color: isToday ? '#6366f1' : 'var(--text)',
+                                                        color: isToday ? '#ff6b35' : 'var(--text)',
                                                     }}
                                                 >
                                                     {dayName} {dayNum}
@@ -1784,8 +1863,8 @@ export default function OtimizacoesPage() {
                                                         style={{
                                                             fontSize: 10,
                                                             fontWeight: 700,
-                                                            color: '#6366f1',
-                                                            background: 'rgba(99,102,241,.15)',
+                                                            color: '#ff6b35',
+                                                            background: 'rgba(255, 107, 53,.15)',
                                                             padding: '2px 7px',
                                                             borderRadius: 20,
                                                             textTransform: 'uppercase',
@@ -1893,11 +1972,11 @@ export default function OtimizacoesPage() {
                                                             marginBottom: 8,
                                                             padding: '8px 12px',
                                                             borderRadius: 10,
-                                                            background: isToday ? 'rgba(99,102,241,.1)' : 'var(--bg-card)',
-                                                            border: `1px solid ${isToday ? 'rgba(99,102,241,.3)' : 'var(--border)'}`,
+                                                            background: isToday ? 'rgba(255, 107, 53,.1)' : 'var(--bg-card)',
+                                                            border: `1px solid ${isToday ? 'rgba(255, 107, 53,.3)' : 'var(--border)'}`,
                                                         }}
                                                     >
-                                                        <span style={{ fontSize: 13, fontWeight: 700, color: isToday ? '#6366f1' : 'var(--text-muted)' }}>
+                                                        <span style={{ fontSize: 13, fontWeight: 700, color: isToday ? '#ff6b35' : 'var(--text-muted)' }}>
                                                             {dayName} {dayNum}
                                                         </span>
                                                     </div>

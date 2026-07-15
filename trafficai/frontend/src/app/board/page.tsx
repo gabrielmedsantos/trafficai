@@ -444,7 +444,7 @@ function KanbanCard({
                 {card.client_name && (
                     <ClientBadge
                         name={card.client_name}
-                        color={card.client_avatar_color || '#6366f1'}
+                        color={card.client_avatar_color || '#ff6b35'}
                     />
                 )}
                 {!card.client_name && card.project && (
@@ -1030,7 +1030,7 @@ function ClientPicker({
                     <>
                         <ClientAvatar
                             name={selected.name}
-                            color={selected.avatar_color || '#6366f1'}
+                            color={selected.avatar_color || '#ff6b35'}
                             size={16}
                         />
                         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1099,7 +1099,7 @@ function ClientPicker({
                             >
                                 <ClientAvatar
                                     name={c.name}
-                                    color={c.avatar_color || '#6366f1'}
+                                    color={c.avatar_color || '#ff6b35'}
                                     size={16}
                                 />
                                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1234,7 +1234,7 @@ function ClientChipBar({
                 >
                     <ClientAvatar
                         name={s.client_name || '?'}
-                        color={s.avatar_color || '#6366f1'}
+                        color={s.avatar_color || '#ff6b35'}
                         size={14}
                     />
                     <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}>

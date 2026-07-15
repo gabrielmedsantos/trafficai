@@ -6,6 +6,7 @@ import {
     Wallet, TrendingUp, TrendingDown, RefreshCw, Trash2, Edit2,
     ChevronDown, RotateCcw, FileText, Percent,
     CheckCircle2, Clock, AlertCircle, Zap, DollarSign,
+    Users, UserMinus, UserPlus, BarChart3, Repeat, Target,
 } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
@@ -14,17 +15,51 @@ const token = () => localStorage.getItem('trafficai_token') || '';
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 interface DashboardData {
+    regime?: 'cash' | 'accrual';
     income: number;
     expense: number;
     balance: number;
-    income_breakdown?: { transactions: number; contracts_paid: number };
+    income_breakdown?: { transactions: number; contracts_paid: number; pending_tx?: number; pending_contracts?: number };
+    expense_breakdown?: { transactions: number; pending_tx?: number };
     receivable?: number;
-    receivable_breakdown?: { pending: number; overdue: number };
+    receivable_breakdown?: { pending: number; overdue: number; pending_tx?: number };
     byCategory: { type: string; category: string; total: number }[];
+    incomeByCategory?: { type: string; category: string; total: number }[];
+    expenseByCategory?: { type: string; category: string; total: number }[];
     recent: Transaction[];
     accounts: FinancialAccount[];
     dailyFlow: { date: string; type: string; total: number }[];
     period: { month: number; year: number; startDate: string; endDate: string };
+}
+
+interface MetricsData {
+    mrr: number;
+    arr: number;
+    mrc: number;
+    avg_ticket: number;
+    active_clients: number;
+    clients_with_contract: number;
+    revenue_this_month: number;
+    revenue_last_month: number;
+    revenue_growth_pct: number | null;
+    expense_realized: number;
+    profit_realized: number;
+    profit_estimate_monthly: number;
+    churned_3mo: number;
+    churned_this_month: number;
+    churn_rate_3mo_pct: number;
+    new_clients_this_month: number;
+}
+
+interface RevenueByClient {
+    client_id: string;
+    client_name: string;
+    avatar_color: string;
+    client_status: string;
+    tx_income: number;
+    contract_paid: number;
+    contract_pending: number;
+    total_paid: number;
 }
 
 interface Transaction {
@@ -173,7 +208,13 @@ export default function FinanceiroPage() {
     const [clients, setClients] = useState<Client[]>([]);
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'overview' | 'income' | 'expense' | 'recurring' | 'contracts'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'management' | 'income' | 'expense' | 'recurring' | 'contracts'>('overview');
+    const [regime, setRegime] = useState<'cash' | 'accrual'>('accrual');
+
+    // Management
+    const [metrics, setMetrics] = useState<MetricsData | null>(null);
+    const [revenueByClient, setRevenueByClient] = useState<RevenueByClient[]>([]);
+    const [loadingManagement, setLoadingManagement] = useState(false);
     const [showTxModal, setShowTxModal] = useState(false);
     const [txForm, setTxForm] = useState<TxForm>(emptyTxForm);
     const [editingTx, setEditingTx] = useState<Transaction | null>(null);
@@ -195,8 +236,6 @@ export default function FinanceiroPage() {
     const [loadingBilling, setLoadingBilling] = useState(false);
     const [billingMonths, setBillingMonths] = useState(3);
     const [generatingBilling, setGeneratingBilling] = useState(false);
-    const [generateMonth, setGenerateMonth] = useState(new Date().getMonth() + 1);
-    const [generateYear, setGenerateYear] = useState(new Date().getFullYear());
     const [billingModal, setBillingModal] = useState<BillingRecord | null>(null);
     const [billingForm, setBillingForm] = useState({ status: 'paid', percentage_amount: '', payment_method: '', notes: '', due_date: '' });
 
@@ -204,7 +243,7 @@ export default function FinanceiroPage() {
         setLoading(true);
         try {
             const [dashRes, txRes, clientsRes, accountsRes] = await Promise.all([
-                fetch(`${API}/financial/dashboard?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${token()}` } }),
+                fetch(`${API}/financial/dashboard?month=${month}&year=${year}&regime=${regime}`, { headers: { Authorization: `Bearer ${token()}` } }),
                 fetch(`${API}/financial/transactions?month=${month}&year=${year}&limit=100`, { headers: { Authorization: `Bearer ${token()}` } }),
                 fetch(`${API}/clients`, { headers: { Authorization: `Bearer ${token()}` } }),
                 fetch(`${API}/financial/accounts`, { headers: { Authorization: `Bearer ${token()}` } }),
@@ -219,6 +258,19 @@ export default function FinanceiroPage() {
         } finally {
             setLoading(false);
         }
+    }, [month, year, regime]);
+
+    const fetchManagement = useCallback(async () => {
+        setLoadingManagement(true);
+        try {
+            const [mRes, rRes] = await Promise.all([
+                fetch(`${API}/financial/metrics?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${token()}` } }),
+                fetch(`${API}/financial/revenue-by-client?month=${month}&year=${year}`, { headers: { Authorization: `Bearer ${token()}` } }),
+            ]);
+            const [m, r] = await Promise.all([mRes.json(), rRes.json()]);
+            if (m.success) setMetrics(m.data);
+            if (r.success) setRevenueByClient(r.data);
+        } catch { /* ignore */ } finally { setLoadingManagement(false); }
     }, [month, year]);
 
     const fetchRecurring = useCallback(async () => {
@@ -255,6 +307,7 @@ export default function FinanceiroPage() {
     useEffect(() => { if (activeTab === 'recurring') { fetchRecurring(); fetchBilling(); } }, [activeTab, fetchRecurring, fetchBilling]);
     useEffect(() => { if (activeTab === 'contracts') fetchContracts(); }, [activeTab, fetchContracts]);
     useEffect(() => { if (activeTab === 'recurring') fetchBilling(); }, [billingMonths, fetchBilling]);
+    useEffect(() => { if (activeTab === 'management') fetchManagement(); }, [activeTab, fetchManagement]);
 
     function prevMonth() {
         if (month === 1) { setMonth(12); setYear(y => y - 1); }
@@ -355,6 +408,7 @@ export default function FinanceiroPage() {
 
     const TABS = [
         { key: 'overview',   label: 'Visão Geral' },
+        { key: 'management', label: 'Gestão' },
         { key: 'income',     label: 'Entradas' },
         { key: 'expense',    label: 'Saídas' },
         { key: 'recurring',  label: 'Recorrências' },
@@ -369,7 +423,32 @@ export default function FinanceiroPage() {
                     <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Financeiro</h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>Controle de receitas, despesas e fluxo de caixa</p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    {/* Regime toggle (cash/accrual) */}
+                    <div title="Caixa: só o que foi efetivamente pago / recebido. Competência: inclui pendências do mês."
+                         style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 4 }}>
+                        {[
+                            { key: 'accrual', label: 'Competência' },
+                            { key: 'cash', label: 'Caixa' },
+                        ].map(r => (
+                            <button
+                                key={r.key}
+                                onClick={() => setRegime(r.key as 'cash' | 'accrual')}
+                                style={{
+                                    padding: '6px 12px',
+                                    fontSize: 12.5,
+                                    fontWeight: 600,
+                                    background: regime === r.key ? 'var(--primary)' : 'transparent',
+                                    color: regime === r.key ? '#fff' : 'var(--text-muted)',
+                                    border: 'none',
+                                    borderRadius: 8,
+                                    cursor: 'pointer',
+                                }}
+                            >
+                                {r.label}
+                            </button>
+                        ))}
+                    </div>
                     {/* Month nav */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '6px 14px' }}>
                         <button onClick={prevMonth} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 2 }}>
@@ -436,9 +515,9 @@ export default function FinanceiroPage() {
                     label="Saldo do Mês"
                     value={formatBRL(dashboard?.balance || 0)}
                     icon={Wallet}
-                    color={(dashboard?.balance || 0) >= 0 ? '#6366f1' : '#ef4444'}
-                    bg={(dashboard?.balance || 0) >= 0 ? 'rgba(99,102,241,.12)' : 'rgba(239,68,68,.12)'}
-                    border={(dashboard?.balance || 0) >= 0 ? 'rgba(99,102,241,.2)' : 'rgba(239,68,68,.2)'}
+                    color={(dashboard?.balance || 0) >= 0 ? '#ff6b35' : '#ef4444'}
+                    bg={(dashboard?.balance || 0) >= 0 ? 'rgba(255, 107, 53,.12)' : 'rgba(239,68,68,.12)'}
+                    border={(dashboard?.balance || 0) >= 0 ? 'rgba(255, 107, 53,.2)' : 'rgba(239,68,68,.2)'}
                 />
                 <KpiCard
                     label="Saldo nas Contas"
@@ -469,9 +548,9 @@ export default function FinanceiroPage() {
                 ))}
             </div>
 
-            {/* ─── Overview: accounts + categories ─── */}
+            {/* ─── Overview: accounts + income/expense categories ─── */}
             {activeTab === 'overview' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 28 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, marginBottom: 28 }}>
                     {/* Accounts */}
                     <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 24 }}>
                         <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Contas Financeiras</h3>
@@ -494,36 +573,34 @@ export default function FinanceiroPage() {
                         )}
                     </div>
 
-                    {/* Categories */}
-                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 24 }}>
-                        <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Receitas por Categoria</h3>
-                        {!dashboard?.byCategory.filter(c => c.type === 'income').length ? (
-                            <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Sem dados para o período</p>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                {dashboard.byCategory.filter(c => c.type === 'income').slice(0, 6).map((c, i) => {
-                                    const maxVal = Math.max(...dashboard.byCategory.filter(x => x.type === 'income').map(x => Number(x.total)));
-                                    const pct = maxVal > 0 ? (Number(c.total) / maxVal) * 100 : 0;
-                                    return (
-                                        <div key={i}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                <span style={{ fontSize: 13, color: 'var(--text)' }}>{c.category || 'Outros'}</span>
-                                                <span style={{ fontSize: 13, fontWeight: 600, color: '#10b981' }}>{formatBRL(Number(c.total))}</span>
-                                            </div>
-                                            <div style={{ height: 4, background: 'var(--border)', borderRadius: 2 }}>
-                                                <div style={{ height: '100%', width: `${pct}%`, background: '#10b981', borderRadius: 2 }} />
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
-                    </div>
+                    {/* Income Categories */}
+                    <CategoryPanel
+                        title="Receitas por Categoria"
+                        items={(dashboard?.incomeByCategory || dashboard?.byCategory?.filter(c => c.type === 'income') || []) as { type: string; category: string; total: number }[]}
+                        color="#10b981"
+                    />
+
+                    {/* Expense Categories */}
+                    <CategoryPanel
+                        title="Despesas por Categoria"
+                        items={(dashboard?.expenseByCategory || dashboard?.byCategory?.filter(c => c.type === 'expense') || []) as { type: string; category: string; total: number }[]}
+                        color="#ef4444"
+                    />
                 </div>
             )}
 
+            {/* ─── Management tab ─── */}
+            {activeTab === 'management' && (
+                <ManagementTab
+                    metrics={metrics}
+                    revenueByClient={revenueByClient}
+                    loading={loadingManagement}
+                    period={`${MONTHS[month - 1]} ${year}`}
+                />
+            )}
+
             {/* ─── Transactions list (overview / income / expense) ─── */}
-            {activeTab !== 'recurring' && activeTab !== 'contracts' && (
+            {activeTab !== 'recurring' && activeTab !== 'contracts' && activeTab !== 'management' && (
                 <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
                     <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
@@ -694,7 +771,10 @@ export default function FinanceiroPage() {
                         <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                             <div>
                                 <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Recebimentos de Contratos</h3>
-                                <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--text-muted)' }}>Contratos fixos dos clientes — marque os recebidos</p>
+                                <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <Zap size={12} color="#10b981" />
+                                    <span>Gerados automaticamente todo mês — só marque os recebidos</span>
+                                </p>
                             </div>
                             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                                 {/* Period selector */}
@@ -706,29 +786,16 @@ export default function FinanceiroPage() {
                                         </button>
                                     ))}
                                 </div>
-                                {/* Month/Year picker for generate */}
-                                <select
-                                    value={generateMonth}
-                                    onChange={e => setGenerateMonth(Number(e.target.value))}
-                                    style={{ padding: '6px 10px', borderRadius: 8, fontSize: 12, background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer', outline: 'none' }}
-                                >
-                                    {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-                                </select>
-                                <select
-                                    value={generateYear}
-                                    onChange={e => setGenerateYear(Number(e.target.value))}
-                                    style={{ padding: '6px 10px', borderRadius: 8, fontSize: 12, background: 'var(--bg-input)', border: '1px solid var(--border)', color: 'var(--text)', cursor: 'pointer', outline: 'none' }}
-                                >
-                                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
-                                {/* Generate button */}
+                                {/* Manual refresh fallback */}
                                 <button
+                                    title="Força a geração do mês corrente agora (caso algum contrato novo não tenha aparecido ainda)"
                                     onClick={async () => {
                                         setGeneratingBilling(true);
+                                        const now = new Date();
                                         await fetch(`${API}/financial/billing/generate`, {
                                             method: 'POST',
                                             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-                                            body: JSON.stringify({ month: generateMonth, year: generateYear }),
+                                            body: JSON.stringify({ month: now.getMonth() + 1, year: now.getFullYear() }),
                                         });
                                         await fetch(`${API}/financial/billing/mark-overdue`, {
                                             method: 'POST', headers: { Authorization: `Bearer ${token()}` },
@@ -737,9 +804,9 @@ export default function FinanceiroPage() {
                                         setGeneratingBilling(false);
                                     }}
                                     disabled={generatingBilling}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 9, fontSize: 13, fontWeight: 600, background: 'var(--primary)', border: 'none', color: '#fff', cursor: generatingBilling ? 'not-allowed' : 'pointer', opacity: generatingBilling ? .7 : 1 }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, fontSize: 12.5, fontWeight: 500, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: generatingBilling ? 'not-allowed' : 'pointer', opacity: generatingBilling ? .6 : 1 }}
                                 >
-                                    <Zap size={14} /> {generatingBilling ? 'Gerando...' : 'Gerar'}
+                                    <RefreshCw size={13} style={generatingBilling ? { animation: 'spin 1s linear infinite' } : undefined} /> {generatingBilling ? 'Atualizando...' : 'Atualizar'}
                                 </button>
                             </div>
                         </div>
@@ -750,8 +817,8 @@ export default function FinanceiroPage() {
                         ) : billingRecords.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
                                 <RotateCcw size={32} style={{ opacity: .25, marginBottom: 12 }} />
-                                <p style={{ margin: 0, fontSize: 14 }}>Nenhum recebimento gerado</p>
-                                <p style={{ margin: '6px 0 0', fontSize: 13 }}>Clique em "Gerar Mês" para criar os recebimentos do mês atual</p>
+                                <p style={{ margin: 0, fontSize: 14 }}>Nenhum recebimento pendente</p>
+                                <p style={{ margin: '6px 0 0', fontSize: 13 }}>Cadastre contratos fixos em Clientes — os recebimentos do mês serão gerados automaticamente</p>
                             </div>
                         ) : (() => {
                             // Group by client
@@ -954,7 +1021,7 @@ export default function FinanceiroPage() {
                                         opacity: c.status === 'ended' ? .55 : 1,
                                     }}>
                                         {/* Avatar */}
-                                        <div style={{ width: 38, height: 38, borderRadius: 10, background: c.avatar_color || '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                        <div style={{ width: 38, height: 38, borderRadius: 10, background: c.avatar_color || '#ff6b35', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                             {(c.client_name || '?').split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
                                         </div>
 
@@ -975,7 +1042,7 @@ export default function FinanceiroPage() {
                                                 </span>
                                             )}
                                             {(c.type === 'percentage' || c.type === 'mixed') && Number(c.percentage) > 0 && (
-                                                <span style={{ fontSize: 13, fontWeight: 600, color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                                <span style={{ fontSize: 13, fontWeight: 600, color: '#ffa46e', display: 'flex', alignItems: 'center', gap: 3 }}>
                                                     <Percent size={12} />{c.percentage}% de {c.percentage_base}
                                                 </span>
                                             )}
@@ -1335,6 +1402,249 @@ function TxField({ label, value, onChange, placeholder = '', type = 'text' }: {
                 placeholder={placeholder}
                 style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
             />
+        </div>
+    );
+}
+
+// ─── Category Panel (reusable for income / expense) ────────────────────────
+
+function CategoryPanel({ title, items, color }: {
+    title: string;
+    items: { type: string; category: string; total: number }[];
+    color: string;
+}) {
+    const sorted = [...items].sort((a, b) => Number(b.total) - Number(a.total));
+    const maxVal = sorted.length ? Math.max(...sorted.map(c => Number(c.total))) : 0;
+    return (
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: 24 }}>
+            <h3 style={{ margin: '0 0 18px', fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{title}</h3>
+            {!sorted.length ? (
+                <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Sem dados para o período</p>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {sorted.slice(0, 6).map((c, i) => {
+                        const pct = maxVal > 0 ? (Number(c.total) / maxVal) * 100 : 0;
+                        return (
+                            <div key={i}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                    <span style={{ fontSize: 13, color: 'var(--text)' }}>{c.category || 'Outros'}</span>
+                                    <span style={{ fontSize: 13, fontWeight: 600, color }}>{formatBRL(Number(c.total))}</span>
+                                </div>
+                                <div style={{ height: 4, background: 'var(--border)', borderRadius: 2 }}>
+                                    <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2 }} />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── Management Tab (MRR/ARR/Churn/Profit + revenue-by-client) ─────────────
+
+function ManagementTab({ metrics, revenueByClient, loading, period }: {
+    metrics: MetricsData | null;
+    revenueByClient: RevenueByClient[];
+    loading: boolean;
+    period: string;
+}) {
+    if (loading && !metrics) {
+        return (
+            <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-muted)' }}>
+                Carregando métricas...
+            </div>
+        );
+    }
+    if (!metrics) return null;
+
+    const growth = metrics.revenue_growth_pct;
+    const growthLabel = growth === null
+        ? 'sem comparação'
+        : `${growth >= 0 ? '+' : ''}${growth.toFixed(1)}%`;
+    const growthColor = growth === null ? '#94a3b8' : growth >= 0 ? '#10b981' : '#ef4444';
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+            {/* ── KPI grid: receita recorrente ── */}
+            <div>
+                <h3 style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                    Receita Recorrente
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                    <MgmtCard
+                        icon={Repeat} color="#8b5cf6"
+                        label="MRR"
+                        hint="Receita mensal recorrente (contratos fixos ativos)"
+                        value={formatBRL(metrics.mrr)}
+                        footer={`${metrics.clients_with_contract} contrato${metrics.clients_with_contract !== 1 ? 's' : ''} ativo${metrics.clients_with_contract !== 1 ? 's' : ''}`}
+                    />
+                    <MgmtCard
+                        icon={Target} color="#ff6b35"
+                        label="ARR"
+                        hint="MRR × 12 — receita anual projetada"
+                        value={formatBRL(metrics.arr)}
+                    />
+                    <MgmtCard
+                        icon={DollarSign} color="#06b6d4"
+                        label="Ticket Médio"
+                        hint="MRR ÷ clientes com contrato"
+                        value={formatBRL(metrics.avg_ticket)}
+                    />
+                    <MgmtCard
+                        icon={Users} color="#3b82f6"
+                        label="Clientes Ativos"
+                        value={String(metrics.active_clients)}
+                        footer={`${metrics.clients_with_contract} com contrato`}
+                    />
+                </div>
+            </div>
+
+            {/* ── KPI grid: resultado ── */}
+            <div>
+                <h3 style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                    Resultado · {period}
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                    <MgmtCard
+                        icon={TrendingUp} color="#10b981"
+                        label="Receita do Mês"
+                        value={formatBRL(metrics.revenue_this_month)}
+                        footer={
+                            <span style={{ color: growthColor, fontWeight: 600 }}>
+                                {growthLabel} vs mês anterior
+                            </span>
+                        }
+                    />
+                    <MgmtCard
+                        icon={TrendingDown} color="#ef4444"
+                        label="Despesa do Mês"
+                        value={formatBRL(metrics.expense_realized)}
+                    />
+                    <MgmtCard
+                        icon={Wallet} color={metrics.profit_realized >= 0 ? '#10b981' : '#ef4444'}
+                        label="Lucro Realizado"
+                        hint="Receita recebida − despesa paga"
+                        value={formatBRL(metrics.profit_realized)}
+                    />
+                    <MgmtCard
+                        icon={BarChart3} color={metrics.profit_estimate_monthly >= 0 ? '#8b5cf6' : '#ef4444'}
+                        label="Lucro Estimado/mês"
+                        hint="MRR − custos recorrentes mensais"
+                        value={formatBRL(metrics.profit_estimate_monthly)}
+                        footer={metrics.mrc > 0 ? `Custos fixos: ${formatBRL(metrics.mrc)}` : 'Sem despesas recorrentes cadastradas'}
+                    />
+                </div>
+            </div>
+
+            {/* ── KPI grid: movimento de clientes ── */}
+            <div>
+                <h3 style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+                    Movimento de Clientes
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                    <MgmtCard
+                        icon={UserPlus} color="#10b981"
+                        label="Novos no mês"
+                        value={String(metrics.new_clients_this_month)}
+                    />
+                    <MgmtCard
+                        icon={UserMinus} color="#ef4444"
+                        label="Churn no mês"
+                        value={String(metrics.churned_this_month)}
+                    />
+                    <MgmtCard
+                        icon={UserMinus} color="#f59e0b"
+                        label="Churn rate 90d"
+                        hint="% de clientes que saíram nos últimos 90 dias"
+                        value={`${metrics.churn_rate_3mo_pct.toFixed(1)}%`}
+                        footer={`${metrics.churned_3mo} cliente${metrics.churned_3mo !== 1 ? 's' : ''} nos últimos 90d`}
+                    />
+                </div>
+            </div>
+
+            {/* ── Ranking de receita por cliente ── */}
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+                <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)' }}>
+                    <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>Receita por Cliente · {period}</h3>
+                    <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--text-muted)' }}>Total recebido + pendências em aberto do mês</p>
+                </div>
+                {revenueByClient.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)', fontSize: 13 }}>
+                        Nenhum cliente ativo encontrado
+                    </div>
+                ) : (
+                    <div>
+                        {revenueByClient.map((r, i) => {
+                            const maxTotal = Math.max(...revenueByClient.map(x => x.total_paid + x.contract_pending));
+                            const total = r.total_paid + r.contract_pending;
+                            const pct = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
+                            const inactive = r.client_status === 'churned' || r.client_status === 'inativo';
+                            return (
+                                <div key={r.client_id} style={{
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    padding: '14px 24px',
+                                    borderBottom: i < revenueByClient.length - 1 ? '1px solid var(--border)' : 'none',
+                                    opacity: inactive ? .55 : 1,
+                                }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: 10, background: r.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                        {r.client_name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{r.client_name}</span>
+                                            {inactive && (
+                                                <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999, background: 'rgba(148,163,184,.15)', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '.3px' }}>
+                                                    {r.client_status}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, marginTop: 8, position: 'relative', overflow: 'hidden' }}>
+                                            <div style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: 'linear-gradient(90deg, #10b981, #ff6b35)', borderRadius: 2 }} />
+                                        </div>
+                                        <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 5, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                            {r.contract_paid > 0 && <span>Contrato: <strong style={{ color: '#10b981' }}>{formatBRL(r.contract_paid)}</strong></span>}
+                                            {r.tx_income > 0 && <span>Avulso: <strong style={{ color: '#10b981' }}>{formatBRL(r.tx_income)}</strong></span>}
+                                            {r.contract_pending > 0 && <span>A receber: <strong style={{ color: '#f59e0b' }}>{formatBRL(r.contract_pending)}</strong></span>}
+                                        </div>
+                                    </div>
+                                    <div style={{ textAlign: 'right', minWidth: 120, flexShrink: 0 }}>
+                                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{formatBRL(r.total_paid)}</div>
+                                        {r.contract_pending > 0 && (
+                                            <div style={{ fontSize: 11, color: '#f59e0b' }}>+{formatBRL(r.contract_pending)} pend.</div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ─── Management KPI Card ───────────────────────────────────────────────────
+
+function MgmtCard({ icon: Icon, color, label, value, hint, footer }: {
+    icon: any; color: string; label: string; value: string; hint?: string;
+    footer?: React.ReactNode;
+}) {
+    return (
+        <div title={hint} style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: 14, padding: '18px 20px',
+        }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <span style={{ fontSize: 12.5, color: 'var(--text-muted)', fontWeight: 500 }}>{label}</span>
+                <div style={{ width: 30, height: 30, borderRadius: 9, background: `${color}1a`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon size={15} color={color} />
+                </div>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>{value}</div>
+            {footer && <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--text-muted)' }}>{footer}</div>}
         </div>
     );
 }

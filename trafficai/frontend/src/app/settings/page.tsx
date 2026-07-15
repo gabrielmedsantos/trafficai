@@ -6,6 +6,7 @@ import {
   Bell, Mail, MessageCircle, Save, Send, Moon, ShieldCheck, Info,
   Zap, AlertTriangle,
 } from 'lucide-react';
+import { MetaConnectButton } from '@/components/MetaConnectButton';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const token = () => typeof window !== 'undefined' ? localStorage.getItem('trafficai_token') || '' : '';
@@ -38,6 +39,8 @@ interface NotificationSettings {
   quiet_hours_enabled: boolean;
   quiet_start: string;
   quiet_end: string;
+  owner_whatsapp: string;
+  daily_report_approval_required: boolean;
 }
 
 const defaultSettings: NotificationSettings = {
@@ -61,6 +64,8 @@ const defaultSettings: NotificationSettings = {
   quiet_hours_enabled: false,
   quiet_start: '22:00',
   quiet_end: '08:00',
+  owner_whatsapp: '',
+  daily_report_approval_required: false,
 };
 
 export default function SettingsPage() {
@@ -229,38 +234,24 @@ export default function SettingsPage() {
           Conecte sua conta do Meta para sincronizar campanhas e métricas automaticamente.
         </p>
 
-        {user?.meta_connected ? (
-          <StatusBox color="green">
-            <CheckCircle size={17} color="var(--accent-green)" style={{ flexShrink: 0, marginTop: '1px' }} />
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--accent-green)', marginBottom: '2px' }}>Conta Meta Conectada</p>
-              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Sincronização ativa</p>
-            </div>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowManualToken(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <RefreshCw size={13} /> Atualizar Token
-            </button>
-          </StatusBox>
-        ) : (
-          <>
-            <StatusBox color="red">
-              <AlertCircle size={17} color="var(--accent-red)" style={{ flexShrink: 0, marginTop: '1px' }} />
-              <div>
-                <p style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--accent-red)', marginBottom: '2px' }}>Conta Meta Não Conectada</p>
-                <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Conecte para sincronizar campanhas e métricas.</p>
-              </div>
-            </StatusBox>
-            <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-              <button className="btn btn-primary btn-sm" onClick={connectMeta} disabled={connecting}
-                style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                <Link2 size={14} /> {connecting ? 'Conectando...' : 'Conectar via OAuth'}
-              </button>
+        {/* Embedded Signup (Fluxo recomendado) */}
+        <div style={{ marginBottom: 20 }}>
+          <MetaConnectButton onConnected={() => window.location.reload()} />
+        </div>
+
+        {/* Manual token (fallback, avançado) */}
+        {!user?.meta_connected && (
+          <details style={{ marginTop: 12 }}>
+            <summary style={{ fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+              Prefere colar token manualmente?
+            </summary>
+            <div style={{ marginTop: 10 }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setShowManualToken(!showManualToken)}
                 style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                 <Key size={14} /> Token Manual
               </button>
             </div>
-          </>
+          </details>
         )}
 
         {showManualToken && (
@@ -351,11 +342,11 @@ export default function SettingsPage() {
 
         {/* Email */}
         <ChannelBlock
-          icon={<Mail size={16} color="#6366f1" />}
+          icon={<Mail size={16} color="#ff6b35" />}
           title="Email"
           enabled={notif.email_enabled}
           onToggle={v => setN('email_enabled', v)}
-          accent="#6366f1"
+          accent="#ff6b35"
         >
           <Field label="Email para receber notificações *">
             <input type="email" value={notif.notification_email}
@@ -412,8 +403,8 @@ export default function SettingsPage() {
                       display: 'flex', alignItems: 'center', gap: '6px',
                       padding: '7px 14px', borderRadius: '8px',
                       border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
-                      background: active ? 'rgba(99,102,241,.14)' : 'transparent',
-                      color: active ? '#a5b4fc' : 'var(--text-muted)',
+                      background: active ? 'rgba(255, 107, 53,.14)' : 'transparent',
+                      color: active ? '#ffa46e' : 'var(--text-muted)',
                       fontSize: '13px', fontWeight: 600, cursor: 'pointer', transition: 'all .18s',
                     }}>
                     <Icon size={13} />
@@ -503,6 +494,36 @@ export default function SettingsPage() {
               </span>
             )}
           </div>
+
+          {/* ─── Aprovação de relatórios diários ──────────────────────────── */}
+          <div style={{
+            marginTop: '16px',
+            padding: '14px',
+            background: 'var(--bg-surface-2, rgba(255,255,255,0.02))',
+            border: '1px solid var(--border)',
+            borderRadius: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}>
+            <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+              📋 Aprovação manual antes de enviar relatórios pros clientes
+            </div>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0 }}>
+              Quando ligado, o cron diário envia o relatório <strong>pro seu WhatsApp</strong> com um link.
+              Você revisa e aprova; só então a mensagem é encaminhada pro cliente.
+            </p>
+            <Field label="Seu WhatsApp (formato 55DDDNUMERO)">
+              <input type="tel" value={notif.owner_whatsapp}
+                onChange={e => setN('owner_whatsapp', e.target.value)}
+                placeholder="ex: 5511999999999" style={inputSt} />
+            </Field>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={notif.daily_report_approval_required}
+                onChange={e => setN('daily_report_approval_required', e.target.checked)} />
+              Exigir minha aprovação antes de enviar pro cliente
+            </label>
+          </div>
         </ChannelBlock>
 
         {/* Salvar */}
@@ -525,7 +546,7 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
   return (
     <div className="card" style={{ marginBottom: '20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'rgba(99,102,241,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: '30px', height: '30px', borderRadius: '8px', background: 'rgba(255, 107, 53,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {icon}
         </div>
         <h2 style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.2px' }}>{title}</h2>
@@ -605,9 +626,9 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       style={{
         width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer',
         background: value ? 'var(--primary)' : 'var(--bg-input)',
-        outline: '1px solid ' + (value ? 'rgba(99,102,241,.4)' : 'var(--border)'),
+        outline: '1px solid ' + (value ? 'rgba(255, 107, 53,.4)' : 'var(--border)'),
         position: 'relative', transition: 'background .2s, box-shadow .2s', flexShrink: 0,
-        boxShadow: value ? '0 0 10px rgba(99,102,241,.35)' : 'none',
+        boxShadow: value ? '0 0 10px rgba(255, 107, 53,.35)' : 'none',
       }}>
       <span style={{
         position: 'absolute', top: '3px', left: value ? '22px' : '3px',

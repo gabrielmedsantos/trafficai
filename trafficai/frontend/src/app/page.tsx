@@ -215,7 +215,7 @@ export default function LoginPage() {
                     right: -150px;
                     width: 400px;
                     height: 400px;
-                    background: radial-gradient(circle, rgba(99,102,241,0.09), transparent 70%);
+                    background: radial-gradient(circle, rgba(255, 107, 53,0.09), transparent 70%);
                     pointer-events: none;
                 }
                 .auth-panel-inner {

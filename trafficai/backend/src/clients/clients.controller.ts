@@ -124,6 +124,8 @@ router.put('/:id', async (req: Request, res: Response) => {
         const { id } = req.params;
         const { name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color } = req.body;
 
+        // churned_at: seta NOW() quando transiciona pra 'churned', limpa quando sai.
+        // CASE no SQL pra não exigir uma SELECT prévia.
         const rows = await query<any>(
             `UPDATE clients SET
                name = COALESCE($3, name),
@@ -137,6 +139,11 @@ router.put('/:id', async (req: Request, res: Response) => {
                contract_end = COALESCE($11, contract_end),
                notes = COALESCE($12, notes),
                avatar_color = COALESCE($13, avatar_color),
+               churned_at = CASE
+                 WHEN $7::varchar = 'churned' AND status <> 'churned' THEN NOW()
+                 WHEN $7::varchar IS NOT NULL AND $7::varchar <> 'churned' THEN NULL
+                 ELSE churned_at
+               END,
                updated_at = NOW()
              WHERE id = $1 AND user_id = $2
              RETURNING *`,

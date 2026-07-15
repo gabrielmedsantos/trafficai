@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
-import { generatePublicToken, generateWebhookSecret } from './tracking.service';
+import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatch } from './tracking.service';
 import { getAdapter, backfillSource } from './crm-sync.service';
 
 const router = Router();
@@ -25,24 +25,118 @@ router.get('/sources', async (req: Request, res: Response) => {
                     s.crm_type, s.crm_subdomain, s.last_backfill_at,
                     a.account_name AS meta_account_name,
                     (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.created_at >= NOW() - INTERVAL '24 hours'
+                       AND e.meta_status = 'test_only') AS test_only_24h,
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
                        AND e.created_at >= NOW() - INTERVAL '24 hours') AS events_24h,
                     (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
                        AND e.created_at >= NOW() - INTERVAL '7 days' AND e.meta_status = 'failed') AS errors_7d,
                     (SELECT AVG(emq_score) FROM tracking_events e WHERE e.source_id = s.id
                        AND e.created_at >= NOW() - INTERVAL '7 days') AS avg_emq_7d,
-                    (SELECT COUNT(*) FROM tracking_whatsapp_leads w WHERE w.source_id = s.id) AS whatsapp_leads_total
+                    (SELECT COUNT(*) FROM tracking_whatsapp_leads w WHERE w.source_id = s.id) AS whatsapp_leads_total,
+                    -- Health signals
+                    (SELECT MAX(created_at) FROM tracking_events e WHERE e.source_id = s.id) AS last_event_at,
+                    -- Último evento vindo do pixel browser (não webhook/sistema) — detecta pixel instalado
+                    (SELECT MAX(created_at) FROM tracking_events e
+                       WHERE e.source_id = s.id AND e.action_source = 'website') AS last_pixel_event_at,
+                    -- Eventos failed ainda elegíveis pra retry automático
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.meta_status = 'failed' AND e.retry_count < 3
+                       AND e.created_at >= NOW() - INTERVAL '24 hours') AS pending_retries
              FROM tracking_sources s
              LEFT JOIN ad_accounts a ON s.account_id = a.id
              WHERE s.user_id = $1
              ORDER BY s.created_at DESC`,
             [userId]
         );
-        res.json({ success: true, data: rows });
+
+        // Computa status por fonte com base nos sinais
+        const data = rows.map((s: any) => ({
+            ...s,
+            status: computeSourceStatus(s),
+        }));
+        res.json({ success: true, data });
     } catch (err: any) {
         logger.error('tracking: listar fontes falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
+
+// ─── Status calculator ────────────────────────────────────────────────────
+//   test_mode      test_event_code ativo — eventos vão SÓ pra "Eventos de teste" da Meta
+//   healthy        evento nas últimas 1h, sem alto índice de falha
+//   active         evento últimas 24h, sem alto índice de falha
+//   idle           último evento entre 24h e 7d
+//   dead           sem evento há mais de 7d (ou nunca)
+//   pixel_missing  fonte tem credenciais mas SEM evento 'website' há > 24h (pixel pode estar fora do site)
+//   error_rate     >5% dos eventos 24h falharam
+//   inactive       fonte com is_active=false ou sem pixel_id configurado
+function computeSourceStatus(s: any): {
+    state: 'healthy' | 'active' | 'idle' | 'dead' | 'pixel_missing' | 'error_rate' | 'inactive' | 'test_mode';
+    detail: string;
+    severity: 'ok' | 'info' | 'warn' | 'error';
+} {
+    if (!s.is_active) return { state: 'inactive', detail: 'Fonte desativada', severity: 'info' };
+    if (!s.pixel_id) return { state: 'inactive', detail: 'Pixel ID não configurado', severity: 'warn' };
+
+    // Test mode tem prioridade — explica por que "sent" não aparece em produção
+    if (s.test_event_code) {
+        return {
+            state: 'test_mode',
+            detail: `test_event_code="${s.test_event_code}" — eventos só na aba Eventos de Teste da Meta`,
+            severity: 'warn',
+        };
+    }
+
+    const events24h = Number(s.events_24h) || 0;
+    const errors7d = Number(s.errors_7d) || 0;
+    const lastEvent = s.last_event_at ? new Date(s.last_event_at).getTime() : 0;
+    const lastPixel = s.last_pixel_event_at ? new Date(s.last_pixel_event_at).getTime() : 0;
+    const now = Date.now();
+    const hoursSinceLast = lastEvent ? (now - lastEvent) / 3600000 : Infinity;
+    const hoursSinceLastPixel = lastPixel ? (now - lastPixel) / 3600000 : Infinity;
+
+    // Sem nenhum evento
+    if (!lastEvent) return { state: 'dead', detail: 'Nenhum evento recebido ainda', severity: 'warn' };
+
+    // Morto: sem evento há mais de 7d
+    if (hoursSinceLast > 168) {
+        return { state: 'dead', detail: `Último evento há ${Math.floor(hoursSinceLast / 24)}d`, severity: 'error' };
+    }
+
+    // Erro alto (>5% em 24h)
+    if (events24h > 10 && errors7d / Math.max(events24h, 1) > 0.05) {
+        return {
+            state: 'error_rate',
+            detail: `${errors7d} falha(s) em 7d`,
+            severity: 'error',
+        };
+    }
+
+    // Pixel ausente: webhook funciona mas pixel browser não dispara há > 24h
+    // Só considera "pixel_missing" se a fonte tem domínio configurado (indica intenção de site)
+    if (s.domain && hoursSinceLastPixel > 24 && hoursSinceLast < 168) {
+        return {
+            state: 'pixel_missing',
+            detail: lastPixel
+                ? `Pixel browser parou há ${Math.floor(hoursSinceLastPixel / 24)}d`
+                : 'Pixel browser nunca disparou',
+            severity: 'warn',
+        };
+    }
+
+    if (hoursSinceLast < 1) {
+        return { state: 'healthy', detail: 'Evento há menos de 1h', severity: 'ok' };
+    }
+    if (hoursSinceLast < 24) {
+        return { state: 'active', detail: `Último evento há ${Math.floor(hoursSinceLast)}h`, severity: 'ok' };
+    }
+    return {
+        state: 'idle',
+        detail: `Último evento há ${Math.floor(hoursSinceLast / 24)}d`,
+        severity: 'info',
+    };
+}
 
 // ─── GET /tracking/sources/:id/whatsapp-leads ───────────────────────────────
 router.get('/sources/:id/whatsapp-leads', async (req: Request, res: Response) => {
@@ -265,11 +359,20 @@ router.delete('/sources/:id', async (req: Request, res: Response) => {
 });
 
 // ─── GET /tracking/sources/:id/events ───────────────────────────────────────
+// Query: limit, offset, status, event_name, from (ISO), to (ISO), search (event_id|external_id substring)
 router.get('/sources/:id/events', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
-        const { limit = '50', status, event_name } = req.query as any;
+        const {
+            limit = '50',
+            offset = '0',
+            status,
+            event_name,
+            from,
+            to,
+            search,
+        } = req.query as any;
 
         const own = await query<any>(
             `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
@@ -277,20 +380,147 @@ router.get('/sources/:id/events', async (req: Request, res: Response) => {
         );
         if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
 
+        const whereParts: string[] = [`source_id = $1`];
         const params: any[] = [id];
-        let sql = `SELECT id, event_name, event_id, event_time, action_source, external_id,
-                          event_source_url, value, currency, emq_score, meta_status,
-                          meta_error, meta_fbtrace_id, created_at,
-                          city, state, country
-                   FROM tracking_events WHERE source_id = $1`;
-        if (status) { params.push(status); sql += ` AND meta_status = $${params.length}`; }
-        if (event_name) { params.push(event_name); sql += ` AND event_name = $${params.length}`; }
-        params.push(Math.min(parseInt(limit, 10) || 50, 500));
-        sql += ` ORDER BY created_at DESC LIMIT $${params.length}`;
+        if (status)     { params.push(status);     whereParts.push(`meta_status = $${params.length}`); }
+        if (event_name) { params.push(event_name); whereParts.push(`event_name = $${params.length}`); }
+        if (from)       { params.push(from);       whereParts.push(`created_at >= $${params.length}::timestamptz`); }
+        if (to)         { params.push(to);         whereParts.push(`created_at <= $${params.length}::timestamptz`); }
+        if (search) {
+            const term = String(search).trim();
+            if (term.length > 0) {
+                params.push(`%${term}%`);
+                const i = params.length;
+                whereParts.push(
+                    `(event_id ILIKE $${i} OR external_id ILIKE $${i} OR meta_fbtrace_id ILIKE $${i})`
+                );
+            }
+        }
+        const whereSql = whereParts.join(' AND ');
 
+        // Total + page
+        const lim = Math.min(parseInt(limit, 10) || 50, 500);
+        const off = Math.max(parseInt(offset, 10) || 0, 0);
+
+        const countRow = await query<{ total: string }>(
+            `SELECT COUNT(*)::text AS total FROM tracking_events WHERE ${whereSql}`,
+            params
+        );
+        const total = Number(countRow[0]?.total || 0);
+
+        params.push(lim, off);
+        const sql = `
+            SELECT id, event_name, event_id, event_time, action_source, external_id,
+                   event_source_url, value, currency, emq_score, meta_status,
+                   meta_error, meta_fbtrace_id, retry_count, created_at,
+                   city, state, country
+            FROM tracking_events
+            WHERE ${whereSql}
+            ORDER BY created_at DESC
+            LIMIT $${params.length - 1} OFFSET $${params.length}
+        `;
         const rows = await query<any>(sql, params);
-        res.json({ success: true, data: rows });
+        res.json({ success: true, data: rows, meta: { total, limit: lim, offset: off } });
     } catch (err: any) {
+        logger.error('tracking: listar eventos falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/health ──────────────────────────────────────
+// Diagnóstico detalhado pro source detail. Retorna estado + sinais úteis pra
+// decidir o que mostrar pro usuário.
+router.get('/sources/:id/health', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const rows = await query<any>(
+            `SELECT s.id, s.name, s.pixel_id, s.is_active, s.domain, s.test_event_code,
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.created_at >= NOW() - INTERVAL '24 hours') AS events_24h,
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.created_at >= NOW() - INTERVAL '24 hours'
+                       AND e.action_source = 'website') AS pixel_events_24h,
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.created_at >= NOW() - INTERVAL '24 hours'
+                       AND e.meta_status = 'test_only') AS test_only_24h,
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.created_at >= NOW() - INTERVAL '7 days' AND e.meta_status = 'failed') AS errors_7d,
+                    (SELECT COUNT(*) FROM tracking_events e WHERE e.source_id = s.id
+                       AND e.meta_status = 'failed' AND e.retry_count < 3
+                       AND e.created_at >= NOW() - INTERVAL '24 hours') AS pending_retries,
+                    (SELECT MAX(created_at) FROM tracking_events e WHERE e.source_id = s.id) AS last_event_at,
+                    (SELECT MAX(created_at) FROM tracking_events e
+                       WHERE e.source_id = s.id AND e.action_source = 'website') AS last_pixel_event_at,
+                    (SELECT MAX(created_at) FROM tracking_events e
+                       WHERE e.source_id = s.id AND e.meta_status = 'failed') AS last_error_at
+             FROM tracking_sources s
+             WHERE s.id = $1 AND s.user_id = $2`,
+            [id, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const s = rows[0];
+        const status = computeSourceStatus(s);
+
+        // Checklist de instalação
+        const checklist = [
+            {
+                key: 'is_active',
+                label: 'Fonte ativa',
+                ok: !!s.is_active,
+                hint: s.is_active ? undefined : 'Ative a fonte em "Editar credenciais"',
+            },
+            {
+                key: 'pixel_id',
+                label: 'Pixel ID configurado',
+                ok: !!s.pixel_id,
+                hint: s.pixel_id ? undefined : 'Cole o Pixel ID em "Editar credenciais"',
+            },
+            {
+                key: 'production_mode',
+                label: 'Modo produção (não-teste)',
+                ok: !s.test_event_code,
+                hint: s.test_event_code
+                    ? `test_event_code="${s.test_event_code}" ativo — eventos aparecem SÓ na aba "Eventos de teste" da Meta. Remova em "Editar credenciais" pra contar em produção.`
+                    : undefined,
+            },
+            {
+                key: 'pixel_installed',
+                label: 'Pixel instalado no site',
+                ok: Number(s.pixel_events_24h) > 0,
+                hint: Number(s.pixel_events_24h) > 0
+                    ? undefined
+                    : 'Nenhum evento browser nas últimas 24h — confira o <script> no site',
+            },
+            {
+                key: 'no_recent_errors',
+                label: 'Sem erros recentes (24h)',
+                ok: Number(s.errors_7d) === 0 || Number(s.pending_retries) === 0,
+                hint: Number(s.pending_retries) > 0
+                    ? `${s.pending_retries} evento(s) ainda elegíveis pra retry`
+                    : undefined,
+            },
+        ];
+
+        res.json({
+            success: true,
+            data: {
+                status,
+                signals: {
+                    events_24h: Number(s.events_24h) || 0,
+                    pixel_events_24h: Number(s.pixel_events_24h) || 0,
+                    errors_7d: Number(s.errors_7d) || 0,
+                    pending_retries: Number(s.pending_retries) || 0,
+                    last_event_at: s.last_event_at,
+                    last_pixel_event_at: s.last_pixel_event_at,
+                    last_error_at: s.last_error_at,
+                },
+                checklist,
+            },
+        });
+    } catch (err: any) {
+        logger.error('tracking: health falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
@@ -377,6 +607,8 @@ router.get('/events/:eventId', async (req: Request, res: Response) => {
                 meta_response: ev.meta_response,
                 meta_error: ev.meta_error,
                 meta_fbtrace_id: ev.meta_fbtrace_id,
+                retry_count: Number(ev.retry_count) || 0,
+                last_retry_at: ev.last_retry_at,
                 // O que saiu pra Meta
                 meta_request: metaRequest,
             },
@@ -498,7 +730,7 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         // KPIs agregados
         const totals = await query<any>(
             `SELECT
-                COUNT(*) FILTER (WHERE event_name IN ('Lead', 'LeadSubmitted')) AS leads,
+                COUNT(*) FILTER (WHERE event_name = 'Lead') AS leads,
                 COUNT(*) FILTER (WHERE event_name = 'Contact') AS qualified,
                 COUNT(*) FILTER (WHERE event_name = 'Lead_Desqualificado') AS disqualified,
                 COUNT(*) FILTER (WHERE event_name = 'Schedule') AS scheduled,
@@ -544,7 +776,7 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         // Breakdown diário (eventos)
         const dailyEvents = await query<any>(
             `SELECT DATE(created_at) AS date,
-                    COUNT(*) FILTER (WHERE event_name IN ('Lead','LeadSubmitted')) AS leads,
+                    COUNT(*) FILTER (WHERE event_name = 'Lead') AS leads,
                     COUNT(*) FILTER (WHERE event_name = 'Contact') AS qualified,
                     COUNT(*) FILTER (WHERE event_name = 'Schedule') AS scheduled,
                     COUNT(*) FILTER (WHERE event_name = 'Purchase') AS sales,
@@ -667,6 +899,55 @@ router.post('/sources/:id/test', async (req: Request, res: Response) => {
     } catch (err: any) {
         logger.error('tracking: test falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: err.message } });
+    }
+});
+
+// ─── POST /tracking/events/:eventId/retry ──────────────────────────────────
+// Retenta UM evento falho específico. Valida ownership.
+router.post('/events/:eventId/retry', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { eventId } = req.params;
+        const own = await query<any>(
+            `SELECT e.id FROM tracking_events e
+             JOIN tracking_sources s ON e.source_id = s.id
+             WHERE e.id = $1 AND s.user_id = $2`,
+            [eventId, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Evento não encontrado' } });
+
+        const result = await retryEvent(eventId);
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking: retry de evento falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /tracking/sources/:id/retry-failed ───────────────────────────────
+// Retenta TODOS os eventos failed da fonte (últimas 24h, max 3 tentativas/evento).
+// Body opcional: { max_age_hours, limit }
+router.post('/sources/:id/retry-failed', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const result = await retryFailedBatch({
+            sourceId: id,
+            maxAgeHours: Number(req.body?.max_age_hours) || 24,
+            maxRetries: 3,
+            minSinceLastRetryMs: 0, // no manual mode, sem cooldown
+            limit: Number(req.body?.limit) || 200,
+        });
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking: retry-failed falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
 

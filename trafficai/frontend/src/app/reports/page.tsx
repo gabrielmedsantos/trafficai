@@ -51,6 +51,7 @@ interface ReportSettings {
   auto_send_email: boolean;
   auto_send_whatsapp: boolean;
   daily_whatsapp_enabled: boolean;
+  daily_whatsapp_time: string;
   agency_name: string;
   custom_message: string;
 }
@@ -61,7 +62,7 @@ const typeBg    = { daily: 'rgba(59,130,246,.12)', weekly: 'rgba(139,92,246,.12)
 const statusCfg = {
   draft:  { label: 'Rascunho',    color: '#94a3b8', bg: 'rgba(100,116,139,.1)',  border: 'rgba(100,116,139,.2)' },
   sent:   { label: 'Enviado',     color: '#34d399', bg: 'rgba(16,185,129,.1)',   border: 'rgba(16,185,129,.25)' },
-  viewed: { label: 'Visualizado', color: '#a5b4fc', bg: 'rgba(99,102,241,.1)',   border: 'rgba(99,102,241,.25)' },
+  viewed: { label: 'Visualizado', color: '#ffa46e', bg: 'rgba(255, 107, 53,.1)',   border: 'rgba(255, 107, 53,.25)' },
 } as const;
 
 export default function ReportsPage() {
@@ -109,6 +110,7 @@ export default function ReportsPage() {
     client_name: '', client_email: '', client_phone: '',
     daily_enabled: false, weekly_enabled: true, monthly_enabled: true,
     auto_send_email: false, auto_send_whatsapp: false, daily_whatsapp_enabled: false,
+    daily_whatsapp_time: '08:15',
     agency_name: 'Alfamax Digital', custom_message: '',
   });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -414,9 +416,9 @@ export default function ReportsPage() {
           <button key={f.value} onClick={() => setFilterType(f.value)}
             style={{
               padding: '5px 14px', borderRadius: '20px', fontSize: '12.5px', fontWeight: 600,
-              cursor: 'pointer', border: `1px solid ${filterType === f.value ? 'rgba(99,102,241,.5)' : 'var(--border)'}`,
-              background: filterType === f.value ? 'rgba(99,102,241,.12)' : 'transparent',
-              color: filterType === f.value ? '#a5b4fc' : 'var(--text-muted)',
+              cursor: 'pointer', border: `1px solid ${filterType === f.value ? 'rgba(255, 107, 53,.5)' : 'var(--border)'}`,
+              background: filterType === f.value ? 'rgba(255, 107, 53,.12)' : 'transparent',
+              color: filterType === f.value ? '#ffa46e' : 'var(--text-muted)',
               transition: 'all .15s',
             }}>
             {f.label}
@@ -536,7 +538,7 @@ export default function ReportsPage() {
                       </button>
                       <button onClick={() => sendReport(report.id, report.client_email || undefined)}
                         disabled={sendingId === report.id} title="Enviar por email"
-                        style={iconBtnStyle({ background: 'rgba(99,102,241,.1)', borderColor: 'rgba(99,102,241,.25)', color: '#a5b4fc' })}>
+                        style={iconBtnStyle({ background: 'rgba(255, 107, 53,.1)', borderColor: 'rgba(255, 107, 53,.25)', color: '#ffa46e' })}>
                         {sendingId === report.id
                           ? <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
                           : <Send size={15} />}
@@ -586,13 +588,13 @@ export default function ReportsPage() {
                             {send.channel === 'whatsapp' ? (
                               <MessageCircle size={13} color="#25d366" />
                             ) : (
-                              <Mail size={13} color="#a5b4fc" />
+                              <Mail size={13} color="#ffa46e" />
                             )}
                             <span style={{
                               fontSize: '11px', fontWeight: 700, padding: '1px 7px', borderRadius: '8px',
-                              background: send.channel === 'whatsapp' ? 'rgba(37,211,102,.12)' : 'rgba(99,102,241,.12)',
-                              color: send.channel === 'whatsapp' ? '#25d366' : '#a5b4fc',
-                              border: `1px solid ${send.channel === 'whatsapp' ? 'rgba(37,211,102,.25)' : 'rgba(99,102,241,.25)'}`,
+                              background: send.channel === 'whatsapp' ? 'rgba(37,211,102,.12)' : 'rgba(255, 107, 53,.12)',
+                              color: send.channel === 'whatsapp' ? '#25d366' : '#ffa46e',
+                              border: `1px solid ${send.channel === 'whatsapp' ? 'rgba(37,211,102,.25)' : 'rgba(255, 107, 53,.25)'}`,
                               textTransform: 'uppercase', letterSpacing: '0.4px',
                             }}>
                               {send.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
@@ -674,8 +676,8 @@ export default function ReportsPage() {
                   onClick={() => setGenForm(f => ({ ...f, custom_period: !f.custom_period }))}
                   style={{
                     width: '36px', height: '20px', borderRadius: '10px', position: 'relative', flexShrink: 0,
-                    background: genForm.custom_period ? 'rgba(99,102,241,.7)' : 'var(--bg-input)',
-                    border: `1px solid ${genForm.custom_period ? 'rgba(99,102,241,.8)' : 'var(--border)'}`,
+                    background: genForm.custom_period ? 'rgba(255, 107, 53,.7)' : 'var(--bg-input)',
+                    border: `1px solid ${genForm.custom_period ? 'rgba(255, 107, 53,.8)' : 'var(--border)'}`,
                     transition: 'all .2s', cursor: 'pointer',
                   }}>
                   <div style={{
@@ -715,7 +717,7 @@ export default function ReportsPage() {
                   <AccountSelect accounts={accounts} value={genForm.account_id}
                     onChange={id => setGenForm(f => ({ ...f, account_id: id }))} placeholder="Selecione uma conta" />
                 </div>
-                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '12px 14px', borderRadius: '8px', lineHeight: 1.6, borderLeft: '3px solid rgba(99,102,241,.4)' }}>
+                <div style={{ fontSize: '12.5px', color: 'var(--text-muted)', background: 'var(--bg-input)', padding: '12px 14px', borderRadius: '8px', lineHeight: 1.6, borderLeft: '3px solid rgba(255, 107, 53,.4)' }}>
                   Sincroniza dados frescos da Meta API antes de gerar a análise via IA.
                 </div>
               </>
@@ -832,12 +834,12 @@ export default function ReportsPage() {
                         display: 'flex', alignItems: 'center', gap: 12,
                         padding: '14px 16px',
                         background: 'var(--primary-soft)',
-                        border: '1px solid rgba(99, 102, 241, 0.22)',
+                        border: '1px solid rgba(255, 107, 53, 0.22)',
                         borderRadius: 10,
                       }}>
                         <div style={{
                           width: 36, height: 36, borderRadius: 8,
-                          background: 'rgba(99, 102, 241, 0.18)',
+                          background: 'rgba(255, 107, 53, 0.18)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
                           flexShrink: 0,
                         }}>
@@ -1082,9 +1084,9 @@ export default function ReportsPage() {
                       onClick={() => setSettingsForm(f => ({ ...f, [key]: !f[key as keyof ReportSettings] }))}
                       style={{
                         padding: '10px', borderRadius: '8px', cursor: 'pointer', textAlign: 'center',
-                        border: `1.5px solid ${active ? 'rgba(99,102,241,.5)' : 'var(--border)'}`,
-                        background: active ? 'rgba(99,102,241,.12)' : 'transparent',
-                        color: active ? '#a5b4fc' : 'var(--text-muted)',
+                        border: `1.5px solid ${active ? 'rgba(255, 107, 53,.5)' : 'var(--border)'}`,
+                        background: active ? 'rgba(255, 107, 53,.12)' : 'transparent',
+                        color: active ? '#ffa46e' : 'var(--text-muted)',
                         fontSize: '13px', fontWeight: 600, transition: 'all .15s',
                       }}>
                       {label}
@@ -1097,7 +1099,7 @@ export default function ReportsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <Send size={14} color="#a5b4fc" />
+                  <Send size={14} color="#ffa46e" />
                   <div>
                     <p style={{ fontSize: '13.5px', fontWeight: 600, margin: 0 }}>Auto-envio por email</p>
                     <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>Envia automaticamente ao gerar relatório</p>
@@ -1132,11 +1134,31 @@ export default function ReportsPage() {
                     onChange={v => setSettingsForm(f => ({ ...f, daily_whatsapp_enabled: v }))} />
                 </div>
                 {settingsForm.daily_whatsapp_enabled && (
-                  <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                  <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <label style={{ fontSize: 12, color: 'var(--text-muted)' }}>Horário de envio (UTC):</label>
+                      <input
+                        type="time"
+                        value={settingsForm.daily_whatsapp_time}
+                        onChange={e => setSettingsForm(f => ({ ...f, daily_whatsapp_time: e.target.value }))}
+                        step={900}
+                        style={{ padding: '6px 10px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', fontSize: 12 }}
+                      />
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        ≈ {(() => {
+                          const [h, m] = settingsForm.daily_whatsapp_time.split(':').map(Number);
+                          const brt = (h - 3 + 24) % 24;
+                          return `${String(brt).padStart(2, '0')}:${String(m).padStart(2, '0')} BRT`;
+                        })()}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      Aceita número (<code>5511999998888</code>) ou ID do grupo (<code>1234567890@g.us</code>) no campo telefone.
+                    </div>
                     <button
                       onClick={sendDailyWhatsAppNow}
                       disabled={sendingDailyWa}
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', background: 'rgba(37,211,102,.15)', border: '1px solid rgba(37,211,102,.35)', borderRadius: '6px', color: '#25d366', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 14px', background: 'rgba(37,211,102,.15)', border: '1px solid rgba(37,211,102,.35)', borderRadius: '6px', color: '#25d366', fontSize: '12px', fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}
                     >
                       <MessageCircle size={12} />
                       {sendingDailyWa ? 'Enviando…' : 'Enviar agora (teste)'}
@@ -1191,10 +1213,10 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       style={{
         width: '42px', height: '24px', borderRadius: '12px', border: 'none', cursor: 'pointer',
         background: value ? 'var(--primary)' : 'var(--bg-input)',
-        outline: '1px solid ' + (value ? 'rgba(99,102,241,.4)' : 'var(--border)'),
+        outline: '1px solid ' + (value ? 'rgba(255, 107, 53,.4)' : 'var(--border)'),
         position: 'relative',
         transition: 'background .2s, box-shadow .2s', flexShrink: 0,
-        boxShadow: value ? '0 0 10px rgba(99,102,241,.35)' : 'none',
+        boxShadow: value ? '0 0 10px rgba(255, 107, 53,.35)' : 'none',
       }}>
       <span style={{
         position: 'absolute', top: '4px', left: value ? '22px' : '4px',

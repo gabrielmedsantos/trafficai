@@ -22,6 +22,16 @@ import {
     ClipboardList,
     Activity,
     KanbanSquare,
+    BarChart3,
+    MessageSquare,
+    Target,
+    CheckSquare,
+    Share2,
+    Plug,
+    Briefcase,
+    Menu,
+    X,
+    MessageCircle,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -35,7 +45,7 @@ const AREAS = [
         id: 'traffic',
         label: 'Tráfego Pago',
         icon: Radio,
-        routes: ['/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking'],
+        routes: ['/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar'],
         groups: [
             {
                 label: 'Inteligência',
@@ -49,19 +59,24 @@ const AREAS = [
                 label: 'Campanhas',
                 items: [
                     { href: '/campaigns',    label: 'Campanhas',    icon: Megaphone },
+                    { href: '/google-ads',   label: 'Google Ads',   icon: Radio },
                     { href: '/predictions',  label: 'Previsões',    icon: TrendingUp },
                     { href: '/rotina',       label: 'Rotina',       icon: CalendarDays },
                     { href: '/otimizacoes',  label: 'Agenda',       icon: ClipboardList },
                     { href: '/alerts',       label: 'Alertas',      icon: Bell, showBadge: true },
+                    { href: '/automation',   label: 'Automações',   icon: Zap },
                 ],
             },
             {
                 label: 'Resultados',
                 items: [
-                    { href: '/reports',     label: 'Relatórios',   icon: FileText },
-                    { href: '/creative',    label: 'Criativos',    icon: Palette },
-                    { href: '/tracking',    label: 'Tracking',     icon: Activity },
-                    { href: '/accounts',    label: 'Contas',       icon: Users },
+                    { href: '/reports',           label: 'Relatórios',       icon: FileText },
+                    { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle },
+                    { href: '/creative',          label: 'Criativos',        icon: Palette },
+                    { href: '/templates',         label: 'Templates',        icon: FileText },
+                    { href: '/calendar',          label: 'Agenda/Reuniões',  icon: CalendarDays },
+                    { href: '/tracking',          label: 'Tracking',         icon: Activity },
+                    { href: '/accounts',          label: 'Contas',           icon: Users },
                 ],
             },
         ],
@@ -88,9 +103,39 @@ const AREAS = [
             },
         ],
     },
+    {
+        id: 'comercial',
+        label: 'Comercial',
+        icon: Briefcase,
+        routes: ['/comercial'],
+        groups: [
+            {
+                label: 'Visão Geral',
+                items: [
+                    { href: '/comercial',                label: 'Dashboard',     icon: BarChart3 },
+                    { href: '/comercial/conversations',  label: 'Conversas',     icon: MessageSquare },
+                    { href: '/comercial/leads',          label: 'Leads',         icon: Target },
+                ],
+            },
+            {
+                label: 'Operação',
+                items: [
+                    { href: '/comercial/team',           label: 'Vendedores',    icon: Users },
+                    { href: '/comercial/tasks',          label: 'Tarefas',       icon: CheckSquare },
+                ],
+            },
+            {
+                label: 'Configuração',
+                items: [
+                    { href: '/comercial/integrations',   label: 'Integrações',   icon: Plug },
+                    { href: '/comercial/share-links',    label: 'Compartilhar',  icon: Share2 },
+                ],
+            },
+        ],
+    },
 ] as const;
 
-type AreaId = 'traffic' | 'gestao';
+type AreaId = 'traffic' | 'gestao' | 'comercial';
 
 function detectArea(pathname: string): AreaId {
     for (const area of AREAS) {
@@ -105,11 +150,21 @@ export default function Sidebar() {
     const pathname = usePathname();
     const [unreadAlerts, setUnreadAlerts] = useState(0);
     const [activeArea, setActiveArea] = useState<AreaId>(() => detectArea(pathname || ''));
+    const [mobileOpen, setMobileOpen] = useState(false);
     const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
 
     useEffect(() => {
         if (pathname) setActiveArea(detectArea(pathname));
+        // Fecha drawer ao navegar
+        setMobileOpen(false);
     }, [pathname]);
+
+    // Trava scroll do body quando o drawer mobile está aberto
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        document.body.style.overflow = mobileOpen ? 'hidden' : '';
+        return () => { document.body.style.overflow = ''; };
+    }, [mobileOpen]);
 
     useEffect(() => {
         const fetchAlerts = async () => {
@@ -131,7 +186,39 @@ export default function Sidebar() {
     const currentArea = AREAS.find(a => a.id === activeArea) ?? AREAS[0];
 
     return (
-        <aside className="sidebar">
+        <>
+            {/* Top bar mobile (hamburger + brand) — só visível em < 900px */}
+            <div className="mobile-topbar">
+                <button
+                    type="button"
+                    className="mobile-topbar-btn"
+                    onClick={() => setMobileOpen(true)}
+                    aria-label="Abrir menu"
+                >
+                    <Menu size={20} strokeWidth={2} />
+                </button>
+                <div className="mobile-topbar-brand">
+                    <div className="sidebar-brand-mark"><Zap size={14} strokeWidth={2.4} /></div>
+                    <span>TrafficAI</span>
+                </div>
+            </div>
+
+            {/* Backdrop drawer mobile */}
+            {mobileOpen && (
+                <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)} />
+            )}
+
+            <aside className={`sidebar ${mobileOpen ? 'open' : ''}`}>
+            {/* Botão fechar (mobile) */}
+            <button
+                type="button"
+                className="sidebar-close-btn"
+                onClick={() => setMobileOpen(false)}
+                aria-label="Fechar menu"
+            >
+                <X size={18} strokeWidth={2} />
+            </button>
+
             {/* Brand */}
             <div className="sidebar-brand">
                 <div className="sidebar-brand-mark">
@@ -207,6 +294,13 @@ export default function Sidebar() {
             {/* Footer */}
             <div className="sidebar-footer">
                 <Link
+                    href="/integrations"
+                    className={`sidebar-link ${pathname === '/integrations' ? 'active' : ''}`}
+                >
+                    <Plug className="icon" strokeWidth={1.8} />
+                    <span>Integrações</span>
+                </Link>
+                <Link
                     href="/settings"
                     className={`sidebar-link ${pathname === '/settings' ? 'active' : ''}`}
                 >
@@ -223,5 +317,6 @@ export default function Sidebar() {
                 </button>
             </div>
         </aside>
+        </>
     );
 }
