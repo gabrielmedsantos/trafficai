@@ -6,29 +6,19 @@ import type { Recording } from '@/lib/recordings-api'
 
 interface RecordingsPanelProps {
   liveId: string
-  recordingType?: 'costream' | 'standard' | 'hybrid'
-  onRecordingStart?: () => void
-  onRecordingStop?: () => void
 }
 
-export default function RecordingsPanel({
-  liveId,
-  recordingType = 'standard',
-  onRecordingStart,
-  onRecordingStop,
-}: RecordingsPanelProps) {
+export default function RecordingsPanel({ liveId }: RecordingsPanelProps) {
   const [recordingsList, setRecordingsList] = useState<Recording[]>([])
-  const [isRecording, setIsRecording] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch recordings
+  // Fetch recordings (auto-refresh every 5s)
   useEffect(() => {
     const fetchRecordings = async () => {
       try {
         const result = await recordings.list(liveId)
         setRecordingsList(result.recordings)
-        setIsRecording(result.recordings.some(r => r.status === 'recording'))
         setError(null)
       } catch (err) {
         console.error('Failed to fetch recordings:', err)
@@ -42,44 +32,6 @@ export default function RecordingsPanel({
     const interval = setInterval(fetchRecordings, 5000)
     return () => clearInterval(interval)
   }, [liveId])
-
-  async function startRecording() {
-    try {
-      setLoading(true)
-      await recordings.start(liveId, recordingType)
-      setIsRecording(true)
-      setError(null)
-      onRecordingStart?.()
-
-      // Refetch
-      const result = await recordings.list(liveId)
-      setRecordingsList(result.recordings)
-    } catch (err) {
-      console.error('Failed to start recording:', err)
-      setError(String(err))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function stopRecording() {
-    try {
-      setLoading(true)
-      await recordings.stop(liveId)
-      setIsRecording(false)
-      setError(null)
-      onRecordingStop?.()
-
-      // Refetch
-      const result = await recordings.list(liveId)
-      setRecordingsList(result.recordings)
-    } catch (err) {
-      console.error('Failed to stop recording:', err)
-      setError(String(err))
-    } finally {
-      setLoading(false)
-    }
-  }
 
   async function deleteRecording(recordingId: string) {
     if (!confirm('Delete this recording?')) return
@@ -100,23 +52,12 @@ export default function RecordingsPanel({
   return (
     <div className="bg-surface border border-border rounded-lg p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">🎥 Gravações</span>
-          {isRecording && <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
-        </div>
-        <button
-          onClick={isRecording ? stopRecording : startRecording}
-          disabled={loading}
-          className={clsx(
-            'px-3 py-1.5 rounded text-xs font-medium transition-all disabled:opacity-50',
-            isRecording
-              ? 'bg-red-600 hover:bg-red-700 text-white'
-              : 'bg-green-600 hover:bg-green-700 text-white'
-          )}
-        >
-          {loading ? '⏳' : isRecording ? '⏹️ Parar' : '● Gravar'}
-        </button>
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold text-white">🎥 Gravações</span>
+        <span className="text-xs text-green-400">(automático)</span>
+        {recordingsList.some(r => r.status === 'recording') && (
+          <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+        )}
       </div>
 
       {/* Error */}
