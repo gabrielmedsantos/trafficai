@@ -40,9 +40,10 @@ import db from './db/client.js'
 const fastify = Fastify({
   logger: {
     level: config.nodeEnv === 'production' ? 'info' : 'debug',
-    transport: config.nodeEnv !== 'production'
-      ? { target: 'pino-pretty', options: { colorize: true } }
-      : undefined,
+    // pino-pretty has issues with Node 24+ — disabled in dev
+    // transport: config.nodeEnv !== 'production'
+    //   ? { target: 'pino-pretty', options: { colorize: true } }
+    //   : undefined,
   },
   trustProxy: true,
 })

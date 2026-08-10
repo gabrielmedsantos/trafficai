@@ -9,8 +9,15 @@ export default async function costreamInvitesRoutes(fastify) {
 
   // ── GET /costream/invites/pending — list pending costream invites ───────────
   // Returns lives where current user is costream_trader_b_id
-  fastify.get('/costream/invites/pending', async (req, reply) => {
-    if (!req.user) return reply.code(401).send({ error: 'Unauthorized' })
+  fastify.get('/costream/invites/pending', {
+    preHandler: async (req, reply) => {
+      try {
+        await req.jwtVerify()
+      } catch (err) {
+        return reply.code(401).send({ error: 'Unauthorized' })
+      }
+    },
+  }, async (req, reply) => {
 
     try {
       const { rows } = await db.query(
@@ -103,8 +110,15 @@ export default async function costreamInvitesRoutes(fastify) {
 
   // ── GET /costream/live/:liveId/can-join — check if user can join as trader ──
   // Returns which position (A or B) user can join as
-  fastify.get('/costream/live/:liveId/can-join', async (req, reply) => {
-    if (!req.user) return reply.code(401).send({ error: 'Unauthorized' })
+  fastify.get('/costream/live/:liveId/can-join', {
+    preHandler: async (req, reply) => {
+      try {
+        await req.jwtVerify()
+      } catch (err) {
+        return reply.code(401).send({ error: 'Unauthorized' })
+      }
+    },
+  }, async (req, reply) => {
 
     const { liveId } = req.params
 
