@@ -138,11 +138,27 @@ export default async function livesRoutes(fastify) {
     const shortId   = await newUniqueShortId()
     const tenantId  = req.user.tenant_id ?? null
 
+    // For costream mode: auto-assign another user from same tenant as Trader B
+    let traderBId = null
+    if (mode === 'costream') {
+      const { rows: otherUsers } = await db.query(
+        `SELECT id FROM users
+         WHERE (tenant_id = $1 OR (tenant_id IS NULL AND $1 IS NULL))
+           AND id != $2
+         ORDER BY created_at ASC
+         LIMIT 1`,
+        [tenantId, req.user.id]
+      )
+      if (otherUsers.length) {
+        traderBId = otherUsers[0].id
+      }
+    }
+
     const { rows } = await db.query(
-      `INSERT INTO lives(user_id, tenant_id, title, description, stream_key, short_id, mode, replay_url, scheduled_at)
-       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO lives(user_id, tenant_id, title, description, stream_key, short_id, mode, replay_url, scheduled_at, costream_trader_a_id, costream_trader_b_id)
+       VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [req.user.id, tenantId, title, description ?? null, streamKey, shortId, mode, replay_url ?? null, scheduled_at ?? null]
+      [req.user.id, tenantId, title, description ?? null, streamKey, shortId, mode, replay_url ?? null, scheduled_at ?? null, req.user.id, traderBId]
     )
 
     return reply.code(201).send(rows[0])
