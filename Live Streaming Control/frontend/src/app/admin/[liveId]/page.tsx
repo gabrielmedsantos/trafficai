@@ -332,7 +332,7 @@ export default function AdminPage() {
 
           {/* ── VISÃO GERAL ───────────────────────────────────────── */}
           {tab === 'overview' && (
-            <div className="p-5 flex flex-col h-[calc(100vh-112px)] gap-2">
+            <div className="p-5 flex flex-col h-[calc(100vh-112px)] gap-2 overflow-hidden">
               {/* KPI row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 shrink-0">
                 <KpiCard icon="👁"  label="Espectadores"  value={viewerCount.total.toLocaleString('pt-BR')} sub={`${viewerCount.real} ao vivo · ${viewerCount.fake} simulados`} />
@@ -346,20 +346,27 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* Chat ao vivo - FULL SIZE */}
-              <div className="flex-1 min-h-0">
-                <AdminChatMonitor
-                  liveId={liveId}
-                  messages={messages}
-                  viewerCount={viewerCount}
-                  onDelete={(id) => setMessages(prev => prev.filter(m => m.id !== id))}
-                />
-              </div>
+              {/* Chat ao vivo + Controle STACKED */}
+              <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-hidden">
+                {/* Chat */}
+                <div className="flex-[2] min-h-0 overflow-hidden">
+                  <AdminChatMonitor
+                    liveId={liveId}
+                    messages={messages}
+                    viewerCount={viewerCount}
+                    onDelete={(id) => setMessages(prev => prev.filter(m => m.id !== id))}
+                  />
+                </div>
 
-              {/* Controle de Chat + Queue - EMBAIXO, COMPACTO */}
-              <div className="shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-2">
-                <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
-                <QueueControl liveId={liveId} />
+                {/* Controle de Chat + Queue */}
+                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-2 overflow-hidden">
+                  <div className="overflow-y-auto">
+                    <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
+                  </div>
+                  <div className="overflow-y-auto">
+                    <QueueControl liveId={liveId} />
+                  </div>
+                </div>
               </div>
             </div>
           )}
