@@ -101,7 +101,7 @@ export default function AdminChatMonitor({ liveId, messages, viewerCount, onDele
   return (
     <div className="flex flex-col flex-1 bg-surface overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-2.5 border-b border-border flex items-center justify-between shrink-0">
+      <div className="px-2 py-1 border-b border-border flex items-center justify-between shrink-0">
         <span className="font-semibold text-sm">Chat ao vivo</span>
         <div className="flex items-center gap-1.5 text-muted text-xs">
           <span className="w-1.5 h-1.5 rounded-full bg-success pulse-live inline-block" />
@@ -111,7 +111,7 @@ export default function AdminChatMonitor({ liveId, messages, viewerCount, onDele
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1" onScroll={handleScroll}>
+      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-0.5" onScroll={handleScroll}>
         {messages.length === 0 && (
           <p className="text-center text-muted text-xs py-6">Nenhuma mensagem ainda.</p>
         )}
@@ -241,9 +241,9 @@ export default function AdminChatMonitor({ liveId, messages, viewerCount, onDele
       </div>
 
       {/* Admin input */}
-      <form onSubmit={sendAdmin} className="px-3 py-2.5 border-t border-border shrink-0">
-        <p className="text-xs text-orange-400 font-semibold mb-1.5">✦ Comentar como Admin</p>
-        <div className="flex gap-2">
+      <form onSubmit={sendAdmin} className="px-2 py-1 shrink-0">
+        <p className="text-xs text-orange-400 font-semibold mb-1">✦ Comentar como Admin</p>
+        <div className="flex gap-1">
           <input
             value={input}
             onChange={e => setInput(e.target.value)}
