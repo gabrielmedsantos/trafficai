@@ -332,7 +332,7 @@ export default function AdminPage() {
 
           {/* ── VISÃO GERAL ───────────────────────────────────────── */}
           {tab === 'overview' && (
-            <div className="p-5 flex flex-col h-[calc(100vh-112px)] gap-0 overflow-hidden">
+            <div className="p-2 flex flex-col h-[calc(100vh-112px)] gap-0 overflow-hidden">
               {/* KPI row */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 shrink-0 mb-1">
                 <KpiCard icon="👁"  label="Espectadores"  value={viewerCount.total.toLocaleString('pt-BR')} sub={`${viewerCount.real} ao vivo · ${viewerCount.fake} simulados`} />
