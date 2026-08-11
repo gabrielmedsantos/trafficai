@@ -99,7 +99,7 @@ export default function AdminChatMonitor({ liveId, messages, viewerCount, onDele
   }
 
   return (
-    <div className="flex flex-col flex-1 bg-surface border border-border rounded-xl overflow-hidden">
+    <div className="flex flex-col flex-1 bg-surface overflow-hidden">
       {/* Header */}
       <div className="px-4 py-2.5 border-b border-border flex items-center justify-between shrink-0">
         <span className="font-semibold text-sm">Chat ao vivo</span>
