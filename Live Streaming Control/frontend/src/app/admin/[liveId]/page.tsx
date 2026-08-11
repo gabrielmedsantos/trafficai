@@ -351,23 +351,20 @@ export default function AdminPage() {
                 <ConversionFunnel liveId={liveId} />
               </div>
 
-              {/* Chat + Controls STACKED - FULL HEIGHT */}
-              <div className="flex-1 min-h-0 flex flex-col gap-0">
-                {/* Chat ao vivo - MAXIMIZADO */}
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <AdminChatMonitor
-                    liveId={liveId}
-                    messages={messages}
-                    viewerCount={viewerCount}
-                    onDelete={(id) => setMessages(prev => prev.filter(m => m.id !== id))}
-                  />
-                </div>
+              {/* Chat ao vivo - FULL SIZE */}
+              <div className="flex-1 min-h-0">
+                <AdminChatMonitor
+                  liveId={liveId}
+                  messages={messages}
+                  viewerCount={viewerCount}
+                  onDelete={(id) => setMessages(prev => prev.filter(m => m.id !== id))}
+                />
+              </div>
 
-                {/* Controle de Chat + Queue - EMBAIXO */}
-                <div className="shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-2 overflow-y-auto max-h-[45%]">
-                  <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
-                  <QueueControl liveId={liveId} />
-                </div>
+              {/* Controle de Chat + Queue - EMBAIXO, COMPACTO */}
+              <div className="shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-2">
+                <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
+                <QueueControl liveId={liveId} />
               </div>
             </div>
           )}
