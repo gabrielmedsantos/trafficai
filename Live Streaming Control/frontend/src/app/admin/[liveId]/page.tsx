@@ -332,9 +332,9 @@ export default function AdminPage() {
 
           {/* ── VISÃO GERAL ───────────────────────────────────────── */}
           {tab === 'overview' && (
-            <div className="p-5 flex flex-col h-[calc(100vh-112px)] gap-2 overflow-hidden">
+            <div className="p-5 flex flex-col h-[calc(100vh-112px)] gap-0 overflow-hidden">
               {/* KPI row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 shrink-0">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 shrink-0 mb-1">
                 <KpiCard icon="👁"  label="Espectadores"  value={viewerCount.total.toLocaleString('pt-BR')} sub={`${viewerCount.real} ao vivo · ${viewerCount.fake} simulados`} />
                 <KpiCard icon="👤" label="Pessoas Reais" value={stats?.viewers?.real_unique ?? 0} sub="espectadores únicos" accent="text-green-400" />
                 <KpiCard icon="👥" label="Leads"          value={stats?.leads ?? 0} sub="capturados nesta live" accent="text-warning" />
@@ -349,7 +349,7 @@ export default function AdminPage() {
               {/* Chat ao vivo + Controle STACKED */}
               <div className="flex-1 min-h-0 flex flex-col gap-0 overflow-hidden">
                 {/* Chat */}
-                <div className="flex-1 min-h-0 overflow-hidden mb-2">
+                <div className="flex-1 min-h-0 overflow-hidden">
                   <AdminChatMonitor
                     liveId={liveId}
                     messages={messages}
@@ -359,7 +359,7 @@ export default function AdminPage() {
                 </div>
 
                 {/* Controle de Chat + Queue */}
-                <div className="h-48 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-2 overflow-hidden">
+                <div className="h-40 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-1 overflow-hidden">
                   <div className="overflow-y-auto">
                     <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
                   </div>
