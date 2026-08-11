@@ -349,7 +349,7 @@ export default function AdminPage() {
               {/* Chat ao vivo + Controle STACKED */}
               <div className="flex-1 min-h-0 flex flex-col gap-0 overflow-hidden">
                 {/* Chat */}
-                <div className="flex-1 min-h-0 overflow-hidden">
+                <div className="flex-[60%] min-h-0 overflow-hidden">
                   <AdminChatMonitor
                     liveId={liveId}
                     messages={messages}
@@ -359,7 +359,7 @@ export default function AdminPage() {
                 </div>
 
                 {/* Controle de Chat + Queue */}
-                <div className="h-40 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-1 overflow-hidden">
+                <div className="flex-[40%] min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-1 overflow-hidden">
                   <div className="overflow-y-auto">
                     <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
                   </div>
