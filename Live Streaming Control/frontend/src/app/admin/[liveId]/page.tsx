@@ -332,9 +332,9 @@ export default function AdminPage() {
 
           {/* ── VISÃO GERAL ───────────────────────────────────────── */}
           {tab === 'overview' && (
-            <div className="p-5 space-y-3 flex flex-col h-[calc(100vh-112px)]">
+            <div className="p-5 flex flex-col h-[calc(100vh-112px)] gap-2">
               {/* KPI row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 shrink-0">
                 <KpiCard icon="👁"  label="Espectadores"  value={viewerCount.total.toLocaleString('pt-BR')} sub={`${viewerCount.real} ao vivo · ${viewerCount.fake} simulados`} />
                 <KpiCard icon="👤" label="Pessoas Reais" value={stats?.viewers?.real_unique ?? 0} sub="espectadores únicos" accent="text-green-400" />
                 <KpiCard icon="👥" label="Leads"          value={stats?.leads ?? 0} sub="capturados nesta live" accent="text-warning" />
@@ -347,12 +347,14 @@ export default function AdminPage() {
               </div>
 
               {/* Conversion funnel */}
-              <ConversionFunnel liveId={liveId} />
+              <div className="shrink-0 h-[120px] overflow-hidden">
+                <ConversionFunnel liveId={liveId} />
+              </div>
 
-              {/* Two columns: chat monitor + controls summary */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 flex-1 min-h-0 overflow-hidden">
-                {/* Live chat monitor - EXPANDIDO */}
-                <div className="min-h-0 flex flex-col">
+              {/* Chat + Controls STACKED - FULL HEIGHT */}
+              <div className="flex-1 min-h-0 flex flex-col gap-0">
+                {/* Chat ao vivo - MAXIMIZADO */}
+                <div className="flex-1 min-h-0 overflow-hidden">
                   <AdminChatMonitor
                     liveId={liveId}
                     messages={messages}
@@ -361,17 +363,11 @@ export default function AdminPage() {
                   />
                 </div>
 
-                {/* Quick controls */}
-                <div className="space-y-3 overflow-y-auto">
-                  <ReactionControl liveId={liveId} />
-                  <CTAControl liveId={liveId} />
+                {/* Controle de Chat + Queue - EMBAIXO */}
+                <div className="shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-2 overflow-y-auto max-h-[45%]">
+                  <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
+                  <QueueControl liveId={liveId} />
                 </div>
-              </div>
-
-              {/* Chat + queue side by side */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <ChatControl liveId={liveId} personas={personas} onPersonaUpdated={handlePersonaUpdated} />
-                <QueueControl liveId={liveId} />
               </div>
             </div>
           )}
