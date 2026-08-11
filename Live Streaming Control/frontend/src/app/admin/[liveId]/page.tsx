@@ -328,7 +328,7 @@ export default function AdminPage() {
         </aside>
 
         {/* ── MAIN CONTENT ─────────────────────────────────────────── */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-hidden flex flex-col">
 
           {/* ── VISÃO GERAL ───────────────────────────────────────── */}
           {tab === 'overview' && (
