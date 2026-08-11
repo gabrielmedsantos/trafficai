@@ -265,15 +265,43 @@ export default async function livesRoutes(fastify) {
   // ── POST /lives/:id/start — manually start a live ────────────────────────
   fastify.post('/lives/:id/start', { preHandler: requireAuth }, async (req, reply) => {
     const acc = liveAccessClause(req.user)
-    const { rows } = await db.query(
-      `UPDATE lives SET status = 'live', started_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND status != 'ended' ${acc.clause} RETURNING id, mode_broadcast, stream_key`,
+    const { rows: liveRows } = await db.query(
+      `SELECT id, mode_broadcast, stream_key, costream_trader_b_id, tenant_id FROM lives
+       WHERE id = $1 AND status != 'ended' ${acc.clause}`,
       [req.params.id, ...acc.params]
     )
-    if (!rows.length) return reply.code(400).send({ error: 'Live não encontrada ou já encerrada' })
+    if (!liveRows.length) return reply.code(400).send({ error: 'Live não encontrada ou já encerrada' })
 
-    const liveId = rows[0].id
-    const live = rows[0]
+    const liveData = liveRows[0]
+    const liveId = liveData.id
+
+    // Auto-assign Trader B if costream mode and trader_b is not set
+    if (liveData.mode_broadcast === 'costream' && !liveData.costream_trader_b_id) {
+      const { rows: otherUsers } = await db.query(
+        `SELECT id FROM users
+         WHERE (tenant_id = $1 OR (tenant_id IS NULL AND $1 IS NULL))
+           AND id != $2
+         ORDER BY created_at ASC
+         LIMIT 1`,
+        [liveData.tenant_id, req.user.id]
+      )
+      if (otherUsers.length) {
+        await db.query(
+          `UPDATE lives SET costream_trader_b_id = $1 WHERE id = $2`,
+          [otherUsers[0].id, liveId]
+        )
+        fastify.log.info(`[lives] Auto-assigned Trader B ${otherUsers[0].id} for live ${liveId}`)
+      }
+    }
+
+    // Update live status
+    await db.query(
+      `UPDATE lives SET status = 'live', started_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [liveId]
+    )
+
+    const live = { ...liveData, status: 'live' }
 
     hub.broadcastToLive(liveId, {
       type: 'stream_status',
