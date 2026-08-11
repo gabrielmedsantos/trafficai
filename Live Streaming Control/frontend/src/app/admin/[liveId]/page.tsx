@@ -346,11 +346,6 @@ export default function AdminPage() {
                 />
               </div>
 
-              {/* Conversion funnel */}
-              <div className="shrink-0 h-[120px] overflow-hidden">
-                <ConversionFunnel liveId={liveId} />
-              </div>
-
               {/* Chat ao vivo - FULL SIZE */}
               <div className="flex-1 min-h-0">
                 <AdminChatMonitor
