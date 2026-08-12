@@ -16,6 +16,51 @@ import { getAdapter, backfillSource } from './crm-sync.service';
 const router = Router();
 router.use(authMiddleware);
 
+// ─── GET /tracking/crm-schema ──────────────────────────────────────────────
+// Retorna quais campos são necessários para cada tipo de CRM
+router.get('/crm-schema', async (req: Request, res: Response) => {
+    const schema: Record<string, any> = {
+        kommo: {
+            name: 'Kommo',
+            description: 'CRM Kommo com pipelines e status customizáveis',
+            fields: [
+                {
+                    key: 'crm_subdomain',
+                    label: 'Subdomínio Kommo',
+                    type: 'text',
+                    required: true,
+                    placeholder: 'Ex: mapscar',
+                    help: 'Se você acessa "mapscar.kommo.com", cole apenas "mapscar"',
+                },
+                {
+                    key: 'crm_access_token',
+                    label: 'Token de Acesso Kommo',
+                    type: 'password',
+                    required: true,
+                    help: 'Kommo → Configurações → Integrações → Integrações privadas → Token de longa duração',
+                },
+            ],
+            backfill_options: ['enrich_existing', 'sync_won_purchases', 'sync_leads'],
+        },
+        datacrazy: {
+            name: 'DataCrazy',
+            description: 'CRM DataCrazy com stages/fases e automação IA',
+            fields: [
+                {
+                    key: 'crm_access_token',
+                    label: 'API Key DataCrazy',
+                    type: 'password',
+                    required: true,
+                    help: 'DataCrazy → https://crm.datacrazy.io → Settings → API → Generate Token',
+                },
+            ],
+            backfill_options: ['enrich_existing'],
+            note: 'Stages de "Venda Ganha" e "Perdido" serão detectadas automaticamente ao testar a conexão',
+        },
+    };
+    res.json({ success: true, data: schema });
+});
+
 // ─── GET /tracking/sources ──────────────────────────────────────────────────
 router.get('/sources', async (req: Request, res: Response) => {
     try {
@@ -223,6 +268,39 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
             name, account_id, pixel_id, access_token, test_event_code, domain, is_active,
             crm_type, crm_subdomain, crm_access_token, crm_config,
         } = req.body;
+
+        // Validação: se crm_type está sendo setado, validar campos obrigatórios
+        if (crm_type) {
+            if (crm_type === 'kommo') {
+                if (!crm_subdomain || !crm_access_token) {
+                    return res.status(400).json({
+                        success: false,
+                        error: {
+                            message: 'Kommo: subdomínio e token de acesso são obrigatórios',
+                            required_fields: ['crm_subdomain', 'crm_access_token'],
+                        },
+                    });
+                }
+            } else if (crm_type === 'datacrazy') {
+                if (!crm_access_token) {
+                    return res.status(400).json({
+                        success: false,
+                        error: {
+                            message: 'DataCrazy: API key é obrigatório',
+                            required_fields: ['crm_access_token'],
+                        },
+                    });
+                }
+            } else {
+                return res.status(400).json({
+                    success: false,
+                    error: {
+                        message: `CRM não suportado: ${crm_type}. Use 'kommo' ou 'datacrazy'`,
+                        supported: ['kommo', 'datacrazy'],
+                    },
+                });
+            }
+        }
 
         const fields: string[] = [];
         const params: any[] = [];
