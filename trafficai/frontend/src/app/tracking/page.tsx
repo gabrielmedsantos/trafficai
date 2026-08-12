@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '@/lib/api';
 import {
-    Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw,
-    Zap, ShieldCheck, CircleAlert, Sparkles, Globe,
+    Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
+    Zap, ShieldCheck, CircleAlert, Sparkles, Globe, ChevronDown,
     TrendingUp, TrendingDown, Users, UserCheck, Calendar, ShoppingCart, DollarSign, Target,
 } from 'lucide-react';
 import {
@@ -326,8 +326,8 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [rotating, setRotating] = useState(false);
 
     // Modal tab navigation
-    type TabKey = 'overview' | 'events' | 'install' | 'crm';
-    const [activeTab, setActiveTab] = useState<TabKey>('overview');
+    type TabKey = 'setup' | 'overview' | 'events' | 'install' | 'crm';
+    const [activeTab, setActiveTab] = useState<TabKey>('setup');
 
     // Auth method segmented control (na aba CRM)
     type AuthMethod = 'bearer' | 'key' | 'hmac';
@@ -388,13 +388,16 @@ function SourceDetail({ source, onClose, onEdit }: {
         }
     }, [activeTab, eventsLoaded, loadEvents]);
 
+    const [testDetail, setTestDetail] = useState<any>(null);
     async function runTest() {
         setTesting(true); setTestResult('');
         try {
             const r = await api.testTrackingSource(source.id);
+            setTestDetail(r);
             setTestResult(r?.meta_status === 'sent' ? 'OK · enviado para a Meta' : 'Falhou · verifique credenciais');
             setTimeout(load, 1000);
         } catch (err: any) {
+            setTestDetail({ error: err.message || 'desconhecido' });
             setTestResult('Erro: ' + (err.message || 'desconhecido'));
         } finally { setTesting(false); }
     }
@@ -428,8 +431,17 @@ function SourceDetail({ source, onClose, onEdit }: {
     // CRM backfill state + handlers
     const [showBackfill, setShowBackfill] = useState(false);
     const [backfillOpts, setBackfillOpts] = useState({
-        enrich_existing: true, sync_won_purchases: true,
+        enrich_existing: true,
+        sync_won_purchases: true,
+        sync_leads: false,
+        lead_stage_ids: [] as number[],
     });
+    const [pipelines, setPipelines] = useState<{
+        id: number;
+        name: string;
+        statuses: { id: number; name: string; type?: number }[];
+    }[]>([]);
+    const [loadingPipelines, setLoadingPipelines] = useState(false);
     const [backfillRunning, setBackfillRunning] = useState(false);
     const [backfillResult, setBackfillResult] = useState<any>(null);
     const [crmTest, setCrmTest] = useState<any>(null);
@@ -481,6 +493,8 @@ function SourceDetail({ source, onClose, onEdit }: {
             const r = await api.runTrackingBackfill(source.id, {
                 enrich_existing: backfillOpts.enrich_existing,
                 sync_won_purchases: backfillOpts.sync_won_purchases,
+                sync_leads: backfillOpts.sync_leads,
+                lead_stage_ids: backfillOpts.lead_stage_ids.length > 0 ? backfillOpts.lead_stage_ids : undefined,
                 time_strategy: 'clamp_7d',
             });
             setBackfillResult(r);
@@ -504,11 +518,13 @@ function SourceDetail({ source, onClose, onEdit }: {
                 onClick={e => e.stopPropagation()}
             >
                 <div className="modal-header">
-                    <div style={{ minWidth: 0 }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
                         <div className="modal-title">{source.name}</div>
                         <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
                             {source.domain || 'sem domínio'} · token: <span className="mono">{source.public_token.slice(0, 12)}…</span>
                         </div>
+                        {/* Status strip compacto — live view do estado da fonte */}
+                        <StatusStrip source={detail || source} stats={stats} />
                     </div>
                     <button className="modal-close" onClick={onClose} type="button"><X size={16} /></button>
                 </div>
@@ -556,10 +572,36 @@ function SourceDetail({ source, onClose, onEdit }: {
                     active={activeTab}
                     onChange={setActiveTab}
                     badges={{
+                        setup: (() => {
+                            const s = detail || source;
+                            const events24h = Number(stats?.totals?.total || 0);
+                            const pendingCount = [
+                                !s.pixel_id,
+                                !(s as any).access_token && !detail?.access_token,
+                                events24h === 0,
+                                !s.crm_type,
+                            ].filter(Boolean).length;
+                            return pendingCount > 0 ? pendingCount : undefined;
+                        })(),
                         events: stats?.totals?.failed > 0 ? Number(stats.totals.failed) : undefined,
                         crm: source.crm_type ? 'on' : undefined,
                     }}
                 />
+
+                {/* ───────── TAB: SETUP ───────── */}
+                {activeTab === 'setup' && (
+                <div className="tab-fade-in">
+                    <SetupChecklist
+                        source={detail || source}
+                        stats={stats}
+                        onGoTo={setActiveTab}
+                        onOpenEdit={onEdit}
+                        onRunTest={runTest}
+                        testing={testing}
+                        testResult={testResult}
+                    />
+                </div>
+                )}
 
                 {/* ───────── TAB: VISÃO GERAL ───────── */}
                 {activeTab === 'overview' && (
@@ -860,65 +902,69 @@ function SourceDetail({ source, onClose, onEdit }: {
 
                         return (
                             <div style={{ marginTop: 18 }}>
-                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
-                                    Método de autenticação
-                                </div>
-                                {/* Segmented control */}
-                                <div role="tablist" style={{
-                                    display: 'inline-flex',
-                                    padding: 3,
-                                    background: 'var(--bg-surface-2)',
-                                    border: '1px solid var(--border)',
-                                    borderRadius: 8,
-                                    marginBottom: 12,
-                                }}>
-                                    {AUTH_OPTIONS.map(opt => {
-                                        const isActive = authMethod === opt.key;
-                                        return (
-                                            <button
-                                                key={opt.key}
-                                                role="tab"
-                                                type="button"
-                                                aria-selected={isActive}
-                                                onClick={() => setAuthMethod(opt.key)}
-                                                style={{
-                                                    padding: '6px 14px',
-                                                    fontSize: 12.5,
-                                                    fontWeight: 600,
-                                                    color: isActive ? '#fff' : 'var(--text-muted)',
-                                                    background: isActive ? 'var(--primary)' : 'transparent',
-                                                    border: 'none',
-                                                    borderRadius: 6,
-                                                    cursor: 'pointer',
-                                                    transition: 'background 150ms ease, color 150ms ease',
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: 6,
-                                                }}
-                                            >
-                                                {opt.label}
-                                                {opt.tag && (
-                                                    <span style={{
-                                                        fontSize: 9.5,
-                                                        fontWeight: 700,
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: 0.4,
-                                                        padding: '2px 5px',
-                                                        borderRadius: 4,
-                                                        background: isActive ? 'rgba(255,255,255,.22)' : 'rgba(16,185,129,.16)',
-                                                        color: isActive ? '#fff' : 'var(--accent-green)',
-                                                    }}>
-                                                        {opt.tag}
-                                                    </span>
-                                                )}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <CopyBlock value={selected.value} small />
-                                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
-                                    {selected.hint}
-                                </div>
+                                <Accordion
+                                    title="Método de autenticação"
+                                    subtitle="Bearer é o recomendado — os outros são pra casos específicos"
+                                    defaultOpen={false}
+                                >
+                                    {/* Segmented control */}
+                                    <div role="tablist" style={{
+                                        display: 'inline-flex',
+                                        padding: 3,
+                                        background: 'var(--bg-card)',
+                                        border: '1px solid var(--border)',
+                                        borderRadius: 8,
+                                        marginBottom: 12,
+                                        marginTop: 8,
+                                    }}>
+                                        {AUTH_OPTIONS.map(opt => {
+                                            const isActive = authMethod === opt.key;
+                                            return (
+                                                <button
+                                                    key={opt.key}
+                                                    role="tab"
+                                                    type="button"
+                                                    aria-selected={isActive}
+                                                    onClick={() => setAuthMethod(opt.key)}
+                                                    style={{
+                                                        padding: '6px 14px',
+                                                        fontSize: 12.5,
+                                                        fontWeight: 600,
+                                                        color: isActive ? '#fff' : 'var(--text-muted)',
+                                                        background: isActive ? 'var(--primary)' : 'transparent',
+                                                        border: 'none',
+                                                        borderRadius: 6,
+                                                        cursor: 'pointer',
+                                                        transition: 'background 150ms ease, color 150ms ease',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                    }}
+                                                >
+                                                    {opt.label}
+                                                    {opt.tag && (
+                                                        <span style={{
+                                                            fontSize: 9.5,
+                                                            fontWeight: 700,
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: 0.4,
+                                                            padding: '2px 5px',
+                                                            borderRadius: 4,
+                                                            background: isActive ? 'rgba(255,255,255,.22)' : 'rgba(16,185,129,.16)',
+                                                            color: isActive ? '#fff' : 'var(--accent-green)',
+                                                        }}>
+                                                            {opt.tag}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <CopyBlock value={selected.value} small />
+                                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
+                                        {selected.hint}
+                                    </div>
+                                </Accordion>
                             </div>
                         );
                     })()}
@@ -1115,6 +1161,103 @@ function SourceDetail({ source, onClose, onEdit }: {
                                             </div>
                                         </div>
                                     </label>
+
+                                    {/* NOVO: Sincronizar Lead retroativo */}
+                                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer', marginBottom: 8 }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={backfillOpts.sync_leads}
+                                            onChange={async e => {
+                                                const on = e.target.checked;
+                                                setBackfillOpts(o => ({ ...o, sync_leads: on }));
+                                                if (on && pipelines.length === 0) {
+                                                    setLoadingPipelines(true);
+                                                    try {
+                                                        const r = await api.getTrackingCrmPipelines(source.id);
+                                                        setPipelines(r.pipelines || []);
+                                                    } catch { /* fica em auto-detect se falhar */ }
+                                                    finally { setLoadingPipelines(false); }
+                                                }
+                                            }}
+                                            style={{ marginTop: 3 }}
+                                        />
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+                                                Sincronizar leads como Lead (retroativo)
+                                            </div>
+                                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                Dispara Lead pra Meta pra leads existentes nos estágios que você escolher. Sem seleção: detecta automaticamente estágios com nome "qualif/lead/novo/prospec".
+                                            </div>
+                                        </div>
+                                    </label>
+
+                                    {/* Seletor de estágios (só aparece se sync_leads ativo) */}
+                                    {backfillOpts.sync_leads && (
+                                        <div style={{
+                                            marginLeft: 24, marginBottom: 14,
+                                            padding: 10,
+                                            background: 'var(--bg-surface-2)',
+                                            border: '1px solid var(--border)',
+                                            borderRadius: 8,
+                                        }}>
+                                            {loadingPipelines ? (
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Carregando pipelines…</div>
+                                            ) : pipelines.length === 0 ? (
+                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    Sem pipelines carregados — usará auto-detecção por nome do estágio.
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, marginBottom: 8 }}>
+                                                        Estágios a considerar como Lead ({backfillOpts.lead_stage_ids.length} selecionado{backfillOpts.lead_stage_ids.length !== 1 ? 's' : ''})
+                                                    </div>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 260, overflowY: 'auto' }}>
+                                                        {pipelines.map(p => (
+                                                            <div key={p.id}>
+                                                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                                                                    {p.name}
+                                                                </div>
+                                                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                                                    {p.statuses.filter(s => s.id !== 142 && s.id !== 143).map(s => {
+                                                                        const selected = backfillOpts.lead_stage_ids.includes(s.id);
+                                                                        return (
+                                                                            <button key={s.id} type="button"
+                                                                                onClick={() => setBackfillOpts(o => ({
+                                                                                    ...o,
+                                                                                    lead_stage_ids: selected
+                                                                                        ? o.lead_stage_ids.filter(x => x !== s.id)
+                                                                                        : [...o.lead_stage_ids, s.id],
+                                                                                }))}
+                                                                                style={{
+                                                                                    padding: '4px 10px',
+                                                                                    fontSize: 11.5,
+                                                                                    fontWeight: selected ? 600 : 500,
+                                                                                    borderRadius: 999,
+                                                                                    border: selected
+                                                                                        ? '1px solid var(--primary)'
+                                                                                        : '1px solid var(--border)',
+                                                                                    background: selected
+                                                                                        ? 'var(--primary-soft)'
+                                                                                        : 'var(--bg-card)',
+                                                                                    color: selected ? 'var(--primary)' : 'var(--text-secondary)',
+                                                                                    cursor: 'pointer',
+                                                                                }}>
+                                                                                {s.name}
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 8 }}>
+                                                        Deixe todos desmarcados pra auto-detecção. Estágios de "ganho/perdido" são sempre excluídos.
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
                                     <div style={{ display: 'flex', gap: 8 }}>
                                         <button type="button" className="btn btn-primary btn-sm"
                                             onClick={runBackfill} disabled={backfillRunning}>
@@ -1148,6 +1291,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                     <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>
                                                         {backfillResult.enriched > 0 && <>{backfillResult.enriched} evento(s) enriquecido(s). </>}
                                                         {backfillResult.purchases_created > 0 && <>{backfillResult.purchases_created} Purchase criado(s) (R$ {Number(backfillResult.total_purchase_value).toLocaleString('pt-BR')}). </>}
+                                                        {backfillResult.leads_created > 0 && <>{backfillResult.leads_created} Lead criado(s). </>}
                                                         {backfillResult.skipped > 0 && <>{backfillResult.skipped} pulado(s) (sem PII). </>}
                                                         {backfillResult.failed > 0 && <span style={{ color: 'var(--accent-red)' }}>{backfillResult.failed} falha(s).</span>}
                                                     </div>
@@ -1385,6 +1529,14 @@ function SourceDetail({ source, onClose, onEdit }: {
                     <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Fechar</button>
                 </div>
             </div>
+
+            {testDetail && (
+                <TestResultModal
+                    detail={testDetail}
+                    pixelId={source.pixel_id}
+                    onClose={() => setTestDetail(null)}
+                />
+            )}
 
             {inspectEventId && (
                 <EventDetailModal
@@ -1828,23 +1980,541 @@ function PayloadJson({ value }: { value: any }) {
     );
 }
 
+// ─── Test Result Modal — mostra o que a Meta respondeu ─────────────────
+
+function TestResultModal({ detail, pixelId, onClose }: {
+    detail: any;
+    pixelId: string | null;
+    onClose: () => void;
+}) {
+    useEffect(() => {
+        const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+    }, [onClose]);
+
+    const isError = detail?.error;
+    const sent = detail?.meta_status === 'sent';
+    const status = detail?.meta_status || (isError ? 'failed' : '—');
+    const eventsReceived = detail?.meta_response?.events_received;
+    const fbtrace = detail?.meta_response?.fbtrace_id || detail?.meta_fbtrace_id;
+    const emq = Number(detail?.emq_score || 0);
+
+    const verdict = isError
+        ? { icon: '✕', color: 'var(--accent-red)', bg: 'rgba(239,68,68,.08)', border: 'rgba(239,68,68,.28)', title: 'Erro de rede/backend', detail: detail.error }
+        : sent && eventsReceived >= 1
+            ? { icon: '✓', color: 'var(--accent-green)', bg: 'rgba(16,185,129,.08)', border: 'rgba(16,185,129,.28)', title: `Meta confirmou (events_received: ${eventsReceived})`, detail: 'Evento chegou. Aparece no Events Manager em alguns minutos.' }
+        : sent
+            ? { icon: '⚠', color: 'var(--accent-yellow)', bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.28)', title: 'Enviado, mas sem confirmação clara', detail: 'HTTP 200 mas events_received não veio. Pode ser test_event_code ativo.' }
+        : { icon: '✕', color: 'var(--accent-red)', bg: 'rgba(239,68,68,.08)', border: 'rgba(239,68,68,.28)', title: 'Meta rejeitou', detail: detail?.meta_error || 'Sem detalhe da rejeição.' };
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+            <div className="modal-box" style={{ maxWidth: 560, maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                    <div style={{ minWidth: 0 }}>
+                        <div className="modal-title">Resultado do teste</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {detail?.event_id ? <>event_id: <span className="mono">{detail.event_id.slice(0, 20)}…</span></> : 'Sem event_id'}
+                        </div>
+                    </div>
+                    <button className="modal-close" onClick={onClose} type="button"><X size={16} /></button>
+                </div>
+
+                {/* Verdict */}
+                <div style={{
+                    padding: '14px 16px', marginBottom: 16,
+                    background: verdict.bg, border: `1px solid ${verdict.border}`, borderRadius: 12,
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                }}>
+                    <div style={{
+                        width: 24, height: 24, borderRadius: '50%',
+                        background: verdict.color, color: '#fff',
+                        display: 'grid', placeItems: 'center',
+                        fontWeight: 700, fontSize: 13, flexShrink: 0,
+                    }}>{verdict.icon}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: verdict.color, marginBottom: 3 }}>
+                            {verdict.title}
+                        </div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                            {verdict.detail}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Facts grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+                    <TestFact label="Status" value={status} color={sent ? 'var(--accent-green)' : 'var(--accent-red)'} />
+                    <TestFact label="EMQ" value={emq > 0 ? String(emq) : '—'}
+                        color={emq >= 7 ? 'var(--accent-green)' : emq >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)'} />
+                    <TestFact label="events_received" value={eventsReceived !== undefined ? String(eventsReceived) : '—'} />
+                </div>
+
+                {/* fbtrace_id */}
+                {fbtrace && (
+                    <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                            fbtrace_id
+                        </div>
+                        <div className="mono" style={{
+                            padding: '6px 10px', background: 'var(--bg-surface-2)',
+                            border: '1px solid var(--border)', borderRadius: 6,
+                            fontSize: 11.5, color: 'var(--text-secondary)', wordBreak: 'break-all',
+                        }}>{fbtrace}</div>
+                    </div>
+                )}
+
+                {/* Link Events Manager */}
+                {pixelId && (
+                    <a
+                        href={`https://business.facebook.com/events_manager2/list/pixel/${pixelId}/overview`}
+                        target="_blank" rel="noreferrer"
+                        style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '8px 14px', borderRadius: 8,
+                            background: 'var(--bg-surface-2)', border: '1px solid var(--border)',
+                            color: 'var(--text)', fontSize: 13, fontWeight: 500,
+                            textDecoration: 'none',
+                        }}>
+                        <Globe size={13} /> Abrir Events Manager
+                    </a>
+                )}
+
+                {/* Raw response accordion */}
+                {(detail?.meta_response || detail?.error) && (
+                    <div style={{ marginTop: 16 }}>
+                        <details style={{ background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                            <summary style={{ padding: '8px 12px', fontSize: 12, cursor: 'pointer', color: 'var(--text-muted)' }}>
+                                Ver resposta bruta da Meta
+                            </summary>
+                            <pre className="mono" style={{
+                                margin: 0, padding: 12,
+                                fontSize: 11, color: 'var(--text-secondary)',
+                                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                borderTop: '1px solid var(--border)',
+                            }}>{JSON.stringify(detail?.meta_response || { error: detail.error }, null, 2)}</pre>
+                        </details>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function TestFact({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+        <div style={{
+            padding: '10px 12px',
+            background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8,
+        }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>{label}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: color || 'var(--text)', marginTop: 3 }}>{value}</div>
+        </div>
+    );
+}
+
+// ─── Accordion — collapsível reutilizável ───────────────────────────────
+
+function Accordion({ title, subtitle, defaultOpen = false, children, tone = 'default' }: {
+    title: string;
+    subtitle?: string;
+    defaultOpen?: boolean;
+    children: React.ReactNode;
+    tone?: 'default' | 'primary';
+}) {
+    const [open, setOpen] = useState(defaultOpen);
+    const borderColor = tone === 'primary' ? 'rgba(211,241,0,.25)' : 'var(--border)';
+    return (
+        <div style={{
+            border: `1px solid ${borderColor}`,
+            borderRadius: 10,
+            background: 'var(--bg-surface-2)',
+            overflow: 'hidden',
+            marginBottom: 12,
+        }}>
+            <button type="button" onClick={() => setOpen(v => !v)}
+                style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '11px 14px',
+                    background: 'transparent', border: 'none', cursor: 'pointer',
+                    textAlign: 'left', color: 'inherit',
+                }}>
+                <ChevronDown size={14} color="var(--text-muted)" style={{
+                    transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
+                    transition: 'transform .18s ease',
+                    flexShrink: 0,
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{title}</div>
+                    {subtitle && <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 1 }}>{subtitle}</div>}
+                </div>
+            </button>
+            {open && (
+                <div style={{ padding: '4px 14px 14px', borderTop: '1px solid var(--border)' }}>
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ─── Status Strip — pills compactas no header do drawer ─────────────────
+
+function StatusStrip({ source, stats }: { source: any; stats: any }) {
+    const events24h = Number(stats?.totals?.total || 0);
+    const failed24h = Number(stats?.totals?.failed || 0);
+    const emq = Number(stats?.totals?.avg_emq || 0);
+    const testMode = !!source?.test_event_code;
+
+    // Estado de credenciais Meta: derivado do fato de ter events sent
+    const metaOk = Number(stats?.totals?.sent || 0) > 0 && !!source?.pixel_id;
+
+    // Estado CRM
+    const crmOn = !!source?.crm_type;
+
+    return (
+        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+            {/* Meta CAPI */}
+            <StatusPill
+                icon={<Zap size={10} />}
+                label="Meta CAPI"
+                state={metaOk ? 'ok' : source?.pixel_id ? 'warn' : 'off'}
+                detail={
+                    metaOk ? 'enviando'
+                    : source?.pixel_id ? 'sem confirmação'
+                    : 'sem pixel ID'
+                }
+            />
+            {/* Test mode alerta amarelo */}
+            {testMode && (
+                <StatusPill
+                    icon={<CircleAlert size={10} />}
+                    label="Test mode"
+                    state="warn"
+                    detail="eventos só em Test Events"
+                />
+            )}
+            {/* CRM */}
+            <StatusPill
+                icon={<ShieldCheck size={10} />}
+                label={crmOn ? `CRM ${source.crm_type}` : 'Sem CRM'}
+                state={crmOn ? 'ok' : 'off'}
+                detail={crmOn ? source.crm_subdomain : ''}
+            />
+            {/* Volume 24h */}
+            <StatusPill
+                icon={<Activity size={10} />}
+                label={`${events24h.toLocaleString('pt-BR')} evento${events24h === 1 ? '' : 's'} 24h`}
+                state={events24h > 0 ? 'ok' : 'off'}
+            />
+            {/* Failed */}
+            {failed24h > 0 && (
+                <StatusPill
+                    icon={<X size={10} />}
+                    label={`${failed24h} falha${failed24h === 1 ? '' : 's'}`}
+                    state="error"
+                />
+            )}
+            {/* EMQ */}
+            {events24h > 0 && emq > 0 && (
+                <StatusPill
+                    icon={<Sparkles size={10} />}
+                    label={`EMQ ${emq.toFixed(1)}`}
+                    state={emq >= 7 ? 'ok' : emq >= 4 ? 'warn' : 'error'}
+                />
+            )}
+        </div>
+    );
+}
+
+function StatusPill({ icon, label, state, detail }: {
+    icon: React.ReactNode;
+    label: string;
+    state: 'ok' | 'warn' | 'error' | 'off';
+    detail?: string;
+}) {
+    const cfg = state === 'ok'    ? { color: 'var(--accent-green)',  bg: 'rgba(16,185,129,.10)', border: 'rgba(16,185,129,.28)' }
+              : state === 'warn'  ? { color: 'var(--accent-yellow)', bg: 'rgba(245,158,11,.10)', border: 'rgba(245,158,11,.28)' }
+              : state === 'error' ? { color: 'var(--accent-red)',    bg: 'rgba(239,68,68,.10)',  border: 'rgba(239,68,68,.28)' }
+              :                     { color: 'var(--text-muted)',    bg: 'var(--bg-surface-2)',  border: 'var(--border)' };
+
+    return (
+        <span title={detail || undefined} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            fontSize: 10.5, fontWeight: 600,
+            padding: '2px 7px', borderRadius: 999,
+            color: cfg.color, background: cfg.bg, border: `1px solid ${cfg.border}`,
+            whiteSpace: 'nowrap',
+        }}>
+            {icon} {label}
+        </span>
+    );
+}
+
+// ─── Setup Checklist — visão de "o que falta configurar" ─────────────────
+
+type SetupStatus = 'done' | 'warn' | 'pending';
+
+interface SetupItem {
+    key: string;
+    label: string;
+    detail: string;
+    status: SetupStatus;
+    actionLabel?: string;
+    onAction?: () => void;
+}
+
+function SetupChecklist({
+    source, stats, onGoTo, onOpenEdit, onRunTest, testing, testResult,
+}: {
+    source: any;
+    stats: any;
+    onGoTo: (tab: ModalTabKey) => void;
+    onOpenEdit: () => void;
+    onRunTest: () => void;
+    testing: boolean;
+    testResult: string;
+}) {
+    const events24h = Number(stats?.totals?.total || 0);
+    const failed24h = Number(stats?.totals?.failed || 0);
+    const emq7d = Number(stats?.totals?.avg_emq || 0);
+    const hasWebEvents = Boolean(stats?.by_event?.some((e: any) => ['PageView', 'ViewContent', 'Scroll50', 'Scroll90'].includes(e.event_name)));
+    const hasCrmEvents = Boolean(stats?.by_event?.some((e: any) => ['Lead', 'Contact', 'Purchase', 'Schedule'].includes(e.event_name)));
+
+    const items: SetupItem[] = [
+        {
+            key: 'pixel_id',
+            label: 'Pixel ID configurado',
+            detail: source.pixel_id ? `Pixel ${source.pixel_id}` : 'Sem Pixel ID — não consegue mandar evento pra Meta',
+            status: source.pixel_id ? 'done' : 'pending',
+            actionLabel: source.pixel_id ? undefined : 'Editar credenciais',
+            onAction: source.pixel_id ? undefined : onOpenEdit,
+        },
+        {
+            key: 'access_token',
+            label: 'Token CAPI da Meta',
+            detail: source.access_token || source.pixel_id
+                ? 'Token salvo — usado pra postar em graph.facebook.com'
+                : 'Falta o Access Token do pixel (Conversions API)',
+            // Se pixel_id existe mas access_token não veio no GET (por segurança),
+            // presume que tá ok. O melhor sinal é ter eventos com meta_status=sent.
+            status: (stats?.totals?.sent && Number(stats.totals.sent) > 0) ? 'done'
+                  : (source.pixel_id ? 'warn' : 'pending'),
+            actionLabel: 'Editar credenciais',
+            onAction: onOpenEdit,
+        },
+        {
+            key: 'test_mode',
+            label: 'Modo produção (não-teste)',
+            detail: source.test_event_code
+                ? `test_event_code="${source.test_event_code}" — eventos SÓ na aba Test Events da Meta`
+                : 'Sem test_event_code — eventos contam em produção',
+            status: source.test_event_code ? 'warn' : 'done',
+            actionLabel: source.test_event_code ? 'Remover test code' : undefined,
+            onAction: source.test_event_code ? onOpenEdit : undefined,
+        },
+        {
+            key: 'pixel_events',
+            label: 'Pixel instalado no site',
+            detail: hasWebEvents
+                ? `${events24h.toLocaleString('pt-BR')} evento(s) nas últimas 24h`
+                : 'Nenhum evento browser (PageView/ViewContent) nas últimas 24h — confira o <script> no site',
+            status: hasWebEvents ? 'done' : 'warn',
+            actionLabel: hasWebEvents ? undefined : 'Ver código do pixel',
+            onAction: hasWebEvents ? undefined : () => onGoTo('install'),
+        },
+        {
+            key: 'crm',
+            label: 'CRM Kommo conectado',
+            detail: source.crm_type
+                ? `${source.crm_type} · ${source.crm_subdomain || '—'}${hasCrmEvents ? ' · disparando eventos' : ' · sem eventos ainda'}`
+                : 'Sem CRM — eventos server-side (Lead/Purchase) só via Salesbot manual',
+            status: source.crm_type && hasCrmEvents ? 'done'
+                  : source.crm_type ? 'warn'
+                  : 'pending',
+            actionLabel: source.crm_type ? undefined : 'Conectar CRM',
+            onAction: source.crm_type ? undefined : onOpenEdit,
+        },
+        {
+            key: 'backfill',
+            label: 'Backfill executado',
+            detail: source.last_backfill_at
+                ? `Última execução: ${fmtRelative(source.last_backfill_at)}`
+                : source.crm_type
+                    ? 'Nunca rodou — importa histórico do CRM (Purchase + Lead retroativo)'
+                    : 'Conecte um CRM primeiro pra habilitar',
+            status: source.last_backfill_at ? 'done' : source.crm_type ? 'warn' : 'pending',
+            actionLabel: source.crm_type ? 'Rodar backfill' : undefined,
+            onAction: source.crm_type ? () => onGoTo('crm') : undefined,
+        },
+        {
+            key: 'quality',
+            label: 'Qualidade dos eventos (EMQ)',
+            detail: events24h === 0 ? 'Sem eventos ainda pra medir'
+                  : emq7d >= 7 ? `EMQ médio ${emq7d.toFixed(1)}/10 — atribuição forte`
+                  : emq7d >= 4 ? `EMQ médio ${emq7d.toFixed(1)}/10 — PII incompleta, atribuição parcial`
+                  : `EMQ médio ${emq7d.toFixed(1)}/10 — quase sem PII, quase não atribui`,
+            status: events24h === 0 ? 'pending' : emq7d >= 7 ? 'done' : emq7d >= 4 ? 'warn' : 'warn',
+        },
+    ];
+
+    // Failed events como alerta separado
+    const doneCount = items.filter(i => i.status === 'done').length;
+    const totalCount = items.length;
+    const progressPct = Math.round((doneCount / totalCount) * 100);
+    const progressColor = progressPct >= 80 ? 'var(--accent-green)' : progressPct >= 50 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Header com progress */}
+            <div style={{
+                padding: '18px 20px',
+                background: 'var(--bg-surface-2)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 12 }}>
+                    <div>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text)' }}>
+                            {doneCount === totalCount ? 'Setup completo ✓' : `${doneCount} de ${totalCount} passos concluídos`}
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                            {doneCount === totalCount
+                                ? 'Tudo pronto — os eventos estão fluindo pra Meta.'
+                                : 'Complete os passos abaixo pra o tracking funcionar 100%.'}
+                        </div>
+                    </div>
+                    <button type="button" onClick={onRunTest} disabled={testing}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '8px 14px', borderRadius: 8,
+                            background: 'var(--primary)', color: '#fff',
+                            border: 'none', fontSize: 12.5, fontWeight: 600,
+                            cursor: testing ? 'not-allowed' : 'pointer',
+                            opacity: testing ? 0.7 : 1,
+                            whiteSpace: 'nowrap',
+                        }}>
+                        <Sparkles size={12} /> {testing ? 'Testando…' : 'Disparar teste'}
+                    </button>
+                </div>
+                <div style={{ height: 4, borderRadius: 999, background: 'var(--bg-input)', overflow: 'hidden' }}>
+                    <div style={{
+                        height: '100%', width: `${progressPct}%`,
+                        background: progressColor, transition: 'width 300ms ease',
+                    }} />
+                </div>
+                {testResult && (
+                    <div style={{
+                        marginTop: 10, fontSize: 12,
+                        color: testResult.startsWith('OK') ? 'var(--accent-green)' : 'var(--accent-red)',
+                    }}>{testResult}</div>
+                )}
+            </div>
+
+            {/* Alertas críticos (erros recentes) */}
+            {failed24h > 0 && (
+                <div style={{
+                    padding: '12px 16px',
+                    background: 'rgba(239,68,68,.08)',
+                    border: '1px solid rgba(239,68,68,.25)',
+                    borderRadius: 10,
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                }}>
+                    <CircleAlert size={16} color="var(--accent-red)" style={{ flexShrink: 0, marginTop: 1 }} />
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-red)' }}>
+                            {failed24h} evento{failed24h !== 1 ? 's' : ''} falharam nas últimas 24h
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                            Veja a razão no tab Eventos e retente. Podem ser credencial errada, PII inválida ou pixel excluído.
+                        </div>
+                    </div>
+                    <button type="button" onClick={() => onGoTo('events')}
+                        style={{
+                            padding: '6px 12px', borderRadius: 6,
+                            background: 'transparent', border: '1px solid var(--accent-red)',
+                            color: 'var(--accent-red)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                        }}>
+                        Ver falhas
+                    </button>
+                </div>
+            )}
+
+            {/* Checklist */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {items.map(item => (
+                    <SetupRow key={item.key} item={item} />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function SetupRow({ item }: { item: SetupItem }) {
+    const cfg = item.status === 'done'
+        ? { color: 'var(--accent-green)', bg: 'rgba(16,185,129,.08)', border: 'rgba(16,185,129,.22)', icon: <Check size={13} /> }
+        : item.status === 'warn'
+        ? { color: 'var(--accent-yellow)', bg: 'rgba(245,158,11,.08)', border: 'rgba(245,158,11,.22)', icon: <CircleAlert size={13} /> }
+        : { color: 'var(--text-muted)', bg: 'var(--bg-surface-2)', border: 'var(--border)', icon: <Clock size={13} /> };
+
+    return (
+        <div style={{
+            display: 'grid', gridTemplateColumns: '28px 1fr auto', gap: 12,
+            padding: '12px 14px',
+            background: cfg.bg,
+            border: `1px solid ${cfg.border}`,
+            borderRadius: 10,
+            alignItems: 'center',
+        }}>
+            <div style={{
+                width: 26, height: 26, borderRadius: '50%',
+                background: cfg.color, color: '#fff',
+                display: 'grid', placeItems: 'center',
+                flexShrink: 0,
+            }}>
+                {cfg.icon}
+            </div>
+            <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>{item.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{item.detail}</div>
+            </div>
+            {item.actionLabel && item.onAction && (
+                <button type="button" onClick={item.onAction}
+                    style={{
+                        padding: '6px 12px', borderRadius: 6,
+                        background: 'transparent', border: `1px solid ${cfg.color}`,
+                        color: cfg.color, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                    }}>
+                    {item.actionLabel}
+                </button>
+            )}
+        </div>
+    );
+}
+
 // ─── Modal tabs ────────────────────────────────────────────────────────────
 
 const TAB_DEFS = [
+    { key: 'setup',    label: 'Setup' },
     { key: 'overview', label: 'Visão geral' },
     { key: 'events',   label: 'Eventos' },
     { key: 'install',  label: 'Instalação' },
     { key: 'crm',      label: 'CRM' },
 ] as const;
 
+type ModalTabKey = 'setup' | 'overview' | 'events' | 'install' | 'crm';
+
 function ModalTabs({
     active,
     onChange,
     badges,
 }: {
-    active: 'overview' | 'events' | 'install' | 'crm';
-    onChange: (k: 'overview' | 'events' | 'install' | 'crm') => void;
-    badges?: { events?: number; crm?: string };
+    active: ModalTabKey;
+    onChange: (k: ModalTabKey) => void;
+    badges?: { setup?: number; events?: number; crm?: string };
 }) {
     return (
         <div
@@ -1859,7 +2529,10 @@ function ModalTabs({
         >
             {TAB_DEFS.map(tab => {
                 const isActive = active === tab.key;
-                const badge = tab.key === 'events' ? badges?.events : tab.key === 'crm' ? badges?.crm : undefined;
+                const badge = tab.key === 'setup' ? badges?.setup
+                            : tab.key === 'events' ? badges?.events
+                            : tab.key === 'crm' ? badges?.crm
+                            : undefined;
                 return (
                     <button
                         key={tab.key}
@@ -2160,12 +2833,33 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    const [crmSchema, setCrmSchema] = useState<Record<string, any> | null>(null);
+    const [loadingSchema, setLoadingSchema] = useState(mode === 'create');
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [onClose]);
+
+    // Carregar schema de CRM no modo 'create'
+    useEffect(() => {
+        if (mode !== 'create') return;
+        const loadSchema = async () => {
+            try {
+                const res = await fetch(`${API_BASE}/tracking/crm-schema`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setCrmSchema(data.data || {});
+                }
+            } catch {
+                // Se falhar, continua sem schema (fallback)
+            } finally {
+                setLoadingSchema(false);
+            }
+        };
+        loadSchema();
+    }, [mode]);
 
     const upd = (k: keyof FormState, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -2254,6 +2948,91 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                         required
                     />
                 </div>
+
+                {/* ── Seção de CRM no modo CREATE ────────────────────── */}
+                {mode === 'create' && (
+                    <>
+                        <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0 14px' }} />
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 12 }}>
+                            Configurar CRM <span style={{ color: 'var(--accent-green)' }}>· opcional mas recomendado</span>
+                        </div>
+
+                        {loadingSchema ? (
+                            <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 13 }}>Carregando CRMs disponíveis…</div>
+                        ) : (
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">Qual CRM você usa?</label>
+                                    <select
+                                        className="form-select"
+                                        value={form.crm_type}
+                                        onChange={e => upd('crm_type', e.target.value)}
+                                    >
+                                        <option value="">— Pular (configurar depois) —</option>
+                                        {crmSchema && Object.entries(crmSchema).map(([key, crm]: [string, any]) => (
+                                            <option key={key} value={key}>
+                                                {crm.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Campos dinâmicos conforme CRM selecionado */}
+                                {form.crm_type && crmSchema && crmSchema[form.crm_type] && (
+                                    <>
+                                        {crmSchema[form.crm_type].description && (
+                                            <div style={{
+                                                marginBottom: 12,
+                                                padding: '10px 12px',
+                                                background: 'rgba(59,130,246,.08)',
+                                                border: '1px solid rgba(59,130,246,.25)',
+                                                borderRadius: 'var(--radius-sm)',
+                                                fontSize: 12.5,
+                                                color: 'var(--text-primary)',
+                                            }}>
+                                                {crmSchema[form.crm_type].description}
+                                            </div>
+                                        )}
+                                        {crmSchema[form.crm_type].fields.map((field: any) => (
+                                            <div key={field.key} className="form-group">
+                                                <label className="form-label">
+                                                    {field.label}
+                                                    {field.required && <span style={{ color: 'var(--accent-red)' }}> *</span>}
+                                                </label>
+                                                <input
+                                                    type={field.type}
+                                                    className="form-input"
+                                                    value={form[field.key as keyof FormState] || ''}
+                                                    onChange={e => upd(field.key as keyof FormState, e.target.value)}
+                                                    placeholder={field.placeholder || ''}
+                                                    autoComplete="off"
+                                                    required={field.required && !!form.crm_type}
+                                                />
+                                                {field.help && (
+                                                    <span className="form-hint">{field.help}</span>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {crmSchema[form.crm_type].note && (
+                                            <div style={{
+                                                marginBottom: 12, marginTop: 8,
+                                                padding: '10px 12px',
+                                                background: 'rgba(245,158,11,.08)',
+                                                border: '1px solid rgba(245,158,11,.25)',
+                                                borderRadius: 'var(--radius-sm)',
+                                                fontSize: 12.5,
+                                                color: 'var(--text-primary)',
+                                            }}>
+                                                <strong style={{ color: 'var(--accent-yellow)' }}>💡 Info:</strong> {crmSchema[form.crm_type].note}
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </>
+                        )}
+                        <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0 14px' }} />
+                    </>
+                )}
 
                 <div className="form-group">
                     <label className="form-label">Conta Meta (opcional)</label>
@@ -2354,6 +3133,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                             >
                                 <option value="">— Nenhum (não recomendado) —</option>
                                 <option value="kommo">Kommo</option>
+                                <option value="datacrazy">DataCrazy</option>
                             </select>
                         </div>
 
@@ -2383,6 +3163,24 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                                     <span className="form-hint">
                                         No Kommo: <strong>Configurações &rsaquo; Integrações &rsaquo; aba Integrações privadas &rsaquo; Criar integração</strong> &rsaquo;
                                         marca permissões <span className="mono">Leads</span> e <span className="mono">Contatos</span> (read), salva, copia o <strong>Access Token de longa duração</strong>.
+                                    </span>
+                                </div>
+                            </>
+                        )}
+
+                        {form.crm_type === 'datacrazy' && (
+                            <>
+                                <div className="form-group">
+                                    <label className="form-label">API Key DataCrazy</label>
+                                    <input
+                                        type="password" className="form-input"
+                                        value={form.crm_access_token}
+                                        onChange={e => upd('crm_access_token', e.target.value)}
+                                        placeholder={source?.crm_access_token ? 'Deixe vazio pra manter o atual' : 'Token gerado no DataCrazy'}
+                                        autoComplete="off"
+                                    />
+                                    <span className="form-hint">
+                                        No DataCrazy: abra <strong>https://crm.datacrazy.io → Settings → API → Generate Token</strong> &rsaquo; copia o token (só aparece uma vez!).
                                     </span>
                                 </div>
                             </>
