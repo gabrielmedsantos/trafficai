@@ -10,6 +10,7 @@ import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
 import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatch } from './tracking.service';
+import { normalizeKommoSubdomain } from './crm-adapters/kommo.adapter';
 import { getAdapter, backfillSource } from './crm-sync.service';
 
 const router = Router();
@@ -234,7 +235,12 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
         if (domain !== undefined)           { fields.push(`domain=$${idx++}`); params.push(domain || null); }
         if (is_active !== undefined)        { fields.push(`is_active=$${idx++}`); params.push(Boolean(is_active)); }
         if (crm_type !== undefined)         { fields.push(`crm_type=$${idx++}`); params.push(crm_type || null); }
-        if (crm_subdomain !== undefined)    { fields.push(`crm_subdomain=$${idx++}`); params.push(crm_subdomain || null); }
+        if (crm_subdomain !== undefined) {
+            // Normaliza no save — user pode colar URL completa/domínio completo
+            const norm = crm_subdomain ? normalizeKommoSubdomain(crm_subdomain) : null;
+            fields.push(`crm_subdomain=$${idx++}`);
+            params.push(norm || null);
+        }
         if (crm_access_token !== undefined) { fields.push(`crm_access_token=$${idx++}`); params.push(crm_access_token || null); }
         if (crm_config !== undefined)       { fields.push(`crm_config=$${idx++}::jsonb`); params.push(JSON.stringify(crm_config || {})); }
 
@@ -276,13 +282,26 @@ router.post('/sources/:id/crm/test', async (req: Request, res: Response) => {
         const adapter: any = getAdapter(src);
         const account = await adapter.validate();
         let wonStatuses: any[] = [];
-        try { wonStatuses = await adapter.findWonStatuses(); } catch { /* opcional */ }
+        let discoveredStages: string[] = [];
+
+        // Kommo: tenta listar status de ganho
+        if (src.crm_type === 'kommo') {
+            try { wonStatuses = await adapter.findWonStatuses(); } catch { /* opcional */ }
+        }
+        // DataCrazy: tenta descobrir stages existentes
+        else if (src.crm_type === 'datacrazy') {
+            try {
+                const { discoverDataCrazyStages } = await import('./crm-adapters/datacrazy.adapter');
+                discoveredStages = await discoverDataCrazyStages(src.crm_access_token);
+            } catch { /* opcional */ }
+        }
 
         res.json({
             success: true,
             data: {
                 account,
                 won_statuses: wonStatuses,
+                discovered_stages: discoveredStages,
             },
         });
     } catch (err: any) {
@@ -293,7 +312,13 @@ router.post('/sources/:id/crm/test', async (req: Request, res: Response) => {
 
 // ─── POST /tracking/sources/:id/backfill ────────────────────────────────────
 // Executa backfill. Body:
-//   { enrich_existing: bool, sync_won_purchases: bool, time_strategy: 'clamp_7d' | 'now' | 'original' }
+//   {
+//     enrich_existing?: bool,      — busca PII no CRM pra eventos antigos sem email/phone
+//     sync_won_purchases?: bool,   — dispara Purchase pra leads em status "ganho"
+//     sync_leads?: bool,           — dispara Lead pra leads em estágios de qualificação
+//     lead_stage_ids?: number[],   — se vazio, auto-detecta (regex "qualif|lead|novo|prospec|inicial")
+//     time_strategy?: 'clamp_7d' | 'now' | 'original',
+//   }
 router.post('/sources/:id/backfill', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
@@ -307,12 +332,16 @@ router.post('/sources/:id/backfill', async (req: Request, res: Response) => {
         const opts = {
             enrich_existing: Boolean(req.body?.enrich_existing),
             sync_won_purchases: Boolean(req.body?.sync_won_purchases),
+            sync_leads: Boolean(req.body?.sync_leads),
+            lead_stage_ids: Array.isArray(req.body?.lead_stage_ids)
+                ? req.body.lead_stage_ids.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n) && n > 0)
+                : undefined,
             time_strategy: (req.body?.time_strategy || 'clamp_7d') as 'clamp_7d' | 'now' | 'original',
         };
-        if (!opts.enrich_existing && !opts.sync_won_purchases) {
+        if (!opts.enrich_existing && !opts.sync_won_purchases && !opts.sync_leads) {
             return res.status(400).json({
                 success: false,
-                error: { message: 'Selecione ao menos enrich_existing ou sync_won_purchases' },
+                error: { message: 'Selecione ao menos uma opção (enriquecer, sincronizar Purchase ou sincronizar Lead)' },
             });
         }
 
@@ -320,6 +349,30 @@ router.post('/sources/:id/backfill', async (req: Request, res: Response) => {
         res.json({ success: true, data: result });
     } catch (err: any) {
         logger.error('tracking: backfill falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: err.message } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/crm/pipelines ────────────────────────────────
+// Lista pipelines + estágios do Kommo pro user escolher lead_stage_ids no backfill.
+router.get('/sources/:id/crm/pipelines', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const rows = await query<any>(
+            `SELECT * FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const src = rows[0];
+        if (!src.crm_type || !src.crm_subdomain || !src.crm_access_token) {
+            return res.status(400).json({ success: false, error: { message: 'CRM não configurado nessa fonte' } });
+        }
+        const adapter: any = getAdapter(src);
+        const pipelines = await adapter.listPipelines();
+        res.json({ success: true, data: { pipelines } });
+    } catch (err: any) {
+        logger.error('tracking: listar pipelines falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: err.message } });
     }
 });
