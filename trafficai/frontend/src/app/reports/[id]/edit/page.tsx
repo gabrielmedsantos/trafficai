@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronUp, ToggleLeft, ToggleRight, Info
 } from 'lucide-react';
 
-const API = 'http://localhost:3001/api/v1';
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const token = () => localStorage.getItem('trafficai_token') || '';
 
 interface Campaign {

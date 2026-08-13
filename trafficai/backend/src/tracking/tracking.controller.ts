@@ -54,8 +54,8 @@ router.get('/crm-schema', async (req: Request, res: Response) => {
                     help: 'DataCrazy → https://crm.datacrazy.io → Settings → API → Generate Token',
                 },
             ],
-            backfill_options: ['enrich_existing'],
-            note: 'Stages de "Venda Ganha" e "Perdido" serão detectadas automaticamente ao testar a conexão',
+            backfill_options: ['enrich_existing', 'sync_won_purchases'],
+            note: 'Stages de "Venda Ganha" serão detectadas automaticamente. Quando habilitado, Purchase events são enviados pra Meta CAPI pra otimizar seus anúncios.',
         },
     };
     res.json({ success: true, data: schema });

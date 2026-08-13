@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { KommoAdapter, ExtractedUserData as KommoUserData } from './crm-adapters/kommo.adapter';
-import { DataCrazyAdapter, ExtractedUserData as DataCrazyUserData } from './crm-adapters/datacrazy.adapter';
+import { DataCrazyAdapter, ExtractedUserData as DataCrazyUserData, discoverDataCrazyStages } from './crm-adapters/datacrazy.adapter';
 
 const META_VERSION = 'v19.0';
 
@@ -239,9 +239,110 @@ export async function backfillSource(
 
     // ── 2. Sincronizar Purchase de leads ganhos ──────────────────────────
     if (opts.sync_won_purchases) {
-        if (source.crm_type !== 'kommo') {
-            logger.info('crm-backfill: sync_won_purchases é específico pra Kommo — skipped pra DataCrazy', { sourceId });
-        } else {
+        if (source.crm_type === 'datacrazy') {
+            const dcAdapter = adapter as DataCrazyAdapter;
+            let wonStageName: string;
+            try {
+                const stages = await discoverDataCrazyStages(source.crm_access_token);
+                const wonStage = stages.find((s: string) => /venda\s+ganha|won|ganho/i.test(s));
+                if (!wonStage) {
+                    logger.info('crm-backfill: nenhum stage "Venda Ganha" detectado no DataCrazy', { sourceId });
+                    wonStageName = ''; // skip
+                } else {
+                    wonStageName = wonStage;
+                }
+            } catch (e: any) {
+                throw new Error(`Falha ao detectar stages DataCrazy: ${e.message}`);
+            }
+
+            if (wonStageName) {
+                logger.info(`crm-backfill DataCrazy: sincronizando stage "${wonStageName}"`, { sourceId });
+                const allLeads: any[] = [];
+                try {
+                    // Busca paginated leads do stage ganho
+                    const leads = await dcAdapter.listLeadsByStage(wonStageName, 100);
+                    allLeads.push(...leads);
+                } catch (e: any) {
+                    logger.warn('crm-backfill DataCrazy listLeadsByStage falhou', { stage: wonStageName, error: e.message });
+                }
+
+                // Dedupe por id
+                const seen = new Set<string>();
+                const withValue = allLeads.filter(l => {
+                    const id = String(l.id || '');
+                    if (!id || seen.has(id)) return false;
+                    seen.add(id);
+                    return true; // DataCrazy pode não ter value — enviar de qualquer forma
+                });
+                logger.info(`crm-backfill DataCrazy: ${withValue.length} leads para Purchase`, { sourceId });
+
+                for (const lead of withValue) {
+                    const leadId = lead.id;
+                    const price = Number(lead.value || lead.price || 0) || 0; // Default 0 se não tem
+                    try {
+                        const userData = dcAdapter.extractUserData(lead);
+                        if (!userData.email && !userData.phone) { result.skipped++; continue; }
+
+                        const hashed = buildHashedUserData(userData);
+                        const eventId = `datacrazy-${leadId}-Purchase`;
+                        const eventTime = clampEventTime(lead.updated_at || Math.floor(Date.now() / 1000), timeStrat);
+
+                        // Dedupe idempotente
+                        const existing = await query<{ id: string }>(
+                            `SELECT id FROM tracking_events
+                             WHERE source_id = $1 AND event_id = $2 LIMIT 1`,
+                            [sourceId, eventId]
+                        );
+                        if (existing.length > 0) {
+                            result.skipped++;
+                            continue;
+                        }
+
+                        const payload = {
+                            event_name: 'Purchase',
+                            event_time: eventTime,
+                            event_id: eventId,
+                            action_source: 'system_generated',
+                            user_data: hashed,
+                            custom_data: {
+                                ...(price > 0 ? { value: price } : {}),
+                                currency: 'BRL',
+                                source: 'datacrazy_backfill',
+                                datacrazy_lead_id: String(leadId),
+                            },
+                        };
+
+                        const metaRes = await sendToMeta(source, payload);
+                        if (metaRes.status === 'sent') {
+                            const emq = computeEmq(userData, true);
+                            await query(
+                                `INSERT INTO tracking_events
+                                    (source_id, event_name, event_id, event_time, action_source,
+                                     external_id, value, currency, custom_data, user_data_hashed,
+                                     emq_score, meta_status, meta_response, meta_fbtrace_id)
+                                 VALUES ($1,'Purchase',$2,$3,'system_generated',$4,$5,'BRL',$6,$7,$8,'sent',$9,$10)
+                                 ON CONFLICT DO NOTHING`,
+                                [
+                                    sourceId, eventId, eventTime, `datacrazy-${leadId}`, price || null,
+                                    JSON.stringify(payload.custom_data),
+                                    JSON.stringify(hashed), emq,
+                                    JSON.stringify(metaRes.response), metaRes.fbtrace_id || null,
+                                ]
+                            );
+                            result.purchases_created++;
+                            if (price > 0) result.total_purchase_value += price;
+                        } else {
+                            result.failed++;
+                            logger.warn('crm-backfill DataCrazy Purchase falhou', { leadId, error: metaRes.error });
+                        }
+                        await sleep(180);
+                    } catch (e: any) {
+                        result.failed++;
+                        logger.warn('crm-backfill DataCrazy Purchase exceção', { leadId, error: e.message });
+                    }
+                }
+            }
+        } else if (source.crm_type === 'kommo') {
             const kommoAdapter = adapter as KommoAdapter;
             let wonStatuses;
             try {
