@@ -37,12 +37,22 @@ interface ReportMetrics {
     cpa_change_pct: number | null;
     // Por campanha
     top_campaigns: Array<{
+        id?: string;
+        meta_campaign_id?: string;
         name: string;
+        objective?: string;
         spend: number;
         conversions: number;
         roas: number;
         ctr: number;
         status: string;
+        breakdowns?: {
+            publisher_platform?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+            platform_position?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+            impression_device?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+            age_gender?: Array<{ label: string; age: string; gender: string; spend: number; impressions: number; conversions: number }>;
+            region?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        };
     }>;
     top_ads: Array<{
         ad_id: string;
@@ -67,6 +77,14 @@ interface ReportMetrics {
         clicks: number;
         impressions: number;
     }>;
+    // ─── Segmentação (breakdowns via Meta API) ───
+    breakdowns?: {
+        publisher_platform?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        platform_position?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        impression_device?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        age_gender?: Array<{ label: string; spend: number; impressions: number; conversions: number; age: string; gender: string }>;
+        region?: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+    };
 }
 
 interface GeneratedReport {
@@ -261,7 +279,7 @@ export class ReportService {
         // 3. Agrega métricas do período atual
         const metrics = await this.aggregateMetrics(accountId, periodStart, periodEnd);
 
-        // 3b. Busca dados de criativos (nível de anúncio) diretamente da Meta API
+        // 3b. Busca dados de criativos (nível de anúncio) + breakdowns de segmentação
         try {
             const user = await authRepository.findById(userId);
             if (user?.access_token) {
@@ -274,6 +292,29 @@ export class ReportService {
                         userId, user.access_token, account.meta_account_id, adIds
                     );
                     metrics.top_ads = this.processAdInsights(adInsights, thumbnails);
+                }
+
+                // Breakdowns pra seções de segmentação (plataforma, posicionamento, idade+gênero, dispositivo, região)
+                try {
+                    metrics.breakdowns = await metaService.getBreakdownInsights(
+                        userId, user.access_token, account.meta_account_id, since, until
+                    );
+                } catch (bdErr: any) {
+                    logger.warn('Falha ao buscar breakdowns', { error: bdErr.message });
+                }
+
+                // Breakdowns POR CAMPANHA — anexa em cada top_campaigns[i].breakdowns
+                try {
+                    const byC = await metaService.getBreakdownInsightsByCampaign(
+                        userId, user.access_token, account.meta_account_id, since, until
+                    );
+                    for (const c of metrics.top_campaigns) {
+                        if (c.meta_campaign_id && byC.has(c.meta_campaign_id)) {
+                            c.breakdowns = byC.get(c.meta_campaign_id);
+                        }
+                    }
+                } catch (bdErr: any) {
+                    logger.warn('Falha ao buscar breakdowns por campanha', { error: bdErr.message });
                 }
             }
         } catch (adErr: any) {
@@ -511,7 +552,10 @@ export class ReportService {
         // Todas as campanhas do período — sem limite. ROAS e CTR ponderados.
         const topCampaigns = await query<any>(`
             SELECT
+                c.id,
+                c.meta_campaign_id,
                 c.name,
+                c.objective,
                 c.status,
                 COALESCE(SUM(ih.spend), 0) as spend,
                 COALESCE(SUM(ih.impressions), 0) as impressions,
@@ -522,7 +566,7 @@ export class ReportService {
             JOIN campaigns c ON ih.campaign_id = c.id
             WHERE c.account_id = $1
               AND ih.date BETWEEN $2 AND $3
-            GROUP BY c.id, c.name, c.status
+            GROUP BY c.id, c.meta_campaign_id, c.name, c.objective, c.status
             ORDER BY spend DESC
         `, [accountId, startStr, endStr]);
 
@@ -573,7 +617,10 @@ export class ReportService {
                 const clk = parseInt(c.clicks) || 0;
                 const weightedRoasSum = parseFloat(c.weighted_roas_sum) || 0;
                 return {
+                    id: c.id,
+                    meta_campaign_id: c.meta_campaign_id,
                     name: c.name,
+                    objective: c.objective,
                     status: c.status,
                     spend: sp,
                     conversions: parseInt(c.conversions) || 0,
@@ -863,7 +910,14 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                 };
             })
             .filter(a => a.spend > 0)
-            .sort((a, b) => b.spend - a.spend);
+            // Ranking por performance: quem tem resultado ordena por CPA (menor = melhor);
+            // ads sem resultado vão pro fim, ordenados por spend desc
+            .sort((a, b) => {
+                if (a.conversions > 0 && b.conversions > 0) return a.cpa - b.cpa;
+                if (a.conversions > 0) return -1;
+                if (b.conversions > 0) return 1;
+                return b.spend - a.spend;
+            });
     }
 
     // ─── HELPERS ──────────────────────────────────────────────────────────────

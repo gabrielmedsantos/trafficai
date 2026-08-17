@@ -56,6 +56,11 @@ export const TEMPLATE_VARIABLES = [
     { key: 'month_cpl',            label: 'CPL do mês',                      example: 'R$ 58,69' },
     { key: 'month_action_label',   label: 'Label da ação (mês)',             example: 'lead' },
     { key: 'active_ads',           label: 'Anúncios ativos / em análise',    example: '8' },
+    { key: 'top_ads_block',        label: 'Bloco top criativos (ontem)',    example: '🥇 ADS-GERAL IA\n   💰 R$ 141,66 · 57 conv. · R$ 2,46/conv\n\n🥈 ADS-NIUVS\n   💰 R$ 136,00 · 34 conv. · R$ 4,00/conv' },
+    { key: 'top_ads_block_7d',     label: 'Bloco top criativos (7 dias)',   example: '🥇 ADS-GERAL IA · R$ 990/7d · 380 conv\n🥈 ADS-NIUVS · R$ 950/7d · 240 conv' },
+    { key: 'ads_count',            label: 'Total de anúncios no relatório', example: '5' },
+    { key: 'report_link',          label: 'Link do relatório visual completo (ontem)', example: 'https://api.alfamaxdigital.com.br/api/v1/r/pdf/abc123' },
+    { key: 'report_link_7d',       label: 'Link do relatório visual (últimos 7 dias)', example: 'https://api.alfamaxdigital.com.br/api/v1/r/pdf/xyz456' },
 ] as const;
 
 /** Template default — usado quando daily_whatsapp_template é NULL. */
@@ -64,9 +69,32 @@ export function getTemplateByName(name?: string): string {
         case 'executive':   return TPL_EXECUTIVE;
         case 'detailed':    return TPL_DETAILED;
         case 'whatsapp_focus': return TPL_WHATSAPP_FOCUS;
+        case 'per_creative': return TPL_PER_CREATIVE;
         default:            return getDefaultTemplate();
     }
 }
+
+const TPL_PER_CREATIVE = [
+    '{greeting} *{client_name}*!',
+    '',
+    '📅 Resumo de ontem ({today_label}):',
+    '',
+    '💰 Investimento: {today_spend}',
+    '📊 {today_leads} {today_action_label} · {today_cpl}/{today_action_label_singular}',
+    '⚡️ Impressões: {today_impressions}',
+    '',
+    '━━━ 🎯 CRIATIVOS ATIVOS ━━━',
+    '{top_ads_block}',
+    '',
+    '━━━ 📈 ÚLTIMOS 7 DIAS ━━━',
+    '💰 {last7_spend} · 📊 {last7_leads} {last7_action_label}',
+    '',
+    '━━━ 📅 MÊS ({month_label}) ━━━',
+    '💰 {month_spend} · 📊 {month_leads} {month_action_label}',
+    '',
+    '📄 Relatório visual completo:',
+    '{report_link}',
+].join('\n');
 
 const TPL_EXECUTIVE = [
     '{greeting} *{client_name}*',
@@ -77,8 +105,6 @@ const TPL_EXECUTIVE = [
     '',
     '📈 Últimos 7 dias: R$ {last7d_spend} → {last7d_leads} {last7d_action_label}',
     '📊 No mês: R$ {month_spend} → {month_leads} {month_action_label}',
-    '',
-    '🏷️ {activeAds} anúncios rodando.',
 ].join('\n');
 
 const TPL_DETAILED = [
@@ -95,8 +121,6 @@ const TPL_DETAILED = [
     '',
     '━━━ 📆 MÊS ({month_label}) ━━━',
     '💰 R$ {month_spend} · 📊 {month_leads} · R$ {month_cpl}/lead',
-    '',
-    '🏷️ Anúncios rodando ou em análise: {activeAds}',
 ].join('\n');
 
 const TPL_WHATSAPP_FOCUS = [
@@ -110,8 +134,6 @@ const TPL_WHATSAPP_FOCUS = [
     '',
     '📊 Últimos 7 dias: {last7d_leads} conversas · R$ {last7d_cpl}/conversa',
     '📈 No mês: {month_leads} conversas · R$ {month_cpl}/conversa',
-    '',
-    '🏷️ {activeAds} anúncios ativos direcionando pro WhatsApp.',
 ].join('\n');
 
 export function getDefaultTemplate(): string {
@@ -142,7 +164,8 @@ export function getDefaultTemplate(): string {
         '📊 Total de {month_leads} {month_action_label}',
         '💰 Custo por {month_action_label} de {month_cpl}',
         '',
-        '🏷️ Anúncios rodando ou em análise: {active_ads}',
+        '📄 Relatório visual completo:',
+        '{report_link}',
     ].join('\n');
 }
 
@@ -157,6 +180,34 @@ export function renderTemplate(template: string, vars: Record<string, string | n
 }
 
 /** Builda o dicionário de vars a partir das métricas — sem ler do banco. */
+export interface AdRankRow {
+    name: string;
+    spend: number;
+    conversions: number;
+    cpa: number;
+    action_label: string;
+    impressions?: number;
+}
+
+/**
+ * Formata TODOS os anúncios como se fossem campanhas separadas, cada um com sua linha.
+ * Ordenado por spend desc. Sem truncar por número (só limite defensivo pra evitar msg >5k).
+ */
+export function formatTopAdsBlock(ads: AdRankRow[], variant: 'today' | 'week' = 'today'): string {
+    if (!ads.length) return '_Sem dados de anúncios no período._';
+    const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const MAX = 25; // limite defensivo — WhatsApp corta msgs muito longas
+    return ads.slice(0, MAX).map((ad, i) => {
+        const cpa = ad.cpa > 0 ? fmtBRL(ad.cpa) : '—';
+        const actionSingular = ad.action_label.endsWith('s') ? ad.action_label.replace(/s$/, '') : ad.action_label;
+        const cleanName = ad.name.length > 42 ? ad.name.slice(0, 39) + '…' : ad.name;
+        // Formato compacto tipo "anúncio como campanha":
+        //   *NOME*
+        //   💰 R$ 141,66 · 📊 57 conv · R$ 2,46/conv
+        return `*${i + 1}. ${cleanName}*\n   💰 ${fmtBRL(ad.spend)} · 📊 ${ad.conversions} ${ad.action_label.toLowerCase()} · ${cpa}/${actionSingular.toLowerCase()}`;
+    }).join('\n\n') + (ads.length > MAX ? `\n\n_+${ads.length - MAX} outros anúncios..._` : '');
+}
+
 export function buildTemplateVars(data: {
     client_name: string;
     greeting: string;
@@ -164,9 +215,14 @@ export function buildTemplateVars(data: {
     last7d: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
     month: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
     activeAds: number;
+    topAdsToday?: AdRankRow[];
+    topAds7d?: AdRankRow[];
+    reportLink?: string;
+    reportLink7d?: string;
 }): Record<string, string | number> {
     const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const fmtNum = (v: number) => v.toLocaleString('pt-BR');
+    const todaySingular = data.today.metrics.leads === 1 ? data.today.metrics.primary_action_label.replace(/s$/, '') : data.today.metrics.primary_action_label;
 
     return {
         client_name: data.client_name.toUpperCase(),
@@ -177,7 +233,8 @@ export function buildTemplateVars(data: {
         today_impressions: fmtNum(data.today.metrics.impressions),
         today_leads: fmtNum(data.today.metrics.leads),
         today_cpl: fmtBRL(data.today.metrics.cost_per_lead),
-        today_action_label: data.today.metrics.leads === 1 ? data.today.metrics.primary_action_label.replace(/s$/, '') : data.today.metrics.primary_action_label,
+        today_action_label: todaySingular,
+        today_action_label_singular: data.today.metrics.primary_action_label.replace(/s$/, ''),
         // Last 7 days
         last7_label: data.last7d.label,
         last7_spend: fmtBRL(data.last7d.metrics.spend),
@@ -194,6 +251,16 @@ export function buildTemplateVars(data: {
         month_action_label: data.month.metrics.primary_action_label,
         // Active ads
         active_ads: data.activeAds,
+        // Top criativos
+        top_ads_block: data.topAdsToday && data.topAdsToday.length > 0
+            ? formatTopAdsBlock(data.topAdsToday, 'today')
+            : '_Sem dados de criativos ontem._',
+        top_ads_block_7d: data.topAds7d && data.topAds7d.length > 0
+            ? formatTopAdsBlock(data.topAds7d, 'week')
+            : '_Sem dados de criativos nos últimos 7 dias._',
+        ads_count: (data.topAdsToday || []).length,
+        report_link: data.reportLink || '',
+        report_link_7d: data.reportLink7d || '',
     };
 }
 
@@ -405,7 +472,7 @@ export class DailyWhatsAppService {
     }
 
     /**
-     * Monta o relatório completo (3 períodos + ads ativos) no formato cliente.
+     * Monta o relatório completo (3 períodos + ads ativos + top criativos) no formato cliente.
      */
     private async buildFullReport(acc: AccountWithSettings, todayDateStr: string): Promise<string> {
         // "Hoje" no relatório = data informada (geralmente ontem, conforme cron)
@@ -423,11 +490,15 @@ export class DailyWhatsAppService {
         const monthStartStr = this.toISODate(monthStart);
         const monthEndStr = this.toISODate(monthEnd);
 
-        const [todayM, last7M, monthM, activeAds] = await Promise.all([
+        const [todayM, last7M, monthM, activeAds, topAdsToday, topAds7d, reportLink, reportLink7d] = await Promise.all([
             this.getRangeMetrics(acc.id, todayStr, todayStr),
             this.getRangeMetrics(acc.id, last7StartStr, last7EndStr),
             this.getRangeMetrics(acc.id, monthStartStr, monthEndStr),
             this.countActiveAds(acc.id),
+            this.getTopAdsForRange(acc.id, todayStr, todayStr).catch(() => []),
+            this.getTopAdsForRange(acc.id, last7StartStr, last7EndStr).catch(() => []),
+            this.generateReportSnapshot(acc, todayStr, todayStr).catch(() => ''),
+            this.generateReportSnapshot(acc, last7StartStr, last7EndStr).catch(() => ''),
         ]);
 
         return this.buildMessageNew(acc, {
@@ -435,7 +506,115 @@ export class DailyWhatsAppService {
             last7d: { metrics: last7M, label: `${this.formatDayBR(last7StartStr)} a ${this.formatDayBR(last7EndStr)}` },
             month: { metrics: monthM, label: `${this.formatDayBR(monthStartStr)} a ${this.formatDayBR(monthEndStr)}` },
             activeAds,
+            topAdsToday,
+            topAds7d,
+            reportLink,
+            reportLink7d,
         });
+    }
+
+    /**
+     * Gera snapshot HTML público do relatório e retorna a URL curta pra colar no WhatsApp.
+     * Falha silenciosa: se algo der errado, retorna string vazia (template mostra fallback).
+     */
+    private async generateReportSnapshot(acc: AccountWithSettings, since: string, until: string): Promise<string> {
+        try {
+            const { buildReportForAccount, renderReportHTML, saveReportSnapshot } = await import('./pdf-report.service');
+            const data = await buildReportForAccount(acc.user_id, acc.id, since, until);
+            const html = renderReportHTML(data);
+            const snapshot = await saveReportSnapshot(acc.user_id, acc.id, html, {
+                periodStart: since, periodEnd: until, accountName: data.accountName,
+            });
+            return snapshot.url;
+        } catch (err: any) {
+            logger.warn('generateReportSnapshot falhou', { accountId: acc.id, error: err.message });
+            return '';
+        }
+    }
+
+    /**
+     * Top 5 ads no período — usa Meta API via metaService pra ter nomes + métricas frescos.
+     * Se falhar (sem token, etc), retorna [].
+     */
+    private async getTopAdsForRange(accountId: string, since: string, until: string): Promise<AdRankRow[]> {
+        try {
+            const accRows = await query<any>(
+                `SELECT a.meta_account_id, a.user_id FROM ad_accounts a WHERE a.id = $1`,
+                [accountId]
+            );
+            if (!accRows.length) return [];
+            const { meta_account_id, user_id } = accRows[0];
+            const userRows = await query<any>(`SELECT access_token FROM users WHERE id = $1`, [user_id]);
+            const accessToken = userRows[0]?.access_token;
+            if (!accessToken) return [];
+
+            const { metaService } = await import('../meta/meta.service');
+            const raw = await metaService.getAdInsightsForReport(user_id, accessToken, meta_account_id, since, until);
+            if (!raw.length) return [];
+
+            const ACTION_PRIORITY = [
+                { type: 'offsite_conversion.fb_pixel_purchase', label: 'Compras' },
+                { type: 'purchase', label: 'Compras' },
+                { type: 'offsite_conversion.fb_pixel_lead', label: 'Leads' },
+                { type: 'lead', label: 'Leads' },
+                { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
+                { type: 'onsite_conversion.total_messaging_connection', label: 'Conversas' },
+                { type: 'link_click', label: 'Cliques' },
+            ];
+            // Determina ação DOMINANTE do período (maior volume entre todos os ads)
+            const agg = new Map<string, number>();
+            for (const r of raw) {
+                for (const a of (r.actions || [])) {
+                    agg.set(a.action_type, (agg.get(a.action_type) || 0) + (parseInt(a.value, 10) || 0));
+                }
+            }
+            let dominant: { type: string; label: string } | null = null;
+            let dominantCount = 0;
+            for (const p of ACTION_PRIORITY) {
+                const c = agg.get(p.type) || 0;
+                if (c > 0 && c > dominantCount) {
+                    dominant = { type: p.type, label: p.label };
+                    dominantCount = c;
+                }
+            }
+
+            return raw.map((r: any) => {
+                const spend = parseFloat(r.spend || '0');
+                // Se temos ação dominante, extrai APENAS ela pra manter consistência
+                let count = 0, label = 'Result.';
+                if (dominant) {
+                    const m = (r.actions || []).find((a: any) => a.action_type === dominant!.type);
+                    count = m ? (parseInt(m.value, 10) || 0) : 0;
+                    label = dominant.label;
+                } else {
+                    for (const p of ACTION_PRIORITY) {
+                        const m = (r.actions || []).find((a: any) => a.action_type === p.type);
+                        if (m && parseInt(m.value, 10) > 0) { count = parseInt(m.value, 10); label = p.label; break; }
+                    }
+                }
+                return {
+                    name: r.ad_name || '(sem nome)',
+                    spend,
+                    conversions: count,
+                    action_label: label,
+                    cpa: count > 0 ? spend / count : 0,
+                    impressions: parseInt(r.impressions || '0', 10),
+                };
+            })
+            // Filtra ads com spend mínimo (>= R$ 1) — evita ranking com ads que gastaram centavos
+            .filter(a => a.spend >= 1.0)
+            // Ranking por performance: quem tem resultado ordena por CPA (menor = melhor);
+            // ads sem resultado vão pro fim, ordenados por spend desc
+            .sort((a, b) => {
+                if (a.conversions > 0 && b.conversions > 0) return a.cpa - b.cpa;
+                if (a.conversions > 0) return -1;
+                if (b.conversions > 0) return 1;
+                return b.spend - a.spend;
+            });
+        } catch (err: any) {
+            logger.warn('getTopAdsForRange falhou', { accountId, error: err.message });
+            return [];
+        }
     }
 
     private toISODate(d: Date): string {
@@ -510,6 +689,10 @@ export class DailyWhatsAppService {
             last7d: { metrics: RangeMetrics; label: string };
             month: { metrics: RangeMetrics; label: string };
             activeAds: number;
+            topAdsToday?: AdRankRow[];
+            topAds7d?: AdRankRow[];
+            reportLink?: string;
+            reportLink7d?: string;
         }
     ): string {
         const clientName = acc.client_name || acc.account_name || 'Cliente';
@@ -527,6 +710,10 @@ export class DailyWhatsAppService {
             last7d: data.last7d,
             month: data.month,
             activeAds: data.activeAds,
+            topAdsToday: data.topAdsToday,
+            topAds7d: data.topAds7d,
+            reportLink: data.reportLink,
+            reportLink7d: data.reportLink7d,
         });
 
         return renderTemplate(template, vars);
@@ -622,7 +809,8 @@ export class DailyWhatsAppService {
         const rows = await query<AccountWithSettings>(`
             SELECT
                 a.id, a.user_id, a.account_name, a.meta_account_id,
-                rs.client_name,
+                rs.client_name, rs.client_phone,
+                rs.daily_whatsapp_template, rs.report_template,
                 ns.whatsapp_provider,
                 ns.uazapi_url, ns.uazapi_token,
                 ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
