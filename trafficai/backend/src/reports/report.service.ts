@@ -862,23 +862,26 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                 const cpc = parseFloat(a.cpc || '0');
                 const actions: any[] = Array.isArray(a.actions) ? a.actions : [];
 
-                // Por criativo: dentro do tier mais alto com dados, pega o de MAIOR volume
+                // Por criativo: dentro do tier mais alto com dados, o PRIMEIRO tipo da
+                // lista com valor > 0 vence — a ordem da lista é a prioridade e bate com
+                // o "Resultados" do Gerenciador (ex.: conversas iniciadas, não conexões).
                 let conversions = 0;
                 let actionLabel = 'Resultado';
                 let actionSingular = 'Resultado';
+                let matched = false;
                 for (const tier of AD_ACTION_TIERS) {
-                    let bestCount = 0;
                     for (const p of tier) {
                         const found = actions.find((x: any) => x.action_type === p.type);
                         const count = found ? parseInt(found.value || '0', 10) : 0;
-                        if (count > bestCount) {
-                            bestCount = count;
+                        if (count > 0) {
                             conversions = count;
                             actionLabel = p.label;
                             actionSingular = p.singular;
+                            matched = true;
+                            break;
                         }
                     }
-                    if (bestCount > 0) break;
+                    if (matched) break;
                 }
 
                 // ROAS

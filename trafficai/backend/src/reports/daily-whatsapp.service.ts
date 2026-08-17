@@ -568,14 +568,11 @@ export class DailyWhatsAppService {
                     agg.set(a.action_type, (agg.get(a.action_type) || 0) + (parseInt(a.value, 10) || 0));
                 }
             }
+            // Primeiro tipo da prioridade com volume > 0 vence (Compras > Leads > Conversas > Cliques).
+            // Antes selecionava por maior volume — cliques/engajamento sempre venciam conversões.
             let dominant: { type: string; label: string } | null = null;
-            let dominantCount = 0;
             for (const p of ACTION_PRIORITY) {
-                const c = agg.get(p.type) || 0;
-                if (c > 0 && c > dominantCount) {
-                    dominant = { type: p.type, label: p.label };
-                    dominantCount = c;
-                }
+                if ((agg.get(p.type) || 0) > 0) { dominant = { type: p.type, label: p.label }; break; }
             }
 
             return raw.map((r: any) => {

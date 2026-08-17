@@ -926,15 +926,13 @@ function extractDominantAction(allActions: any[][]): { type: string; label: stri
             agg.set(a.action_type, cur + (parseInt(a.value, 10) || 0));
         }
     }
-    // Pega o tipo com mais volume dentro dos que estão na priority list
-    let best: { type: string; label: string; count: number } | null = null;
+    // Respeita a ORDEM da priority list (Compras > Leads > Conversas > Cliques > Engaj.):
+    // o primeiro tipo com volume > 0 vence. Selecionar por maior volume distorcia o
+    // relatório — engajamento/cliques sempre têm mais volume que conversões e venciam.
     for (const p of ACTION_PRIORITY) {
-        const c = agg.get(p.type) || 0;
-        if (c > 0 && (!best || c > best.count)) {
-            best = { type: p.type, label: p.label, count: c };
-        }
+        if ((agg.get(p.type) || 0) > 0) return { type: p.type, label: p.label };
     }
-    return best ? { type: best.type, label: best.label } : null;
+    return null;
 }
 
 /** Extrai valor de UMA ação específica (usa quando temos ação dominante coordenada). */
