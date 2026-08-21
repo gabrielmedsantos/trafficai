@@ -30,6 +30,9 @@ skills-lock.json
 
 # Client-specific working directories (não código)
 google ads/
+meta ads/
+tiktok ads/
+linkedin ads/
 
 # Backup files
 *.mine-backup
