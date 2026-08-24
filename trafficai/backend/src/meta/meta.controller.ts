@@ -250,6 +250,16 @@ router.post('/accounts/add-manual', async (req: Request, res: Response, next: Ne
         const userId = req.user!.userId;
         const { meta_account_id, account_name } = req.body;
 
+        // Hard-block: verifica limite de clientes do plano
+        const { canAddClient } = await import('../billing/stripe.service');
+        const check = await canAddClient(userId);
+        if (!check.ok) {
+            return res.status(402).json({
+                success: false,
+                error: { message: check.reason, code: 402, upgrade_plan: check.upgrade_plan },
+            });
+        }
+
         if (!meta_account_id || !account_name) {
             throw new AppError('meta_account_id e account_name são obrigatórios', 400);
         }

@@ -46,6 +46,16 @@ router.get('/members', async (req: Request, res: Response) => {
 router.post('/members', async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     try {
+        // Hard-block: verifica limite de seats do plano
+        const { canAddSeat } = await import('../billing/stripe.service');
+        const check = await canAddSeat((req as any).user.userId);
+        if (!check.ok) {
+            return res.status(402).json({
+                success: false,
+                error: { message: check.reason, code: 402, upgrade_plan: check.upgrade_plan },
+            });
+        }
+
         const { name, email, password, role, department, job_title, avatar_color } = req.body;
 
         if (!name || !email || !password) {

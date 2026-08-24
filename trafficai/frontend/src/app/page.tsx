@@ -25,7 +25,35 @@ export default function LoginPage() {
                 : await api.register(email, password, name);
 
             localStorage.setItem('trafficai_token', result.token);
-            router.push('/dashboard');
+
+            // Checa status da assinatura antes de mandar pro dashboard.
+            // Trial expirado / plano inativo → força escolha de plano.
+            try {
+                const sub = await api.getSubscription();
+                // Admin: acesso ilimitado, nunca redireciona pra billing
+                if (sub?.is_admin) {
+                    router.push('/agenda');
+                    return;
+                }
+                const now = Date.now();
+                const trialValid = sub?.status === 'trialing'
+                    && sub?.trial_ends_at
+                    && new Date(sub.trial_ends_at).getTime() > now;
+                const active = sub?.status === 'active' || sub?.status === 'past_due';
+                if (!trialValid && !active) {
+                    router.push('/billing?blocked=1');
+                    return;
+                }
+                // Novo signup em trial → leva pra billing pra ele CONHECER os planos
+                // (mas pode fechar e ir pro dashboard, é opcional). Só redireciona
+                // pra billing em signup, não em login.
+                if (!isLogin && sub?.status === 'trialing') {
+                    router.push('/billing?welcome=1');
+                    return;
+                }
+            } catch { /* falha ao checar sub — deixa ir pro dashboard, o guard vai bloquear se preciso */ }
+
+            router.push('/agenda');
         } catch (err: any) {
             setError(err.message || 'Erro ao processar. Tente novamente.');
         } finally {

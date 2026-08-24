@@ -42,6 +42,15 @@ export class AuthService {
         const passwordHash = await bcrypt.hash(password, 12);
         const user = await authRepository.create(email, passwordHash, name);
 
+        // Cria trial de 7 dias automaticamente. Import dinâmico pra evitar
+        // ciclo de dependência (billing → auth em algum caminho).
+        try {
+            const { getUserSubscription } = await import('../billing/stripe.service');
+            await getUserSubscription(user.id);
+        } catch (err: any) {
+            logger.warn('Falha ao criar trial no signup — user segue sem plano', { userId: user.id, error: err.message });
+        }
+
         const token = this.generateToken(user);
         logger.info('User registered', { userId: user.id, email: user.email });
 

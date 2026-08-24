@@ -54,23 +54,41 @@ app.use(cors({
 // dispara múltiplos eventos: PageView + scrolls + conversões).
 const trackLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minuto
-    max: 120,            // 120 req/min por IP — suficiente para navegação normal
+    max: 300,            // pixel dispara vários eventos por navegação
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, error: { message: 'Too many requests', code: 429 } },
 });
+// Limiter específico pra /auth (login/register) — protege brute force
+// sem estrangular o resto do app.
+const authLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000, // 5 minutos
+    max: 30,                  // 30 tentativas por IP em 5 min
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true, // login bem-sucedido não conta
+    message: { success: false, error: { message: 'Muitas tentativas de login. Tente em alguns minutos.', code: 429 } },
+});
+// Main limiter mais folgado — SaaS multi-user compartilhando IP via proxy.
 const mainLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 1000,
+    windowMs: 60 * 1000,      // 1 minuto (janela curta pra recuperar rápido)
+    max: 600,                  // 600 req/min por IP — cobre múltiplos users atrás do mesmo proxy
     standardHeaders: true,
     legacyHeaders: false,
     message: { success: false, error: { message: 'Too many requests', code: 429 } },
 });
 app.use('/api/v1/track', trackLimiter);
+app.use('/api/v1/auth', authLimiter);
 app.use(mainLimiter);
 
 // ---- Body Parsing ----
-app.use(express.json({ limit: '10mb' }));
+// IMPORTANTE: Stripe webhook precisa de raw body pra validar assinatura.
+// A rota /api/v1/billing/webhook usa express.raw() no seu próprio router,
+// então pulamos o express.json() pra ela.
+app.use((req, res, next) => {
+    if (req.path === '/api/v1/billing/webhook') return next();
+    express.json({ limit: '10mb' })(req, res, next);
+});
 app.use(express.urlencoded({ extended: true }));
 
 // ---- Request Logging ----

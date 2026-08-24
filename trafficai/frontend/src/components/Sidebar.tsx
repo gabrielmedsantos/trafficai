@@ -32,11 +32,13 @@ import {
     Menu,
     X,
     MessageCircle,
+    ClipboardCheck,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAccount } from '@/app/AccountContext';
 import AccountSelect from '@/components/AccountSelect';
+import PWAInstallButton from '@/components/PWAInstallButton';
 
 // ─── Area definitions ──────────────────────────────────────────────────────
 
@@ -45,8 +47,18 @@ const AREAS = [
         id: 'traffic',
         label: 'Tráfego Pago',
         icon: Radio,
-        routes: ['/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar'],
+        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar'],
         groups: [
+            {
+                label: 'Meu dia',
+                items: [
+                    { href: '/agenda',       label: 'Agenda',          icon: CalendarDays },
+                    { href: '/rotina',       label: 'Rotina',          icon: CalendarDays },
+                    { href: '/otimizacoes',  label: 'Otimizações',     icon: ClipboardList },
+                    { href: '/onboarding',   label: 'Onboarding',      icon: ClipboardCheck, showOnboardingBadge: true },
+                    { href: '/calendar',     label: 'Google Calendar', icon: CalendarDays },
+                ],
+            },
             {
                 label: 'Inteligência',
                 items: [
@@ -61,8 +73,6 @@ const AREAS = [
                     { href: '/campaigns',    label: 'Campanhas',    icon: Megaphone },
                     { href: '/google-ads',   label: 'Google Ads',   icon: Radio },
                     { href: '/predictions',  label: 'Previsões',    icon: TrendingUp },
-                    { href: '/rotina',       label: 'Rotina',       icon: CalendarDays },
-                    { href: '/otimizacoes',  label: 'Agenda',       icon: ClipboardList },
                     { href: '/alerts',       label: 'Alertas',      icon: Bell, showBadge: true },
                     { href: '/automation',   label: 'Automações',   icon: Zap },
                 ],
@@ -74,7 +84,6 @@ const AREAS = [
                     { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle },
                     { href: '/creative',          label: 'Criativos',        icon: Palette },
                     { href: '/templates',         label: 'Templates',        icon: FileText },
-                    { href: '/calendar',          label: 'Agenda/Reuniões',  icon: CalendarDays },
                     { href: '/tracking',          label: 'Tracking',         icon: Activity },
                     { href: '/accounts',          label: 'Contas',           icon: Users },
                 ],
@@ -149,6 +158,7 @@ function detectArea(pathname: string): AreaId {
 export default function Sidebar() {
     const pathname = usePathname();
     const [unreadAlerts, setUnreadAlerts] = useState(0);
+    const [onboardingActive, setOnboardingActive] = useState(0);
     const [activeArea, setActiveArea] = useState<AreaId>(() => detectArea(pathname || ''));
     const [mobileOpen, setMobileOpen] = useState(false);
     const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
@@ -165,6 +175,18 @@ export default function Sidebar() {
         document.body.style.overflow = mobileOpen ? 'hidden' : '';
         return () => { document.body.style.overflow = ''; };
     }, [mobileOpen]);
+
+    useEffect(() => {
+        const fetchOnboardingCount = async () => {
+            try {
+                const s: any = await api.getOnboardingSummary();
+                setOnboardingActive(s.active_count || 0);
+            } catch { /* ignore */ }
+        };
+        fetchOnboardingCount();
+        const iv = setInterval(fetchOnboardingCount, 60000);
+        return () => clearInterval(iv);
+    }, []);
 
     useEffect(() => {
         const fetchAlerts = async () => {
@@ -284,6 +306,9 @@ export default function Sidebar() {
                                     {item.showBadge && unreadAlerts > 0 && (
                                         <span className="sidebar-badge">{unreadAlerts}</span>
                                     )}
+                                    {(item as any).showOnboardingBadge && onboardingActive > 0 && (
+                                        <span className="sidebar-badge" style={{ background: 'rgba(255,107,53,0.18)', color: 'var(--primary)', border: '1px solid rgba(255,107,53,0.35)' }}>{onboardingActive}</span>
+                                    )}
                                 </Link>
                             );
                         })}
@@ -301,12 +326,20 @@ export default function Sidebar() {
                     <span>Integrações</span>
                 </Link>
                 <Link
+                    href="/billing"
+                    className={`sidebar-link ${pathname === '/billing' ? 'active' : ''}`}
+                >
+                    <Wallet className="icon" strokeWidth={1.8} />
+                    <span>Assinatura</span>
+                </Link>
+                <Link
                     href="/settings"
                     className={`sidebar-link ${pathname === '/settings' ? 'active' : ''}`}
                 >
                     <Settings className="icon" strokeWidth={1.8} />
                     <span>Configurações</span>
                 </Link>
+                <PWAInstallButton />
                 <button
                     onClick={handleLogout}
                     className="sidebar-link sidebar-logout"

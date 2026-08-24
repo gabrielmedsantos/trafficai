@@ -7,7 +7,39 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v
 interface ApiResponse<T = any> {
     success: boolean;
     data?: T;
-    error?: { message: string; code: number };
+    error?: {
+        message: string;
+        code?: number | string;
+        action?: string;
+        plan?: string;
+        plan_status?: string;
+        trial_ends_at?: string | null;
+    };
+}
+
+/**
+ * Redireciona pra /billing quando o backend retorna 402 (Payment Required).
+ * Só roda no client-side. Usa location.assign pra preservar histórico do browser
+ * mas force um full navigate (Next.js router não funciona fora de componente).
+ */
+function handlePlanBlocked(err: NonNullable<ApiResponse['error']>): void {
+    if (typeof window === 'undefined') return;
+    // Já está em /billing — não redireciona (evita loop)
+    if (window.location.pathname.startsWith('/billing')) return;
+    // Não redireciona páginas públicas (link compartilhado, aprovação, etc)
+    const publicPrefixes = ['/d/', '/report/', '/r/', '/marketing'];
+    if (publicPrefixes.some(p => window.location.pathname.startsWith(p))) return;
+    // Persiste o motivo pra billing page mostrar aviso
+    try {
+        sessionStorage.setItem('__tai_plan_block__', JSON.stringify({
+            code: err.code,
+            message: err.message,
+            plan_status: err.plan_status,
+            trial_ends_at: err.trial_ends_at,
+            at: Date.now(),
+        }));
+    } catch { /* ignore */ }
+    window.location.assign('/billing?blocked=1');
 }
 
 class ApiClient {
@@ -40,6 +72,12 @@ class ApiClient {
         const res = await fetch(url, options);
         const json: ApiResponse<T> = await res.json();
 
+        // 402 Payment Required — trial expirou / plano inativo → redireciona
+        if (res.status === 402 && json.error) {
+            handlePlanBlocked(json.error);
+            throw new Error(json.error.message || 'Plano inativo');
+        }
+
         if (!json.success) {
             throw new Error(json.error?.message || 'API request failed');
         }
@@ -55,6 +93,10 @@ class ApiClient {
 
         const res = await fetch(url, { method: 'POST', headers, body: formData });
         const json: ApiResponse<T> = await res.json();
+        if (res.status === 402 && json.error) {
+            handlePlanBlocked(json.error);
+            throw new Error(json.error.message || 'Plano inativo');
+        }
         if (!json.success) throw new Error(json.error?.message || 'Upload failed');
         return json.data as T;
     }
@@ -483,6 +525,113 @@ class ApiClient {
         return this.request<any>('PUT', `/reports/settings/${accountId}`, payload);
     }
 
+    // ── Billing (Stripe) ──
+    async getSubscription() {
+        return this.request<{
+            plan: string; status: string;
+            trial_ends_at: string | null;
+            current_period_start: string | null;
+            current_period_end: string | null;
+            cancel_at_period_end: boolean;
+            limits: { max_clients: number; max_seats: number; monthly_ai_credits: number };
+            usage: { clients: number; ai_credits_used: number };
+            has_stripe_customer: boolean;
+            is_admin?: boolean;
+        }>('GET', '/billing/subscription');
+    }
+    async listPlans() {
+        return this.request<Array<{ id: string; price_brl: number; max_clients: number; max_seats: number; monthly_ai_credits: number }>>('GET', '/billing/plans');
+    }
+    async createCheckout(plan: string) {
+        return this.request<{ url: string }>('POST', '/billing/checkout', { plan });
+    }
+    async openBillingPortal() {
+        return this.request<{ url: string }>('POST', '/billing/portal', {});
+    }
+
+    // ── Routines Config (cockpit da agenda) ──
+    async listRoutinesConfig() {
+        return this.request<any[]>('GET', '/routines-config');
+    }
+    async createRoutineConfig(body: any) {
+        return this.request<any>('POST', '/routines-config', body);
+    }
+    async updateRoutineConfig(id: string, body: any) {
+        return this.request<any>('PATCH', `/routines-config/${id}`, body);
+    }
+    async deleteRoutineConfig(id: string) {
+        return this.request<{ success: boolean }>('DELETE', `/routines-config/${id}`);
+    }
+    async getRoutinesToday() {
+        return this.request<{ date: string; items: any[] }>('GET', '/routines-config/today');
+    }
+    async getRoutinesWeek() {
+        return this.request<Array<{ date: string; day_of_week: number; items: any[] }>>('GET', '/routines-config/week');
+    }
+    async markRoutineDone(id: string, isDone: boolean, date?: string) {
+        return this.request<{ success: boolean }>('POST', `/routines-config/${id}/mark-done`, { is_done: isDone, date });
+    }
+
+    // ── Google Calendar events (via /routine) ──
+    async getRoutineGoogleEvents(start: string, end: string) {
+        return this.request<any>('GET', `/routine/google/events?start=${start}&end=${end}`).catch(() => []);
+    }
+    async getRoutineGoogleStatus() {
+        return this.request<{ connected: boolean; email: string | null; configured: boolean }>('GET', '/routine/google/status').catch(() => ({ connected: false, email: null, configured: false }));
+    }
+    // ── Otimizações / tasks ──
+    async listOptimizationTasks(since: string, until: string) {
+        return this.request<any>('GET', `/tasks?since=${since}&until=${until}`).catch(() => []);
+    }
+
+    // ── Client Onboarding ──
+    async listOnboardings() {
+        return this.request<any[]>('GET', '/onboarding');
+    }
+    async getOnboarding(accountId: string) {
+        return this.request<any>('GET', `/onboarding/account/${accountId}`);
+    }
+    async startOnboarding(accountId: string) {
+        return this.request<any>('POST', `/onboarding/account/${accountId}/start`, {});
+    }
+    async toggleOnboardingItem(onboardingId: string, itemId: string, done: boolean, notes?: string) {
+        return this.request<any>('PATCH', `/onboarding/${onboardingId}/item/${itemId}`, { done, notes });
+    }
+    async addOnboardingItem(onboardingId: string, body: { phase?: string; title: string; description?: string; owner?: 'agency' | 'client' }) {
+        return this.request<any>('POST', `/onboarding/${onboardingId}/item`, body);
+    }
+    async deleteOnboardingItem(onboardingId: string, itemId: string) {
+        return this.request<{ success: boolean }>('DELETE', `/onboarding/${onboardingId}/item/${itemId}`);
+    }
+    async pauseOnboarding(id: string) {
+        return this.request<{ success: boolean }>('POST', `/onboarding/${id}/pause`, {});
+    }
+    async deleteOnboarding(id: string) {
+        return this.request<{ success: boolean }>('DELETE', `/onboarding/${id}`);
+    }
+    async resumeOnboarding(id: string) {
+        return this.request<{ success: boolean }>('POST', `/onboarding/${id}/resume`, {});
+    }
+    async getOnboardingsByClient(clientId: string) {
+        return this.request<Array<{ ad_account: any; onboarding: any }>>('GET', `/onboarding/client/${clientId}`);
+    }
+    async getOnboardingSummary() {
+        return this.request<{
+            active_count: number;
+            total_count: number;
+            by_client: Record<string, { pct: number; done: number; total: number; status: string; onboarding_id: string }>;
+        }>('GET', '/onboarding/summary').catch(() => ({ active_count: 0, total_count: 0, by_client: {} }));
+    }
+    async getOnboardingTemplate() {
+        return this.request<{ items: any[]; is_custom: boolean; updated_at: string | null }>('GET', '/onboarding/template');
+    }
+    async saveOnboardingTemplate(items: any[]) {
+        return this.request<{ count: number }>('PUT', '/onboarding/template', { items });
+    }
+    async resetOnboardingTemplate() {
+        return this.request<any>('POST', '/onboarding/template/reset', {});
+    }
+
     // ── Google OAuth (Drive + Calendar) ──
     async googleOAuthStatus() {
         return this.request<{ connected: boolean; email: string | null; scopes: string[] }>('GET', '/google/oauth/status');
@@ -571,15 +720,27 @@ class ApiClient {
     async runTrackingBackfill(id: string, opts: {
         enrich_existing?: boolean;
         sync_won_purchases?: boolean;
+        sync_leads?: boolean;
+        lead_stage_ids?: number[];
         time_strategy?: 'clamp_7d' | 'now' | 'original';
     }) {
         return this.request<{
             enriched: number;
             purchases_created: number;
+            leads_created: number;
             skipped: number;
             failed: number;
             total_purchase_value: number;
         }>('POST', `/tracking/sources/${id}/backfill`, opts);
+    }
+    async getTrackingCrmPipelines(id: string) {
+        return this.request<{
+            pipelines: {
+                id: number;
+                name: string;
+                statuses: { id: number; name: string; type?: number; color?: string }[];
+            }[];
+        }>('GET', `/tracking/sources/${id}/crm/pipelines`);
     }
 
     // Alerts

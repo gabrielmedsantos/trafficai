@@ -11,6 +11,8 @@ import { alertsController } from '../analytics/alerts.controller';
 import { notificationController } from '../notifications/notification.controller';
 import { reportController } from '../reports/report.controller';
 import { routineController } from '../routine/routine.controller';
+import { routinesConfigController } from '../routines-config/routines-config.controller';
+import { onboardingController } from '../onboarding/onboarding.controller';
 import { clientsController } from '../clients/clients.controller';
 import { financialController } from '../financial/financial.controller';
 import { tasksController } from '../tasks/tasks.controller';
@@ -27,11 +29,18 @@ import { automationController } from '../automation/automation.controller';
 import { metaActionsController } from '../meta/meta-actions.controller';
 import { googleAdsController } from '../googleAds/google-ads.controller';
 import { googleOAuthController, googleOAuthPublicController } from '../googleAds/google-oauth.controller';
+import { billingController, billingPublicController } from '../billing/billing.controller';
 import { metaSignupController } from '../auth/meta-signup.controller';
 import { pdfReportController, pdfReportPublicController } from '../reports/pdf-report.controller';
 import { templatesController } from '../templates/templates.controller';
+import { planGuard } from '../billing/plan.middleware';
 
 const router = Router();
+
+// Plan guard global — bloqueia acesso a rotas protegidas quando o user
+// não tem assinatura ativa nem trial vigente. Rotas isentas (auth/billing/
+// webhooks/públicas) são reconhecidas pelo prefixo do path.
+router.use(planGuard);
 
 // Health check
 router.get('/health', (_req, res) => {
@@ -55,6 +64,8 @@ router.use('/meta-actions', metaActionsController);
 router.use('/google-ads', googleAdsController);
 router.use('/google/oauth', googleOAuthPublicController);       // GET /google/oauth/callback (público)
 router.use('/google', googleOAuthController);                    // /google/oauth/{status,connect,disconnect}, /google/drive/upload, /google/calendar/events
+router.use('/billing/webhook', billingPublicController);        // POST /billing/webhook (público — Stripe)
+router.use('/billing', billingController);                       // GET /billing/subscription, POST /billing/checkout, /billing/portal, GET /billing/plans
 router.use('/meta-signup', metaSignupController);
 router.use('/prediction', predictionController);
 router.use('/alerts', alertsController);
@@ -64,6 +75,8 @@ router.use('/reports', pdfReportController);       // POST /reports/pdf/generate
 router.use('/r', pdfReportPublicController);       // GET /r/pdf/:token (público)
 router.use('/templates', templatesController);
 router.use('/routine', routineController);
+router.use('/routines-config', routinesConfigController);
+router.use('/onboarding', onboardingController);
 router.use('/clients', clientsController);
 router.use('/financial', financialController);
 router.use('/tasks', tasksController);
