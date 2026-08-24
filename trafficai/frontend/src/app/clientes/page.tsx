@@ -7,6 +7,7 @@ import {
     FileText, Percent, CheckCircle, PauseCircle, XCircle,
     AlertCircle, CheckCircle2, ExternalLink, Link, Calendar, Video,
 } from 'lucide-react';
+import { api } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const token = () => localStorage.getItem('trafficai_token') || '';
@@ -162,7 +163,14 @@ export default function ClientesPage() {
     type SortKey = 'mrr_desc' | 'mrr_asc' | 'name_asc' | 'name_desc' | 'risk' | 'last_meeting';
     const [sortBy, setSortBy] = useState<SortKey>('mrr_desc');
     const [openClient, setOpenClient] = useState<Client | null>(null);
-    const [drawerTab, setDrawerTab] = useState<'overview' | 'contracts' | 'meetings'>('overview');
+    const [drawerTab, setDrawerTab] = useState<'overview' | 'contracts' | 'meetings' | 'onboarding'>('overview');
+    // Onboarding do cliente aberto
+    const [onboardingsByClient, setOnboardingsByClient] = useState<Array<{ ad_account: any; onboarding: any }>>([]);
+    const [loadingOnboardings, setLoadingOnboardings] = useState(false);
+    // Prompt pra iniciar onboarding após cadastrar cliente novo
+    const [promptOnboardingForClient, setPromptOnboardingForClient] = useState<{ id: string; name: string } | null>(null);
+    // Summary de onboardings pra badge por cliente na tabela
+    const [onboardingSummary, setOnboardingSummary] = useState<Record<string, { pct: number; status: string }>>({});
 
     const fetchClients = useCallback(async () => {
         setLoading(true);
@@ -187,6 +195,15 @@ export default function ClientesPage() {
                 for (const s of meetingStatsJson.data) mmap[s.client_id] = s;
                 setMeetingStatsMap(mmap);
             }
+            // Onboarding summary por cliente (badge na tabela)
+            try {
+                const sum: any = await api.getOnboardingSummary();
+                const map: Record<string, { pct: number; status: string }> = {};
+                for (const [cid, data] of Object.entries(sum.by_client || {})) {
+                    map[cid] = { pct: (data as any).pct, status: (data as any).status };
+                }
+                setOnboardingSummary(map);
+            } catch { /* ignore */ }
         } catch { /* ignore */ } finally { setLoading(false); }
     }, [search, statusFilter]);
 
@@ -280,12 +297,31 @@ export default function ClientesPage() {
     }).sort((a, b) => getRiskScore(b) - getRiskScore(a));
 
     // ── Drawer único ──
-    function openDrawer(client: Client, tab: 'overview' | 'contracts' | 'meetings' = 'overview') {
+    function openDrawer(client: Client, tab: 'overview' | 'contracts' | 'meetings' | 'onboarding' = 'overview') {
         setOpenClient(client);
         setDrawerTab(tab);
-        // Pre-carrega ambos os datasets (não é caro)
+        // Pre-carrega os datasets (não é caro)
         setContractsClient(client); fetchContracts(client.id);
         setMeetingsClient(client); fetchClientMeetings(client.id);
+        fetchClientOnboardings(client.id);
+    }
+
+    async function fetchClientOnboardings(clientId: string) {
+        setLoadingOnboardings(true);
+        try {
+            const list = await api.getOnboardingsByClient(clientId);
+            setOnboardingsByClient(list as any);
+        } catch { setOnboardingsByClient([]); }
+        finally { setLoadingOnboardings(false); }
+    }
+
+    async function startOnboardingForAccount(accountId: string, clientId: string) {
+        try {
+            await api.startOnboarding(accountId);
+            fetchClientOnboardings(clientId);
+        } catch (err: any) {
+            alert(err.message || 'Erro ao iniciar onboarding');
+        }
     }
     function closeDrawer() {
         setOpenClient(null);
@@ -327,6 +363,7 @@ export default function ClientesPage() {
                 notes: clientForm.notes || null,
                 avatar_color: clientForm.avatar_color,
             };
+            const wasNewClient = !editingClient;
             const url = editingClient ? `${API}/clients/${editingClient.id}` : `${API}/clients`;
             const method = editingClient ? 'PUT' : 'POST';
             const res = await fetch(url, {
@@ -337,6 +374,10 @@ export default function ClientesPage() {
             if (!json.success) { setClientError(json.error?.message || 'Erro ao salvar'); return; }
             setShowClientModal(false);
             fetchClients();
+            // Após CRIAR cliente novo (não edição), oferece iniciar onboarding
+            if (wasNewClient && json.data?.id) {
+                setPromptOnboardingForClient({ id: json.data.id, name: clientForm.name });
+            }
         } catch { setClientError('Erro de conexão'); } finally { setSaving(false); }
     }
 
@@ -622,8 +663,21 @@ export default function ClientesPage() {
                                         {getInitials(client.name)}
                                     </div>
                                     <div style={{ minWidth: 0, flex: 1 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                            {client.name}
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '0 1 auto', minWidth: 0 }}>
+                                                {client.name}
+                                            </div>
+                                            {onboardingSummary[client.id] && (() => {
+                                                const ob = onboardingSummary[client.id];
+                                                const color = ob.pct === 100 ? 'var(--success, #7bc46c)' : ob.status === 'paused' ? 'var(--text-muted)' : 'var(--primary)';
+                                                const bg = ob.pct === 100 ? 'rgba(123,196,108,0.10)' : ob.status === 'paused' ? 'rgba(160,152,137,0.10)' : 'rgba(255,107,53,0.10)';
+                                                const label = ob.pct === 100 ? 'ok' : ob.status === 'paused' ? 'pausado' : `${ob.pct}%`;
+                                                return (
+                                                    <span title={`Onboarding: ${ob.pct}% completo`} style={{ padding: '2px 7px', borderRadius: 999, fontSize: 10, fontWeight: 700, color, background: bg, border: `1px solid ${color}30`, whiteSpace: 'nowrap', flexShrink: 0, letterSpacing: 0.3 }}>
+                                                        ⌇ {label}
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
                                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                             {client.company || client.email || '—'}
@@ -722,6 +776,11 @@ export default function ClientesPage() {
                                 { k: 'overview' as const, label: 'Visão geral' },
                                 { k: 'contracts' as const, label: `Contratos${contracts.length ? ` · ${contracts.length}` : ''}` },
                                 { k: 'meetings' as const, label: `Reuniões${clientMeetings.length ? ` · ${clientMeetings.length}` : ''}` },
+                                { k: 'onboarding' as const, label: `Onboarding${onboardingsByClient.length ? ` · ${onboardingsByClient.length}` : ''}${(() => {
+                                    // Se cliente tem ad_accounts mas nenhuma com onboarding, mostra •
+                                    const anyMissing = onboardingsByClient.some(x => !x.onboarding);
+                                    return anyMissing ? ' •' : '';
+                                })()}` },
                             ].map(t => (
                                 <button key={t.k} onClick={() => setDrawerTab(t.k)}
                                     style={{
@@ -908,6 +967,88 @@ export default function ClientesPage() {
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Tab: Onboarding */}
+                        {drawerTab === 'onboarding' && (
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+                                {/* Banner de alerta se tem ad_account sem onboarding iniciado */}
+                                {!loadingOnboardings && onboardingsByClient.some(x => !x.onboarding) && (
+                                    <div style={{ marginBottom: 16, padding: '14px 16px', background: 'rgba(245,164,90,0.10)', border: '1px solid rgba(245,164,90,0.35)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                        <AlertCircle size={18} color="#f5a45a" style={{ flexShrink: 0 }} />
+                                        <div style={{ flex: 1, fontSize: 13, color: 'var(--text)', lineHeight: 1.45 }}>
+                                            <strong>Onboarding pendente.</strong> Esse cliente tem conta(s) de anúncio vinculada(s) que ainda não iniciaram o processo. Sem o checklist, coisas podem escapar.
+                                        </div>
+                                    </div>
+                                )}
+                                {loadingOnboardings ? (
+                                    <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)', fontSize: 13.5 }}>Carregando…</div>
+                                ) : onboardingsByClient.length === 0 ? (
+                                    <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                                        <div style={{ fontSize: 14, marginBottom: 8, color: 'var(--text)' }}>
+                                            Cliente ainda não tem contas de anúncios vinculadas.
+                                        </div>
+                                        <div style={{ fontSize: 12.5 }}>
+                                            Vincule uma ad account ao cliente na página Contas → Editar → escolha o cliente. Depois inicie o onboarding aqui.
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                        {onboardingsByClient.map(({ ad_account, onboarding }) => {
+                                            const ob = onboarding;
+                                            const statusColor = ob?.status === 'completed' ? 'var(--success, #7bc46c)' : ob?.status === 'paused' ? 'var(--text-muted)' : 'var(--primary)';
+                                            return (
+                                                <div key={ad_account.id} style={{ padding: 16, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                {ad_account.account_name}
+                                                            </div>
+                                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                                {ad_account.meta_account_id}
+                                                            </div>
+                                                        </div>
+                                                        {ob && (
+                                                            <div style={{ fontSize: 22, fontWeight: 700, color: ob.pct === 100 ? 'var(--success, #7bc46c)' : 'var(--primary)' }}>
+                                                                {ob.pct}%
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {ob ? (
+                                                        <>
+                                                            <div style={{ height: 6, background: 'var(--bg-elev)', borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
+                                                                <div style={{ width: `${ob.pct}%`, height: '100%', background: ob.pct === 100 ? 'var(--success, #7bc46c)' : 'var(--primary)', transition: 'width 250ms ease' }} />
+                                                            </div>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                                    {ob.done} de {ob.total} feitos ·
+                                                                    <span style={{ color: statusColor, marginLeft: 4, fontWeight: 600 }}>
+                                                                        {ob.status === 'completed' ? 'Concluído' : ob.status === 'paused' ? 'Pausado' : 'Em andamento'}
+                                                                    </span>
+                                                                </div>
+                                                                <a href="/onboarding" className="btn" style={{ fontSize: 12, padding: '5px 10px' }}>
+                                                                    Ver checklist →
+                                                                </a>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <div style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Onboarding ainda não iniciado</div>
+                                                            <button
+                                                                className="btn btn-primary"
+                                                                style={{ fontSize: 12, padding: '6px 12px' }}
+                                                                onClick={() => startOnboardingForAccount(ad_account.id, openClient.id)}
+                                                            >
+                                                                Iniciar onboarding
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1100,6 +1241,41 @@ export default function ClientesPage() {
                             <button onClick={handleSaveContract} disabled={savingContract} style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: 'var(--primary)', border: 'none', color: '#fff', cursor: savingContract ? 'not-allowed' : 'pointer', opacity: savingContract ? .7 : 1 }}>
                                 {savingContract ? 'Salvando...' : editingContract ? 'Salvar Alterações' : 'Criar Contrato'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Onboarding Prompt (após cadastrar cliente novo) ─── */}
+            {promptOnboardingForClient && (
+                <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 102, padding: 20 }}>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 18, padding: 32, maxWidth: 480, width: '100%' }}>
+                        <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,107,53,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
+                            <CheckCircle2 size={26} color="var(--primary)" />
+                        </div>
+                        <h3 style={{ margin: '0 0 10px', color: 'var(--text)', fontSize: 20, fontWeight: 700, textAlign: 'center' }}>
+                            Cliente cadastrado ✓
+                        </h3>
+                        <p style={{ margin: '0 0 24px', color: 'var(--text-muted)', fontSize: 14, textAlign: 'center', lineHeight: 1.55 }}>
+                            <strong style={{ color: 'var(--text)' }}>{promptOnboardingForClient.name}</strong> foi adicionado. Deseja iniciar o onboarding padrão de 54 tarefas agora?
+                        </p>
+                        <div style={{ padding: 14, background: 'var(--bg-elev)', borderRadius: 10, marginBottom: 20, fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.55 }}>
+                            <strong style={{ color: 'var(--text)' }}>Como funciona:</strong> o onboarding é vinculado a uma conta de anúncios. Se o cliente ainda não tem uma conta vinculada, é só cadastrar/vincular em "Contas" e voltar aqui pra iniciar.
+                        </div>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                            <button
+                                onClick={() => setPromptOnboardingForClient(null)}
+                                style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: 'var(--bg-elev)', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                            >
+                                Iniciar depois
+                            </button>
+                            <a
+                                href="/onboarding"
+                                style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: 'var(--primary)', border: 'none', color: '#fff', cursor: 'pointer', textAlign: 'center', textDecoration: 'none' }}
+                                onClick={() => setPromptOnboardingForClient(null)}
+                            >
+                                Ir pra Onboarding →
+                            </a>
                         </div>
                     </div>
                 </div>
