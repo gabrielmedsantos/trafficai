@@ -280,6 +280,211 @@ export class MetaService {
     }
 
     /**
+     * Busca insights com breakdowns pra segmentação (idade, gênero, plataforma, posição,
+     * dispositivo, região). Retorna objeto agrupado por tipo de breakdown, pronto pra render.
+     * Faz 4 chamadas paralelas — Meta não permite combinar todos os breakdowns num único query.
+     */
+    async getBreakdownInsights(
+        userId: string,
+        accessToken: string,
+        metaAccountId: string,
+        since: string,
+        until: string
+    ): Promise<{
+        publisher_platform: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        platform_position: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        impression_device: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        age_gender: Array<{ label: string; spend: number; impressions: number; conversions: number; age: string; gender: string }>;
+        region: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+    }> {
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            const client = this.createClient(accessToken);
+            const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
+
+            async function fetchBreakdown(breakdowns: string): Promise<any[]> {
+                try {
+                    const resp = await client.get(`/${acctPath}/insights`, {
+                        params: {
+                            level: 'account',
+                            fields: 'spend,impressions,clicks,actions',
+                            time_range: JSON.stringify({ since, until }),
+                            breakdowns,
+                            limit: 500,
+                        },
+                    });
+                    return resp.data?.data || [];
+                } catch (err: any) {
+                    logger.warn(`breakdown ${breakdowns} falhou`, { error: err.message });
+                    return [];
+                }
+            }
+
+            function extractConversions(actions: any[] = []): number {
+                const priority = [
+                    'offsite_conversion.fb_pixel_purchase', 'purchase',
+                    'offsite_conversion.fb_pixel_lead', 'lead',
+                    'onsite_conversion.messaging_conversation_started_7d',
+                    'link_click',
+                ];
+                for (const p of priority) {
+                    const m = actions.find((a: any) => a.action_type === p);
+                    if (m && parseInt(m.value, 10) > 0) return parseInt(m.value, 10);
+                }
+                return 0;
+            }
+
+            function normalize(rows: any[], keyFn: (r: any) => string) {
+                const agg = new Map<string, { spend: number; impressions: number; conversions: number }>();
+                for (const r of rows) {
+                    const key = keyFn(r);
+                    if (!key) continue;
+                    const cur = agg.get(key) || { spend: 0, impressions: 0, conversions: 0 };
+                    cur.spend += parseFloat(r.spend || '0');
+                    cur.impressions += parseInt(r.impressions || '0', 10);
+                    cur.conversions += extractConversions(r.actions);
+                    agg.set(key, cur);
+                }
+                return Array.from(agg.entries())
+                    .map(([label, v]) => ({ label, ...v }))
+                    .sort((a, b) => b.spend - a.spend);
+            }
+
+            // 4 queries em paralelo — cada tipo de breakdown separado
+            const [ppRows, positionRows, deviceRows, ageGenderRows, regionRows] = await Promise.all([
+                fetchBreakdown('publisher_platform'),
+                fetchBreakdown('publisher_platform,platform_position'),
+                fetchBreakdown('impression_device'),
+                fetchBreakdown('age,gender'),
+                fetchBreakdown('region').catch(() => []),
+            ]);
+
+            // Age+gender precisa de tratamento especial (2 dims)
+            const ageGender = ageGenderRows.map((r: any) => ({
+                label: `${r.age} · ${r.gender === 'male' ? 'M' : r.gender === 'female' ? 'F' : 'Outros'}`,
+                age: r.age,
+                gender: r.gender,
+                spend: parseFloat(r.spend || '0'),
+                impressions: parseInt(r.impressions || '0', 10),
+                conversions: extractConversions(r.actions),
+            })).filter(x => x.spend > 0).sort((a, b) => b.spend - a.spend);
+
+            return {
+                publisher_platform: normalize(ppRows, r => r.publisher_platform || ''),
+                platform_position: normalize(positionRows, r => r.platform_position || ''),
+                impression_device: normalize(deviceRows, r => r.impression_device || ''),
+                age_gender: ageGender,
+                region: normalize(regionRows, r => r.region || '').slice(0, 15),
+            };
+        }) as any;
+    }
+
+    /**
+     * Breakdowns POR CAMPANHA — retorna Map<campaign_id, breakdowns>.
+     * Faz 4 chamadas paralelas (não por campanha) usando breakdowns=campaign_id + <dim>.
+     */
+    async getBreakdownInsightsByCampaign(
+        userId: string,
+        accessToken: string,
+        metaAccountId: string,
+        since: string,
+        until: string
+    ): Promise<Map<string, {
+        publisher_platform: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        platform_position: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        impression_device: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+        age_gender: Array<{ label: string; age: string; gender: string; spend: number; impressions: number; conversions: number }>;
+        region: Array<{ label: string; spend: number; impressions: number; conversions: number }>;
+    }>> {
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            const client = this.createClient(accessToken);
+            const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
+            const map = new Map<string, any>();
+
+            async function fetch(breakdowns: string): Promise<any[]> {
+                try {
+                    const resp = await client.get(`/${acctPath}/insights`, {
+                        params: {
+                            level: 'campaign',
+                            fields: 'campaign_id,spend,impressions,actions',
+                            time_range: JSON.stringify({ since, until }),
+                            breakdowns,
+                            limit: 500,
+                        },
+                    });
+                    return resp.data?.data || [];
+                } catch (err: any) {
+                    logger.warn(`campaign breakdown ${breakdowns} falhou`, { error: err.message });
+                    return [];
+                }
+            }
+            function extractConversions(actions: any[] = []): number {
+                const p = ['offsite_conversion.fb_pixel_purchase', 'purchase', 'offsite_conversion.fb_pixel_lead', 'lead', 'onsite_conversion.messaging_conversation_started_7d', 'link_click'];
+                for (const t of p) {
+                    const m = actions.find((a: any) => a.action_type === t);
+                    if (m && parseInt(m.value, 10) > 0) return parseInt(m.value, 10);
+                }
+                return 0;
+            }
+            function agg(rows: any[], keyFn: (r: any) => string) {
+                const byCampaign = new Map<string, Map<string, { spend: number; impressions: number; conversions: number }>>();
+                for (const r of rows) {
+                    const cid = r.campaign_id;
+                    const k = keyFn(r);
+                    if (!cid || !k) continue;
+                    if (!byCampaign.has(cid)) byCampaign.set(cid, new Map());
+                    const inner = byCampaign.get(cid)!;
+                    const cur = inner.get(k) || { spend: 0, impressions: 0, conversions: 0 };
+                    cur.spend += parseFloat(r.spend || '0');
+                    cur.impressions += parseInt(r.impressions || '0', 10);
+                    cur.conversions += extractConversions(r.actions);
+                    inner.set(k, cur);
+                }
+                return byCampaign;
+            }
+
+            const [ppRows, posRows, devRows, agRows, regRows] = await Promise.all([
+                fetch('publisher_platform'),
+                fetch('publisher_platform,platform_position'),
+                fetch('impression_device'),
+                fetch('age,gender'),
+                fetch('region').catch(() => []),
+            ]);
+
+            const ppByC = agg(ppRows, r => r.publisher_platform || '');
+            const posByC = agg(posRows, r => r.platform_position || '');
+            const devByC = agg(devRows, r => r.impression_device || '');
+            const regByC = agg(regRows, r => r.region || '');
+
+            const agByC = new Map<string, Array<any>>();
+            for (const r of agRows) {
+                const cid = r.campaign_id;
+                if (!cid || !r.age) continue;
+                if (!agByC.has(cid)) agByC.set(cid, []);
+                agByC.get(cid)!.push({
+                    label: `${r.age} · ${r.gender === 'male' ? 'M' : r.gender === 'female' ? 'F' : 'Outros'}`,
+                    age: r.age, gender: r.gender,
+                    spend: parseFloat(r.spend || '0'),
+                    impressions: parseInt(r.impressions || '0', 10),
+                    conversions: extractConversions(r.actions),
+                });
+            }
+
+            const allCids = new Set([...ppByC.keys(), ...posByC.keys(), ...devByC.keys(), ...regByC.keys(), ...agByC.keys()]);
+            for (const cid of allCids) {
+                map.set(cid, {
+                    publisher_platform: Array.from((ppByC.get(cid) || new Map()).entries()).map(([label, v]: any) => ({ label, ...v })).sort((a, b) => b.spend - a.spend),
+                    platform_position: Array.from((posByC.get(cid) || new Map()).entries()).map(([label, v]: any) => ({ label, ...v })).sort((a, b) => b.spend - a.spend),
+                    impression_device: Array.from((devByC.get(cid) || new Map()).entries()).map(([label, v]: any) => ({ label, ...v })).sort((a, b) => b.spend - a.spend),
+                    age_gender: (agByC.get(cid) || []).filter(x => x.spend > 0).sort((a, b) => b.spend - a.spend),
+                    region: Array.from((regByC.get(cid) || new Map()).entries()).map(([label, v]: any) => ({ label, ...v })).sort((a, b) => b.spend - a.spend).slice(0, 10),
+                });
+            }
+
+            return map;
+        }) as any;
+    }
+
+    /**
      * Fetch ad thumbnails for a Meta account — retorna mapa completo de ad_id → thumbnail_url.
      * Faz múltiplas chamadas em batches para atender qualquer número de adIds.
      */
@@ -299,12 +504,29 @@ export class MetaService {
             for (let i = 0; i < adIds.length; i += BATCH) {
                 const slice = adIds.slice(i, i + BATCH);
                 try {
+                    // Pega múltiplas fontes de imagem — a maioria delas retorna resoluções maiores
+                    // que thumbnail_url (~64px). Prioridade: full_picture > object_story > asset_feed > image_url > thumbnail.
                     const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
-                        fields: 'id,creative{thumbnail_url,image_url}',
+                        fields: 'id,creative{thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url}},image_hash,effective_object_story_id}',
                         filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
                     });
                     for (const ad of ads) {
-                        const thumb = ad.creative?.thumbnail_url || ad.creative?.image_url;
+                        const cre = ad.creative || {};
+                        const oss = cre.object_story_spec || {};
+                        const afs = cre.asset_feed_spec || {};
+                        // Prioridade: PRIMEIRO CDN público (scontent.fbcdn.net), depois fallbacks.
+                        // asset_feed_spec + object_story link_data retornam facebook.com/ads/image/?d=... que exige LOGIN,
+                        // então só usa se não tiver melhor.
+                        const candidates: string[] = [
+                            cre.image_url,                                               // scontent CDN público
+                            cre.thumbnail_url,                                           // scontent CDN público (menor res)
+                            oss.video_data?.image_url,                                   // video thumbnail
+                            Array.isArray(afs.images) ? afs.images[0]?.url : null,       // fallback (auth-required)
+                            oss.link_data?.picture,                                      // fallback (auth-required)
+                        ].filter(Boolean);
+                        // Preferir scontent (público) sobre facebook.com/ads/image (privado)
+                        const publicCdn = candidates.find(u => u && u.includes('scontent') && !u.includes('facebook.com/ads/image'));
+                        const thumb = publicCdn || candidates[0];
                         if (thumb) thumbnails.set(ad.id, thumb);
                     }
                 } catch (err: any) {
