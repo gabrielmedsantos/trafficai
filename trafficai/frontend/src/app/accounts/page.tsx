@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import {
   Users, CheckCircle, XCircle, Edit2, Save, X, Filter, RefreshCw,
   AlertCircle, Link2, PowerOff, Plus, DollarSign, Wallet, CreditCard,
-  MessageCircle, Mail, Phone,
+  MessageCircle, Mail, Phone, ListChecks, Search,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -92,6 +92,12 @@ export default function AccountsPage() {
   const [addForm, setAddForm] = useState({ meta_account_id: '', account_name: '' });
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState('');
+  // Modal de bulk-manage
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkSearch, setBulkSearch] = useState('');
+  const [bulkFilter, setBulkFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [bulkSaving, setBulkSaving] = useState(false);
 
   // Billing editing state: accountId → draft
   const [billingEditingId, setBillingEditingId] = useState<string | null>(null);
@@ -347,17 +353,20 @@ export default function AccountsPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {activeCount > 0 && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={deactivateAll}
-              style={{ padding: '10px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-red)', borderColor: 'rgba(239,68,68,.3)' }}
-            >
-              <PowerOff size={15} />
-              Desativar todas
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setBulkSelected(new Set());
+              setBulkSearch('');
+              setBulkFilter('all');
+              setShowBulkModal(true);
+            }}
+            style={{ padding: '10px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <ListChecks size={15} />
+            Gerenciar em massa
+          </button>
           <button
             type="button"
             className="btn btn-secondary"
@@ -969,6 +978,182 @@ export default function AccountsPage() {
           </div>
         )}
       </div>
+
+      {/* Modal — Gerenciar em massa (bulk activate/deactivate) */}
+      {showBulkModal && (() => {
+        const q = bulkSearch.trim().toLowerCase();
+        const list = accounts.filter(a => {
+          if (bulkFilter === 'active' && !a.is_client_active) return false;
+          if (bulkFilter === 'inactive' && a.is_client_active) return false;
+          if (!q) return true;
+          return (
+            a.account_name.toLowerCase().includes(q) ||
+            a.meta_account_id.toLowerCase().includes(q) ||
+            (a.client_notes || '').toLowerCase().includes(q)
+          );
+        });
+        const allSelected = list.length > 0 && list.every(a => bulkSelected.has(a.id));
+        const toggleAll = () => {
+          const next = new Set(bulkSelected);
+          if (allSelected) list.forEach(a => next.delete(a.id));
+          else list.forEach(a => next.add(a.id));
+          setBulkSelected(next);
+        };
+        const applyBulk = async (active: boolean) => {
+          if (bulkSelected.size === 0) return;
+          const label = active ? 'ativar' : 'desativar';
+          if (!confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} ${bulkSelected.size} conta(s)?`)) return;
+          setBulkSaving(true);
+          try {
+            const ids = Array.from(bulkSelected);
+            for (const id of ids) {
+              try { await api.updateAccountClientStatus(id, active); } catch {}
+            }
+            await loadAccounts();
+            setBulkSelected(new Set());
+          } catch (e: any) {
+            alert('Erro em massa: ' + e.message);
+          } finally { setBulkSaving(false); }
+        };
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+               onClick={() => !bulkSaving && setShowBulkModal(false)}>
+            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-light)', borderRadius: '14px', padding: '24px', width: '100%', maxWidth: '720px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(0,0,0,.5)' }}
+                 onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, marginBottom: 4 }}>Gerenciar contas em massa</h2>
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>Marque as contas e escolha ativar/desativar todas de uma vez.</p>
+                </div>
+                <button type="button" onClick={() => setShowBulkModal(false)} disabled={bulkSaving} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px' }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Search + filter */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 200, position: 'relative' }}>
+                  <Search size={14} style={{ position: 'absolute', left: 10, top: 11, color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nome ou ID..."
+                    value={bulkSearch}
+                    onChange={e => setBulkSearch(e.target.value)}
+                    className="input"
+                    style={{ paddingLeft: 30, width: '100%' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 4, background: 'var(--bg-input)', padding: 3, borderRadius: 8 }}>
+                  {(['all', 'active', 'inactive'] as const).map(f => (
+                    <button key={f} type="button" onClick={() => setBulkFilter(f)}
+                      style={{
+                        padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        background: bulkFilter === f ? 'var(--primary)' : 'transparent',
+                        color: bulkFilter === f ? 'var(--bg)' : 'var(--text-muted)',
+                        border: 'none', borderRadius: 6,
+                      }}>
+                      {f === 'all' ? 'Todas' : f === 'active' ? 'Ativas' : 'Inativas'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Header row: select all + count */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--bg-input)', borderRadius: 8, marginBottom: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)' }} />
+                  {allSelected ? 'Desmarcar todas' : 'Selecionar todas'} · {list.length} visível(is)
+                </label>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 700 }}>
+                  <b style={{ color: 'var(--primary)' }}>{bulkSelected.size}</b> selecionada(s)
+                </span>
+              </div>
+
+              {/* Lista scrollable */}
+              <div style={{ flex: 1, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+                {list.length === 0 ? (
+                  <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                    Nenhuma conta encontrada com esses filtros.
+                  </div>
+                ) : list.map(acc => {
+                  const isSel = bulkSelected.has(acc.id);
+                  return (
+                    <label key={acc.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 14px', borderBottom: '1px solid var(--border)',
+                      cursor: 'pointer', background: isSel ? 'rgba(211,241,0,.06)' : 'transparent',
+                      transition: 'background .1s',
+                    }}
+                      onMouseEnter={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'var(--bg-input)'; }}
+                      onMouseLeave={e => { if (!isSel) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                    >
+                      <input type="checkbox" checked={isSel} onChange={() => {
+                        const next = new Set(bulkSelected);
+                        if (isSel) next.delete(acc.id); else next.add(acc.id);
+                        setBulkSelected(next);
+                      }} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--primary)', flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.account_name}</span>
+                          <span style={{
+                            fontSize: 10, padding: '2px 7px', borderRadius: 10, fontWeight: 800,
+                            background: acc.is_client_active ? 'rgba(34,197,94,.15)' : 'rgba(148,163,184,.15)',
+                            color: acc.is_client_active ? 'var(--accent-green)' : 'var(--text-muted)',
+                            textTransform: 'uppercase', letterSpacing: '.04em',
+                          }}>
+                            {acc.is_client_active ? 'Ativa' : 'Inativa'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{acc.meta_account_id}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Ações */}
+              <div style={{ display: 'flex', gap: 10, marginTop: 16, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setShowBulkModal(false)} disabled={bulkSaving}>
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => applyBulk(false)}
+                  disabled={bulkSaving || bulkSelected.size === 0}
+                  style={{
+                    padding: '10px 18px', color: 'var(--accent-red)',
+                    borderColor: 'rgba(239,68,68,.3)',
+                    opacity: bulkSelected.size === 0 ? 0.5 : 1,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <PowerOff size={14} /> Desativar {bulkSelected.size > 0 ? `(${bulkSelected.size})` : ''}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => applyBulk(true)}
+                  disabled={bulkSaving || bulkSelected.size === 0}
+                  style={{
+                    padding: '10px 18px', opacity: bulkSelected.size === 0 ? 0.5 : 1,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <CheckCircle size={14} /> Ativar {bulkSelected.size > 0 ? `(${bulkSelected.size})` : ''}
+                </button>
+              </div>
+
+              {bulkSaving && (
+                <div style={{ marginTop: 10, textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+                  Aplicando alterações...
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal — Adicionar conta manualmente */}
       {showAddModal && (
