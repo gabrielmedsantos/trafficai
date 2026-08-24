@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import {
   Users, CheckCircle, XCircle, Edit2, Save, X, Filter, RefreshCw,
@@ -121,10 +121,16 @@ export default function AccountsPage() {
     filterAccounts();
   }, [accounts, filter]);
 
-  // Carrega contatos de todas as contas quando a lista é carregada
+  // Carrega contatos de contas novas (uma vez por conta — não refaz fetch a
+  // cada reload, senão cada toggle de status dispara 1 request por conta
+  // cadastrada e estoura o rate limit do backend: "Too many requests")
+  const fetchedContactIds = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (accounts.length === 0) return;
-    accounts.forEach(acc => loadContactSettings(acc.id));
+    const toFetch = accounts.filter(acc => !fetchedContactIds.current.has(acc.id));
+    toFetch.forEach(acc => {
+      fetchedContactIds.current.add(acc.id);
+      loadContactSettings(acc.id);
+    });
   }, [accounts]);
 
   const loadAccounts = async () => {
