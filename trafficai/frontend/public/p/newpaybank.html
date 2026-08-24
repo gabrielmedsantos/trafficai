@@ -1,0 +1,1640 @@
+<title>Proposta Comercial · New Pay Bank × Alfamax Digital</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Proposta de gestão de tráfego pago, tracking avançado e formação. Alfamax Digital.">
+
+<style>
+  /* ─── Tokens ───────────────────────────────────────────────────────── */
+  :root {
+    --bg: #0b1220;
+    --bg-elev: #131b2a;
+    --bg-quote: #172033;
+    --rule: rgba(240, 236, 225, 0.08);
+    --rule-strong: rgba(240, 236, 225, 0.16);
+    --fg: #f0ece1;
+    --fg-muted: #a09889;
+    --fg-subtle: #6a6357;
+    --accent: #d4a874;
+    --accent-warm: #e5c19a;
+    --primary: #ff6b35;
+    --success: #7bc46c;
+    --danger: #d67a6f;
+    --paper: #f5efe4;
+    --shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f2e6;
+      --bg-elev: #ffffff;
+      --bg-quote: #ede7d6;
+      --rule: rgba(11, 18, 32, 0.10);
+      --rule-strong: rgba(11, 18, 32, 0.24);
+      --fg: #14192a;
+      --fg-muted: #5a5749;
+      --fg-subtle: #8a8570;
+      --accent: #8b6b3f;
+      --accent-warm: #b28656;
+      --primary: #c94716;
+      --success: #3f7a34;
+      --danger: #b8332a;
+      --shadow: 0 12px 40px -12px rgba(11,18,32,0.18);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f2e6; --bg-elev: #ffffff; --bg-quote: #ede7d6;
+    --rule: rgba(11, 18, 32, 0.10); --rule-strong: rgba(11, 18, 32, 0.24);
+    --fg: #14192a; --fg-muted: #5a5749; --fg-subtle: #8a8570;
+    --accent: #8b6b3f; --accent-warm: #b28656; --primary: #c94716;
+    --success: #3f7a34; --danger: #b8332a;
+    --shadow: 0 12px 40px -12px rgba(11,18,32,0.18);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1220; --bg-elev: #131b2a; --bg-quote: #172033;
+    --rule: rgba(240, 236, 225, 0.08); --rule-strong: rgba(240, 236, 225, 0.16);
+    --fg: #f0ece1; --fg-muted: #a09889; --fg-subtle: #6a6357;
+    --accent: #d4a874; --accent-warm: #e5c19a; --primary: #ff6b35;
+    --success: #7bc46c; --danger: #d67a6f;
+    --shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
+  }
+
+  /* ─── Base ─────────────────────────────────────────────────────────── */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "kern", "liga", "calt";
+  }
+  ::selection { background: var(--accent); color: var(--bg); }
+
+  .serif { font-family: "Iowan Old Style", "Palatino Linotype", "Palatino", "Georgia", serif; letter-spacing: -0.012em; text-wrap: balance; font-weight: 400; }
+  .mono { font-family: "SF Mono", ui-monospace, "Consolas", monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.008em; }
+
+  /* ─── Container ─────────────────────────────────────────────────────── */
+  .proposal {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 40px;
+  }
+
+  section { padding: 96px 0; border-bottom: 1px solid var(--rule); }
+  section:last-of-type { border-bottom: 0; }
+
+  /* ─── Section framework ────────────────────────────────────────────── */
+  .section-head {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+    margin-bottom: 40px;
+    align-items: baseline;
+  }
+  .eyebrow {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    font-weight: 600;
+    padding-top: 6px;
+    border-top: 1px solid var(--accent);
+    display: inline-block;
+    padding-right: 40px;
+  }
+  h2.title {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: clamp(32px, 4vw, 52px);
+    line-height: 1.05;
+    letter-spacing: -0.018em;
+    color: var(--fg);
+    font-weight: 400;
+    max-width: 22ch;
+  }
+  h2.title em {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 400;
+  }
+  .lede {
+    grid-column: 2;
+    margin-top: 12px;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--fg-muted);
+    max-width: 62ch;
+  }
+
+  /* ─── Cover ─────────────────────────────────────────────────────────── */
+  .cover {
+    min-height: 100vh;
+    padding: 80px 0 60px;
+    display: flex;
+    flex-direction: column;
+    border-bottom: none;
+    position: relative;
+  }
+  .cover::after {
+    content: "";
+    position: absolute;
+    bottom: 60px; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--rule-strong), transparent);
+  }
+  .cover-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    font-weight: 500;
+  }
+  .brand .mark {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--primary);
+    margin-right: 6px;
+    transform: translateY(-1px);
+  }
+  .cover-doc {
+    text-align: right;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+  }
+
+  .cover-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+    align-content: center;
+    padding: 80px 0;
+  }
+  .cover-eyebrow {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.20em;
+    color: var(--accent);
+    font-weight: 600;
+    padding-top: 8px;
+    border-top: 1px solid var(--accent);
+    height: fit-content;
+  }
+  h1.cover-title {
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: clamp(56px, 8vw, 108px);
+    line-height: 0.98;
+    letter-spacing: -0.026em;
+    font-weight: 400;
+    color: var(--fg);
+    text-wrap: balance;
+    max-width: 15ch;
+    margin-bottom: 40px;
+  }
+  h1.cover-title em {
+    font-style: italic;
+    color: var(--accent);
+    font-weight: 400;
+  }
+  .cover-lede {
+    max-width: 46ch;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--fg-muted);
+  }
+
+  .cover-foot {
+    padding-top: 40px;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 24px;
+    font-size: 12px;
+    color: var(--fg-subtle);
+  }
+  .cover-foot .lbl {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--fg-subtle);
+    font-size: 10px;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .cover-foot .val {
+    color: var(--fg);
+    font-size: 13.5px;
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    letter-spacing: -0.005em;
+  }
+
+  /* ─── Sobre section ─────────────────────────────────────────────────── */
+  .credentials {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+  }
+  .credentials .side {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    font-weight: 600;
+    padding-top: 4px;
+  }
+  .credentials .body { max-width: 62ch; }
+  .credentials p {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--fg-muted);
+    margin-bottom: 20px;
+  }
+  .credentials p strong { color: var(--fg); font-weight: 500; }
+
+  .metrics-strip {
+    margin-top: 48px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px;
+    padding-top: 32px;
+    border-top: 1px solid var(--rule);
+  }
+  .metric .num {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 44px;
+    line-height: 1;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+    font-weight: 400;
+  }
+  .metric .lbl {
+    font-size: 11.5px;
+    color: var(--fg-muted);
+    line-height: 1.35;
+    letter-spacing: 0.02em;
+  }
+
+  /* ─── Momento ───────────────────────────────────────────────────────── */
+  .momento-body {
+    grid-column: 2;
+    max-width: 62ch;
+  }
+  .momento-body p {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--fg-muted);
+    margin-bottom: 20px;
+  }
+  .momento-body p em {
+    color: var(--fg);
+    font-style: normal;
+    font-weight: 500;
+  }
+  .pull-quote {
+    grid-column: 2;
+    margin: 40px 0;
+    padding: 24px 0 24px 32px;
+    border-left: 2px solid var(--accent);
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 24px;
+    line-height: 1.35;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+    font-style: italic;
+    max-width: 42ch;
+  }
+
+  /* ─── Services list ─────────────────────────────────────────────────── */
+  .services {
+    display: flex;
+    flex-direction: column;
+  }
+  .service {
+    display: grid;
+    grid-template-columns: 140px 1fr auto;
+    gap: 40px;
+    padding: 32px 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: flex-start;
+  }
+  .service:first-child { border-top: 1px solid var(--rule); }
+  .service .num-side {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--fg-subtle);
+    padding-top: 4px;
+  }
+  .service h3 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 24px;
+    line-height: 1.15;
+    color: var(--fg);
+    letter-spacing: -0.012em;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .service p {
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: var(--fg-muted);
+    max-width: 56ch;
+  }
+  .service .tag {
+    align-self: flex-start;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--accent);
+    padding: 4px 10px;
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  /* ─── Method timeline ────────────────────────────────────────────────── */
+  .method {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+  }
+  .method-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .step {
+    padding: 24px 0;
+    border-bottom: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 80px 1fr;
+    gap: 32px;
+    align-items: baseline;
+  }
+  .step:first-child { padding-top: 0; }
+  .step:last-child { border-bottom: none; }
+  .step-num {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 40px;
+    line-height: 1;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    font-weight: 400;
+  }
+  .step-content h4 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 20px;
+    color: var(--fg);
+    margin-bottom: 8px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+  .step-content p {
+    font-size: 14.5px;
+    color: var(--fg-muted);
+    line-height: 1.6;
+    max-width: 58ch;
+  }
+  .step-tag {
+    display: inline-block;
+    font-size: 10px;
+    color: var(--fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-top: 10px;
+    font-weight: 600;
+  }
+
+  /* ─── Tracking diagram ───────────────────────────────────────────────── */
+  .tracking {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+  }
+  .tracking-body p {
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--fg-muted);
+    margin-bottom: 20px;
+    max-width: 60ch;
+  }
+  .tracking-body p strong { color: var(--fg); font-weight: 500; }
+
+  .flow {
+    margin-top: 32px;
+    padding: 32px;
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+  }
+  .flow-title {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+  .flow-steps {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+  .flow-node {
+    background: var(--bg-quote);
+    padding: 16px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--rule);
+    position: relative;
+  }
+  .flow-node::after {
+    content: "→";
+    position: absolute;
+    right: -14px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .flow-node:last-child::after { display: none; }
+  .flow-node .stage {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--fg-subtle);
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .flow-node .name {
+    font-size: 13.5px;
+    color: var(--fg);
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  .flow-note {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--rule);
+    font-size: 12.5px;
+    color: var(--fg-muted);
+    line-height: 1.55;
+  }
+
+  /* ─── Aulas ──────────────────────────────────────────────────────────── */
+  .aulas-body p {
+    font-size: 16px;
+    line-height: 1.7;
+    color: var(--fg-muted);
+    margin-bottom: 16px;
+    max-width: 58ch;
+  }
+  .modules {
+    margin-top: 32px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .module {
+    padding: 20px 22px;
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+  }
+  .module-num {
+    font-family: "SF Mono", monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    font-weight: 600;
+  }
+  .module h5 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 17px;
+    color: var(--fg);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .module p {
+    font-size: 12.5px;
+    color: var(--fg-muted);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  /* ─── Reports mockups ────────────────────────────────────────────────── */
+  .reports-intro {
+    grid-column: 2;
+    max-width: 60ch;
+  }
+  .reports-intro p {
+    font-size: 16px;
+    line-height: 1.65;
+    color: var(--fg-muted);
+    margin-bottom: 16px;
+  }
+
+  .reports-grid {
+    margin-top: 48px;
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+
+  /* WhatsApp mockup */
+  .wpp-mockup {
+    background: #0b141a;
+    border-radius: 20px;
+    padding: 12px 10px 24px;
+    border: 8px solid #1a1a1a;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .wpp-mockup::before {
+    content: "";
+    position: absolute;
+    top: 6px; left: 50%; transform: translateX(-50%);
+    width: 68px; height: 4px; border-radius: 4px;
+    background: #333;
+  }
+  .wpp-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 8px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 8px;
+  }
+  .wpp-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, #ff6b35, #d4a874);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 11px; font-weight: 700;
+  }
+  .wpp-name { color: #e9edef; font-size: 13px; font-weight: 500; }
+  .wpp-status { font-size: 10px; color: #8696a0; }
+  .wpp-body {
+    padding: 8px 6px;
+    display: flex; flex-direction: column;
+    gap: 6px;
+  }
+  .wpp-day {
+    align-self: center;
+    background: rgba(255,255,255,0.04);
+    color: #8696a0;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+  .wpp-msg {
+    max-width: 88%;
+    padding: 8px 10px 6px;
+    border-radius: 8px;
+    color: #e9edef;
+    font-size: 12px;
+    line-height: 1.4;
+    background: #005c4b;
+    align-self: flex-end;
+    border-top-right-radius: 2px;
+    white-space: pre-wrap;
+  }
+  .wpp-msg .ts {
+    display: block;
+    font-size: 9px;
+    color: rgba(233,237,239,0.5);
+    text-align: right;
+    margin-top: 3px;
+  }
+  .wpp-msg strong { color: #f5d68f; font-weight: 700; }
+  .wpp-caption {
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-top: 12px;
+    font-weight: 600;
+  }
+
+  /* Report PDF mockup */
+  .pdf-mockup {
+    background: linear-gradient(180deg, #0d1420 0%, #131b2a 100%);
+    border-radius: 8px;
+    padding: 32px 28px;
+    border: 1px solid var(--rule);
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .pdf-mockup::before {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; width: 240px; height: 180px;
+    background: radial-gradient(circle at 100% 0%, rgba(212,168,116,0.14), transparent 70%);
+    pointer-events: none;
+  }
+  .pdf-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 24px;
+    position: relative; z-index: 1;
+  }
+  .pdf-brand-mini {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pdf-brand-mini .m {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    color: #0b1220; font-weight: 700; font-size: 15px;
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+  }
+  .pdf-brand-mini .txt {
+    line-height: 1.2;
+  }
+  .pdf-brand-mini .name { font-size: 12.5px; color: #f0ece1; font-weight: 600; }
+  .pdf-brand-mini .sub { font-size: 10px; color: #a09889; text-transform: uppercase; letter-spacing: 0.1em; }
+  .pdf-badge {
+    padding: 5px 12px;
+    background: rgba(212,168,116,0.12);
+    color: var(--accent);
+    border: 1px solid rgba(212,168,116,0.3);
+    border-radius: 999px;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .pdf-eyebrow {
+    font-size: 10.5px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .pdf-title {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 32px;
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+    color: #f0ece1;
+    margin-bottom: 4px;
+    position: relative; z-index: 1;
+  }
+  .pdf-period {
+    font-size: 12px; color: #a09889; margin-bottom: 24px;
+  }
+  .pdf-kpis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(240,236,225,0.1);
+    position: relative; z-index: 1;
+  }
+  .pdf-kpi .l {
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #a09889;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .pdf-kpi .v {
+    font-family: "SF Mono", monospace;
+    font-size: 18px;
+    color: #f0ece1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.005em;
+    font-weight: 500;
+  }
+  .pdf-kpi .d {
+    font-size: 10px;
+    color: #7bc46c;
+    margin-top: 2px;
+  }
+  .pdf-kpi .d.neg { color: var(--danger); }
+  .pdf-caption {
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-top: 16px;
+    font-weight: 600;
+  }
+
+  .reports-side {
+    display: grid;
+    gap: 20px;
+  }
+  .report-item {
+    padding: 20px 22px;
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--accent);
+    border-radius: 4px;
+  }
+  .report-item h5 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 17px;
+    color: var(--fg);
+    font-weight: 500;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .report-item .cadence {
+    display: inline-block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .report-item p {
+    font-size: 13px;
+    color: var(--fg-muted);
+    line-height: 1.55;
+  }
+
+  /* ─── Investment ────────────────────────────────────────────────────── */
+  .invest {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: start;
+  }
+  .invest-left {
+    padding-top: 20px;
+  }
+  .invest-eyebrow {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    font-weight: 600;
+    padding-top: 6px;
+    border-top: 1px solid var(--accent);
+    display: inline-block;
+    padding-right: 40px;
+    margin-bottom: 24px;
+  }
+  .invest-title {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: clamp(32px, 4vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -0.018em;
+    color: var(--fg);
+    font-weight: 400;
+    margin-bottom: 24px;
+    max-width: 14ch;
+  }
+  .invest-title em { font-style: italic; color: var(--accent); }
+  .invest-copy {
+    font-size: 16px;
+    color: var(--fg-muted);
+    line-height: 1.6;
+    max-width: 42ch;
+  }
+
+  .price-card {
+    padding: 40px 36px;
+    background: linear-gradient(160deg, var(--bg-elev), var(--bg-quote));
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .price-card::before {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; width: 300px; height: 200px;
+    background: radial-gradient(circle at 100% 0%, rgba(255,107,53,0.10), transparent 60%);
+    pointer-events: none;
+  }
+  .price-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--fg-subtle);
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .price-value {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 88px;
+    line-height: 0.95;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.032em;
+    margin-bottom: 4px;
+    font-weight: 400;
+    position: relative; z-index: 1;
+  }
+  .price-value .cur { font-size: 32px; color: var(--accent); margin-right: 6px; letter-spacing: 0; vertical-align: 12px; font-weight: 500; }
+  .price-value .per { font-size: 20px; color: var(--fg-muted); margin-left: 8px; letter-spacing: -0.01em; font-weight: 400; font-family: -apple-system, "Segoe UI", Inter, sans-serif; }
+  .price-note {
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin-bottom: 28px;
+    position: relative; z-index: 1;
+  }
+  .price-includes {
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative; z-index: 1;
+  }
+  .price-includes .row {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 12px;
+    align-items: baseline;
+    font-size: 13px;
+    color: var(--fg);
+  }
+  .price-includes .row::before {
+    content: "";
+    width: 6px; height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    margin-top: 6px;
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  /* ─── Timeline ──────────────────────────────────────────────────────── */
+  .timeline {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+    margin-top: 40px;
+  }
+  .phase {
+    padding-top: 32px;
+    border-top: 1px solid var(--accent);
+    position: relative;
+  }
+  .phase::before {
+    content: "";
+    position: absolute;
+    top: -5px; left: 0;
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+  }
+  .phase .when {
+    font-family: "SF Mono", monospace;
+    font-size: 11px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .phase h4 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 22px;
+    color: var(--fg);
+    font-weight: 500;
+    margin-bottom: 12px;
+    letter-spacing: -0.012em;
+  }
+  .phase ul { list-style: none; }
+  .phase ul li {
+    font-size: 13.5px;
+    color: var(--fg-muted);
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--rule);
+    line-height: 1.5;
+  }
+  .phase ul li:last-child { border-bottom: none; }
+
+  /* ─── Next steps ────────────────────────────────────────────────────── */
+  .next {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    align-items: start;
+  }
+  .next h2 {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: clamp(36px, 4.5vw, 60px);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    font-weight: 400;
+    margin-bottom: 24px;
+    max-width: 12ch;
+  }
+  .next h2 em { font-style: italic; color: var(--accent); }
+  .next p { font-size: 16px; color: var(--fg-muted); line-height: 1.65; max-width: 44ch; }
+
+  .steps-list {
+    display: grid;
+    gap: 4px;
+  }
+  .next-step {
+    padding: 20px 24px;
+    background: var(--bg-elev);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 16px;
+    align-items: baseline;
+  }
+  .next-step .n {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 20px;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+  .next-step h4 {
+    font-size: 14.5px;
+    color: var(--fg);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .next-step p {
+    font-size: 12.5px;
+    color: var(--fg-muted);
+    line-height: 1.5;
+  }
+
+  /* ─── Sign-off ───────────────────────────────────────────────────────── */
+  .signoff {
+    padding: 96px 0 120px;
+    border-bottom: none;
+  }
+  .signoff-inner {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 40px;
+  }
+  .signoff-eyebrow {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+    font-weight: 600;
+  }
+  .signoff-body {
+    max-width: 56ch;
+  }
+  .signoff-body p {
+    font-family: "Iowan Old Style", Palatino, Georgia, serif;
+    font-size: 22px;
+    line-height: 1.5;
+    color: var(--fg);
+    letter-spacing: -0.008em;
+    font-weight: 400;
+    margin-bottom: 32px;
+  }
+  .signature {
+    padding-top: 32px;
+    border-top: 1px solid var(--rule);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+  }
+  .signature .sig-block .lbl {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--fg-subtle);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .signature .sig-block .val {
+    font-size: 14.5px;
+    color: var(--fg);
+    font-weight: 500;
+  }
+  .signature .sig-block .val-sub {
+    font-size: 12.5px;
+    color: var(--fg-muted);
+    margin-top: 2px;
+  }
+
+  /* ─── Controls (floating) ────────────────────────────────────────────── */
+  .controls {
+    position: fixed;
+    top: 20px; right: 20px;
+    display: flex; gap: 8px;
+    z-index: 20;
+  }
+  .controls button {
+    background: var(--bg-elev);
+    border: 1px solid var(--rule-strong);
+    color: var(--fg-muted);
+    padding: 8px 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 999px;
+    font-family: -apple-system, "Segoe UI", Inter, sans-serif;
+  }
+  .controls button:hover {
+    color: var(--fg);
+    border-color: var(--fg-muted);
+  }
+
+  /* ─── Responsive ─────────────────────────────────────────────────────── */
+  @media (max-width: 820px) {
+    .proposal { padding: 0 24px; }
+    section { padding: 64px 0; }
+    .cover-body, .cover-foot, .credentials, .method, .tracking, .section-head,
+    .signoff-inner, .invest, .next, .reports-grid, .reports-intro {
+      grid-template-columns: 1fr !important;
+      gap: 24px;
+    }
+    .lede, .momento-body, .pull-quote { grid-column: 1; }
+    .metrics-strip { grid-template-columns: repeat(2, 1fr); gap: 24px; }
+    .flow-steps { grid-template-columns: 1fr 1fr; gap: 32px; }
+    .flow-node::after { display: none; }
+    .modules, .timeline { grid-template-columns: 1fr; }
+    .service { grid-template-columns: 1fr; gap: 12px; }
+    .price-value { font-size: 64px; }
+    .price-value .cur { font-size: 24px; }
+    .signature { grid-template-columns: 1fr; }
+    .controls { top: 12px; right: 12px; }
+  }
+
+  @media print {
+    body { background: #fff; color: #000; }
+    .controls { display: none; }
+    section { padding: 40px 0; page-break-inside: avoid; }
+    .cover { min-height: 90vh; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+</style>
+
+<div class="controls">
+  <button onclick="toggleTheme()">◐ Tema</button>
+  <button onclick="window.print()">Imprimir · PDF</button>
+</div>
+
+<div class="proposal">
+
+  <!-- ═══════════════════════ COVER ═══════════════════════ -->
+  <section class="cover">
+    <div class="cover-head">
+      <div class="brand"><span class="mark"></span>Alfamax Digital · Tráfego Pago</div>
+      <div class="cover-doc">Proposta · N.º 2026-08-05</div>
+    </div>
+
+    <div class="cover-body">
+      <div class="cover-eyebrow">Proposta<br>Comercial</div>
+      <div>
+        <h1 class="cover-title">Tráfego pago com <em>método</em>, tecnologia e formação.</h1>
+        <p class="cover-lede">Uma proposta pensada especificamente pra New Pay Bank: estratégia, execução, tracking avançado de conversões e formação do time. Tudo entregue com transparência semanal e evidência em cada centavo investido.</p>
+      </div>
+    </div>
+
+    <div class="cover-foot">
+      <div>
+        <div class="lbl">Destinatário</div>
+        <div class="val">New Pay Bank</div>
+      </div>
+      <div>
+        <div class="lbl">Emitido por</div>
+        <div class="val">Alfamax Digital</div>
+      </div>
+      <div>
+        <div class="lbl">Data</div>
+        <div class="val">05 · Agosto · 2026</div>
+      </div>
+      <div>
+        <div class="lbl">Validade</div>
+        <div class="val">15 dias corridos</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ SOBRE ═══════════════════════ -->
+  <section>
+    <div class="credentials">
+      <div class="side">A Alfamax</div>
+      <div class="body">
+        <p>Somos uma agência de <strong>tráfego pago com engenharia própria</strong>. Além de gerir campanhas, construímos e operamos uma plataforma proprietária de inteligência de dados — o TrafficAI — que integra Meta Ads, Google Ads, CRMs e conversões offline num só painel.</p>
+        <p>Nosso diferencial não é vender anúncio. É garantir que <em>cada real investido esteja sendo rastreado, atribuído e otimizado</em> — inclusive as vendas que acontecem no WhatsApp, longe do olhar do algoritmo. Isso muda o CPA médio em ~30% ao longo dos primeiros três meses de operação.</p>
+
+        <div class="metrics-strip">
+          <div class="metric">
+            <div class="num mono">R$ 2M+</div>
+            <div class="lbl">Verba gerida em 2026</div>
+          </div>
+          <div class="metric">
+            <div class="num mono">22</div>
+            <div class="lbl">Contas ativas em gestão</div>
+          </div>
+          <div class="metric">
+            <div class="num mono">6+</div>
+            <div class="lbl">Segmentos atendidos</div>
+          </div>
+          <div class="metric">
+            <div class="num mono">24/7</div>
+            <div class="lbl">Monitoramento com IA</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ MOMENTO ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Contexto</div>
+      <h2 class="title">O momento da <em>New Pay Bank</em> exige tráfego com precisão cirúrgica.</h2>
+    </div>
+
+    <div class="section-head" style="grid-template-columns: 140px 1fr; margin-bottom: 0;">
+      <div></div>
+      <div class="momento-body">
+        <p>Uma fintech disputa atenção num dos ambientes digitais mais caros do país. O CPM em serviços financeiros no Meta cresceu <em>quase o dobro</em> nos últimos 18 meses, e a nova geração de restrições do iOS destruiu 30-40% da atribuição de qualquer conta que ainda dependa só do pixel.</p>
+        <p>Nesse cenário, gestão de tráfego não é mais "subir criativo e otimizar CPA". Sobrevivem os que <em>rastreiam o lead até o fechamento</em>, alimentam o algoritmo com dados reais e conseguem reagir semanalmente com base em métricas de negócio — não só de plataforma.</p>
+
+        <div class="pull-quote">Não vendemos anúncios. Vendemos a certeza de que cada real investido está sendo medido — e otimizado por quem entende.</div>
+
+        <p>Essa proposta é desenhada pra colocar a New Pay Bank nesse novo padrão desde o dia um: <strong style="color:var(--fg);font-weight:500">gestão completa</strong>, <strong style="color:var(--fg);font-weight:500">tracking de ponta a ponta</strong>, <strong style="color:var(--fg);font-weight:500">reuniões semanais de análise</strong>, <strong style="color:var(--fg);font-weight:500">relatórios contínuos</strong> e <strong style="color:var(--fg);font-weight:500">formação técnica do seu time</strong>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ O QUE INCLUI ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Escopo</div>
+      <h2 class="title">O que está <em>incluso</em> na gestão mensal.</h2>
+    </div>
+
+    <div class="services">
+      <div class="service">
+        <div class="num-side">01</div>
+        <div>
+          <h3>Gestão completa de tráfego pago</h3>
+          <p>Estruturação, veiculação e otimização de campanhas em Meta Ads (Facebook e Instagram) e Google Ads. Testes A/B semanais de criativo, público e posicionamento. Ajuste diário conforme performance em tempo real.</p>
+        </div>
+        <div class="tag">Núcleo</div>
+      </div>
+
+      <div class="service">
+        <div class="num-side">02</div>
+        <div>
+          <h3>Sistema proprietário de tracking</h3>
+          <p>Implantação e manutenção do stack completo: Pixel Meta, Conversions API, domain verify, priorização de eventos (AEM) e a nossa integração exclusiva WhatsApp → CRM → Meta CAPI. Cada lead qualificado volta pro Meta como conversão real.</p>
+        </div>
+        <div class="tag">Diferencial</div>
+      </div>
+
+      <div class="service">
+        <div class="num-side">03</div>
+        <div>
+          <h3>Análise estruturada da conta atual</h3>
+          <p>No primeiro mês, uma auditoria completa dos últimos 90 dias: o que está gastando bem, o que está sangrando, quais criativos performam, quais audiências saturaram. Entregue como documento navegável + plano de ação prioritário.</p>
+        </div>
+        <div class="tag">Primeiro mês</div>
+      </div>
+
+      <div class="service">
+        <div class="num-side">04</div>
+        <div>
+          <h3>Reuniões semanais de análise de métricas</h3>
+          <p>Toda semana, uma reunião online de 45 min conduzida por gestor sênior: leitura dos números da semana, decisões de investimento, ajustes estratégicos e próximos passos documentados. Sem "reunião só pra dar bom-dia".</p>
+        </div>
+        <div class="tag">Recorrente</div>
+      </div>
+
+      <div class="service">
+        <div class="num-side">05</div>
+        <div>
+          <h3>Aulas exclusivas de tráfego pago</h3>
+          <p>Módulos práticos ensinando o time da New Pay Bank a interpretar métricas, entender o algoritmo do Meta, avaliar criativos e defender decisões de investimento internamente. Não é curso pronto — é formação sob medida pra fintech.</p>
+        </div>
+        <div class="tag">Bônus</div>
+      </div>
+
+      <div class="service">
+        <div class="num-side">06</div>
+        <div>
+          <h3>Relatórios diários, semanais e mensais</h3>
+          <p>Um resumo diário curto no WhatsApp com o status de tudo. Um relatório semanal detalhado no PDF com o comparativo da semana. E o fechamento mensal completo com narrativa, gráficos e recomendações — o mesmo tipo de material que grandes agências entregam pra bancos.</p>
+        </div>
+        <div class="tag">Transparência</div>
+      </div>
+
+      <div class="service">
+        <div class="num-side">07</div>
+        <div>
+          <h3>Plano de ação de melhoria contínua</h3>
+          <p>Ao fim de cada mês, um roadmap concreto do que vamos atacar no mês seguinte — com base nos dados, não em achismo. Prioridades numeradas, esforço estimado e impacto esperado.</p>
+        </div>
+        <div class="tag">Estratégia</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ MÉTODO ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Método</div>
+      <h2 class="title">Como <em>trabalhamos</em>, mês a mês.</h2>
+    </div>
+
+    <div class="method">
+      <div></div>
+      <div class="method-steps">
+        <div class="step">
+          <div class="step-num mono">01</div>
+          <div class="step-content">
+            <h4>Diagnóstico e setup técnico</h4>
+            <p>Auditoria completa da conta atual, mapeamento da jornada real do cliente, instalação do sistema de tracking e verificação de conformidade com as políticas do Meta pra serviços financeiros.</p>
+            <div class="step-tag">Semanas 1 a 2</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num mono">02</div>
+          <div class="step-content">
+            <h4>Reestruturação de campanhas</h4>
+            <p>Redesenho da arquitetura de campanhas (topo, meio, fundo de funil), redistribuição de orçamento com base em CPA histórico real e implantação de novos criativos alinhados ao público-alvo qualificado.</p>
+            <div class="step-tag">Semanas 3 a 4</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num mono">03</div>
+          <div class="step-content">
+            <h4>Operação otimizada e leitura semanal</h4>
+            <p>Execução diária com ajustes contínuos. Reuniões semanais com o time interno da New Pay Bank pra análise conjunta dos números. Aulas de tráfego intercaladas conforme o cronograma acordado.</p>
+            <div class="step-tag">Mês 2 em diante</div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num mono">04</div>
+          <div class="step-content">
+            <h4>Escala com previsibilidade</h4>
+            <p>A partir do terceiro mês, com o algoritmo já treinado por conversões reais via CAPI, começamos a escalar orçamento em criativos vencedores e replicar padrões pra novos formatos. Nesse ponto, o CPA tende a cair 20-30% sem mudança de escopo.</p>
+            <div class="step-tag">Mês 3 em diante</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ TRACKING ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Tecnologia</div>
+      <h2 class="title">Como as conversões do <em>WhatsApp</em> viram inteligência pro Meta.</h2>
+    </div>
+
+    <div class="tracking">
+      <div></div>
+      <div class="tracking-body">
+        <p>Aqui está o motivo pelo qual a maioria das fintechs paga caro por leads: elas rastreiam <em>quem clica</em> — e não <em>quem compra</em>. O algoritmo do Meta aprende com o dado que recebe. Se a maioria dos leads qualificados fecha via WhatsApp, mas o Meta só vê "cliques", ele vai continuar entregando o anúncio pra quem clica muito e compra pouco.</p>
+        <p><strong>Nosso sistema resolve isso ligando o CRM ao Meta em tempo real.</strong> Quando um lead entra pelo WhatsApp e é qualificado (ou fecha uma venda), o CRM dispara o evento correto de volta pro Meta com o hash do email e telefone. O algoritmo aprende com <em>compradores reais</em> — não com curiosos.</p>
+
+        <div class="flow">
+          <div class="flow-title">Fluxo do dado — end to end</div>
+          <div class="flow-steps">
+            <div class="flow-node">
+              <div class="stage">01</div>
+              <div class="name">Anúncio Meta</div>
+            </div>
+            <div class="flow-node">
+              <div class="stage">02</div>
+              <div class="name">Lead no WhatsApp / CRM</div>
+            </div>
+            <div class="flow-node">
+              <div class="stage">03</div>
+              <div class="name">Qualificação pelo comercial</div>
+            </div>
+            <div class="flow-node">
+              <div class="stage">04</div>
+              <div class="name">Evento CAPI de volta pro Meta</div>
+            </div>
+          </div>
+          <div class="flow-note">Todo lead qualificado retorna pro Meta com email + telefone criptografados (hash SHA-256). Isso alimenta os públicos semelhantes com quem compra de verdade — não com quem só interage. Em 60-90 dias, o custo por lead qualificado tende a cair pela metade.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ AULAS ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Formação</div>
+      <h2 class="title">Aulas de tráfego pago para o <em>time interno</em>.</h2>
+    </div>
+
+    <div class="tracking">
+      <div></div>
+      <div class="aulas-body">
+        <p>Uma agência boa não substitui conhecimento — <em>ela transfere</em>. Ao longo do contrato, o time da New Pay Bank recebe módulos práticos de formação em tráfego pago, gravados em vídeo e revisados em sessões ao vivo.</p>
+        <p>O objetivo não é formar gestores concorrentes. É que <strong style="color:var(--fg);font-weight:500">quem decide o orçamento entenda o que está aprovando</strong> — e possa defender com números as escolhas do time de marketing internamente na fintech.</p>
+
+        <div class="modules">
+          <div class="module">
+            <div class="module-num">MOD 01</div>
+            <h5>Fundamentos de mídia paga</h5>
+            <p>Como o algoritmo do Meta funciona, leilão, CPM, CTR, CPA, ROAS. Vocabulário e leitura de métricas.</p>
+          </div>
+          <div class="module">
+            <div class="module-num">MOD 02</div>
+            <h5>Criativos que convertem</h5>
+            <p>Anatomia de um anúncio vencedor pra serviços financeiros. O que testar, quando pausar, quando escalar.</p>
+          </div>
+          <div class="module">
+            <div class="module-num">MOD 03</div>
+            <h5>Interpretação de dados</h5>
+            <p>Como ler um relatório da agência sem se perder. Como identificar quando o gestor está mascarando problema.</p>
+          </div>
+          <div class="module">
+            <div class="module-num">MOD 04</div>
+            <h5>Tracking e atribuição</h5>
+            <p>Por que pixel não basta em 2026. Como funciona CAPI, iOS 14.5+ e a atribuição real de conversões.</p>
+          </div>
+          <div class="module">
+            <div class="module-num">MOD 05</div>
+            <h5>Escala de campanhas</h5>
+            <p>Quando aumentar orçamento sem quebrar o CPA. Como diagnosticar saturação de público e fadiga criativa.</p>
+          </div>
+          <div class="module">
+            <div class="module-num">MOD 06</div>
+            <h5>Conformidade em finanças</h5>
+            <p>Regras do Meta pra promover serviços financeiros. Como evitar reprovações e contas bloqueadas.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ RELATÓRIOS ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Transparência</div>
+      <h2 class="title">Como você <em>recebe</em> os resultados, todos os dias.</h2>
+    </div>
+
+    <div class="section-head" style="margin-bottom:0">
+      <div></div>
+      <div class="reports-intro">
+        <p>Sem "planilha atualizada de vez em quando". A cada nível de gestão, um formato próprio de relatório — no canal e no ritmo certos.</p>
+      </div>
+    </div>
+
+    <div class="reports-grid">
+      <!-- WhatsApp Mockup -->
+      <div>
+        <div class="wpp-mockup">
+          <div class="wpp-header">
+            <div class="wpp-avatar">A</div>
+            <div>
+              <div class="wpp-name">Alfamax · Diário</div>
+              <div class="wpp-status">online agora</div>
+            </div>
+          </div>
+          <div class="wpp-body">
+            <div class="wpp-day">HOJE, 08:32</div>
+            <div class="wpp-msg">📊 <strong>Relatório Diário — New Pay Bank</strong>
+
+Ontem: <strong>R$ 92,40</strong> investido
+Leads: <strong>18</strong> · CPL <strong>R$ 5,13</strong>
+Qualificados: <strong>7</strong>
+
+✅ CPA 22% abaixo da meta
+⚠ Criativo "Cartão Preto" pausado por CTR baixo
+🚀 Escalamos "PIX Grátis" em +30%
+
+Semana no ritmo. Detalhes na 6ª.
+<span class="ts">08:32 ✓✓</span></div>
+          </div>
+        </div>
+        <div class="wpp-caption">Diário · WhatsApp · 08:30</div>
+      </div>
+
+      <!-- PDF-style report mockup -->
+      <div class="reports-side">
+        <div class="pdf-mockup">
+          <div class="pdf-head">
+            <div class="pdf-brand-mini">
+              <div class="m">A</div>
+              <div class="txt">
+                <div class="name">Alfamax Digital</div>
+                <div class="sub">Gestão de Tráfego</div>
+              </div>
+            </div>
+            <div class="pdf-badge">Relatório Semanal</div>
+          </div>
+          <div class="pdf-eyebrow">Performance</div>
+          <div class="pdf-title">Semana de 29/07 a 04/08</div>
+          <div class="pdf-period">7 dias · 3 campanhas ativas · 14 anúncios</div>
+          <div class="pdf-kpis">
+            <div class="pdf-kpi">
+              <div class="l">Invest.</div>
+              <div class="v">R$ 647</div>
+              <div class="d">↑ 18%</div>
+            </div>
+            <div class="pdf-kpi">
+              <div class="l">Leads</div>
+              <div class="v">126</div>
+              <div class="d">↑ 42%</div>
+            </div>
+            <div class="pdf-kpi">
+              <div class="l">CPL</div>
+              <div class="v">R$ 5,13</div>
+              <div class="d">↓ 24%</div>
+            </div>
+            <div class="pdf-kpi">
+              <div class="l">Qualif.</div>
+              <div class="v">49</div>
+              <div class="d">↑ 55%</div>
+            </div>
+          </div>
+        </div>
+        <div class="pdf-caption">Semanal · PDF · Toda sexta 15h</div>
+
+        <div class="report-item">
+          <h5>Relatório mensal</h5>
+          <div class="cadence">todo dia 5 · pdf completo</div>
+          <p>Documento navegável de 20 a 30 páginas com narrativa da IA, ranking de criativos com miniaturas, segmentação de público, evolução diária, top regiões e recomendações estratégicas pro mês seguinte.</p>
+        </div>
+
+        <div class="report-item">
+          <h5>Reunião de leitura</h5>
+          <div class="cadence">toda semana · 45 min</div>
+          <p>Chamada online com decisor + gestor sênior. Revisão dos números da semana, decisões documentadas em ata e próximos passos alinhados por escrito. Zero surpresas no fim do mês.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ INVESTIMENTO ═══════════════════════ -->
+  <section>
+    <div class="invest">
+      <div class="invest-left">
+        <div class="invest-eyebrow">Investimento</div>
+        <h2 class="invest-title">Um valor <em>fixo</em>. Tudo incluso. Sem letras miúdas.</h2>
+        <p class="invest-copy">O que outras agências vendem em três produtos separados — gestão, tracking e formação — está reunido aqui em um contrato único. Sem taxa de setup, sem cobrança extra por relatório, sem surpresa de "mês bônus". O que está listado é o que você paga.</p>
+      </div>
+
+      <div class="price-card">
+        <div class="price-label">Mensalidade</div>
+        <div class="price-value mono"><span class="cur">R$</span>900<span class="per">/mês</span></div>
+        <div class="price-note">Faturado no dia 5 de cada mês. Contrato mensal com renovação automática. Cancelamento com 30 dias de antecedência.</div>
+
+        <div class="price-includes">
+          <div class="row">Gestão completa Meta + Google Ads</div>
+          <div class="row">Sistema de tracking WhatsApp → CAPI</div>
+          <div class="row">Reuniões semanais de análise · 45 min</div>
+          <div class="row">Aulas de tráfego pago pro time interno</div>
+          <div class="row">Relatórios diários, semanais e mensais</div>
+          <div class="row">Análise estruturada + plano de ação</div>
+          <div class="row">Suporte via WhatsApp em horário comercial</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ CRONOGRAMA ═══════════════════════ -->
+  <section>
+    <div class="section-head">
+      <div class="eyebrow">Cronograma</div>
+      <h2 class="title">O que <em>acontece</em> nos primeiros 90 dias.</h2>
+    </div>
+
+    <div class="timeline">
+      <div class="phase">
+        <div class="when">1º mês</div>
+        <h4>Fundação</h4>
+        <ul>
+          <li>Setup completo de tracking</li>
+          <li>Auditoria dos últimos 90 dias</li>
+          <li>Redesenho das campanhas</li>
+          <li>Primeira reunião semanal</li>
+          <li>Módulos 1 e 2 das aulas</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="when">2º mês</div>
+        <h4>Otimização</h4>
+        <ul>
+          <li>CPA começa a cair com CAPI</li>
+          <li>Testes A/B em 3-5 criativos</li>
+          <li>Públicos semelhantes maduros</li>
+          <li>Módulos 3 e 4 das aulas</li>
+          <li>Relatório mensal + roadmap</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="when">3º mês</div>
+        <h4>Escala</h4>
+        <ul>
+          <li>Aumento de orçamento nos vencedores</li>
+          <li>Retargeting sofisticado ativo</li>
+          <li>Módulos 5 e 6 das aulas</li>
+          <li>Meta atingida ou revisada</li>
+          <li>Plano trimestral apresentado</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ NEXT ═══════════════════════ -->
+  <section>
+    <div class="next">
+      <div>
+        <h2>Como <em>seguimos</em> daqui.</h2>
+        <p>A proposta está aberta por 15 dias. Se fizer sentido, o próximo passo é uma call de 30 minutos pra alinhar detalhes específicos da conta da New Pay Bank e assinar o contrato. Do dia da assinatura até a primeira campanha reformulada no ar: 10 dias úteis.</p>
+      </div>
+      <div class="steps-list">
+        <div class="next-step">
+          <div class="n mono">1</div>
+          <div>
+            <h4>Confirmação da proposta</h4>
+            <p>Retorno por WhatsApp ou email confirmando aceite.</p>
+          </div>
+        </div>
+        <div class="next-step">
+          <div class="n mono">2</div>
+          <div>
+            <h4>Assinatura do contrato</h4>
+            <p>Contrato digital enviado em até 24h. Primeira fatura no dia 5 do mês seguinte.</p>
+          </div>
+        </div>
+        <div class="next-step">
+          <div class="n mono">3</div>
+          <div>
+            <h4>Kickoff técnico</h4>
+            <p>Reunião de 1h pra alinhar acessos, metas e cronograma detalhado.</p>
+          </div>
+        </div>
+        <div class="next-step">
+          <div class="n mono">4</div>
+          <div>
+            <h4>Primeira reunião semanal</h4>
+            <p>Agendada na sexta seguinte ao kickoff. A partir daí, toda semana.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ SIGN OFF ═══════════════════════ -->
+  <section class="signoff">
+    <div class="signoff-inner">
+      <div class="signoff-eyebrow">Encerramento</div>
+      <div class="signoff-body">
+        <p>Obrigado pela oportunidade. Se algo nesta proposta precisar de ajuste — escopo, cronograma ou valor — a conversa está aberta. O que não muda é o compromisso: entregar tráfego pago com método, tecnologia e evidência em cada centavo.</p>
+
+        <div class="signature">
+          <div class="sig-block">
+            <div class="lbl">Assinatura</div>
+            <div class="val">Alfamax Digital</div>
+            <div class="val-sub">Gestão de Tráfego Pago</div>
+          </div>
+          <div class="sig-block">
+            <div class="lbl">Contato</div>
+            <div class="val">contato@alfamaxdigital.com.br</div>
+            <div class="val-sub">Resposta em até 4h úteis</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  function toggleTheme() {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    root.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+  }
+</script>

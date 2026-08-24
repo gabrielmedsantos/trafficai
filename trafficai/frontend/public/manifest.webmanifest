@@ -1,0 +1,50 @@
+{
+  "name": "TrafficAI — Alfamax Digital",
+  "short_name": "TrafficAI",
+  "description": "Inteligência para tráfego pago. Analise campanhas, detecte problemas e otimize resultados.",
+  "start_url": "/agenda",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0d14",
+  "theme_color": "#ff6b35",
+  "categories": ["business", "productivity", "marketing"],
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "description": "Seus compromissos do dia",
+      "url": "/agenda",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Rotina",
+      "short_name": "Rotina",
+      "description": "Suas tarefas do dia",
+      "url": "/rotina",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Visão geral de contas",
+      "url": "/dashboard",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
