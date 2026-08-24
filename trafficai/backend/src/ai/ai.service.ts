@@ -382,7 +382,7 @@ Responda APENAS com o JSON.`;
                 conversions: primary.count,
                 cpa,
                 action_type_label: primary.label,
-                thumbnail_url: cre.thumbnail_url || cre.image_url || null,
+                thumbnail_url: cre.image_url || cre.thumbnail_url || null,
                 permalink_url: permalink,
                 media_type: cre.object_type || null,
             };

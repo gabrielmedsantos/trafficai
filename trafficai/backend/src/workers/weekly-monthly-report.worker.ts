@@ -79,12 +79,16 @@ async function generateAndSend(settings: any, kind: 'weekly' | 'monthly', daysBa
     });
 
     const kindLabel = kind === 'weekly' ? 'Relatório Semanal' : 'Relatório Mensal';
-    const msg = `📊 *${kindLabel} — ${data.accountName}*\n` +
-        `📅 ${formatBR(startStr)} → ${formatBR(endStr)}\n\n` +
-        `💰 Invest.: R$ ${fmt(data.totals.spend)}\n` +
+    const emoji = kind === 'weekly' ? '📊' : '📅';
+    const cpaLabel = data.totals.conversions > 0 ? `R$ ${fmt(data.totals.spend / data.totals.conversions)}` : '—';
+    const msg = `${emoji} *${kindLabel} — ${data.accountName}*\n` +
+        `🗓 ${formatBR(startStr)} → ${formatBR(endStr)}\n\n` +
+        `💰 Investimento: R$ ${fmt(data.totals.spend)}\n` +
+        `📊 Resultados: ${short(data.totals.conversions)} · ${cpaLabel}/result.\n` +
         `👁 Impressões: ${short(data.totals.impressions)}\n` +
-        `📊 Cliques: ${short(data.totals.clicks)} · CTR ${data.totals.ctr.toFixed(2)}%\n\n` +
-        `📄 Relatório completo:\n${snapshot.url}`;
+        `🖱 Cliques: ${short(data.totals.clicks)} · CTR ${data.totals.ctr.toFixed(2)}%\n` +
+        `🎯 ${data.counts.campaigns} campanhas ativas\n\n` +
+        `📄 Relatório visual completo:\n${snapshot.url}`;
 
     await sendWhatsAppMessage(settings.user_id, settings.client_phone, msg);
 

@@ -773,6 +773,13 @@ router.post('/whatsapp/preview/:accountId', async (req: Request, res: Response) 
         const clientName = acc[0].client_name || acc[0].account_name || 'Cliente';
 
         // Dados de exemplo realistas
+        const sampleAds = [
+            { name: 'ADS - GERAL IA', spend: 141.66, conversions: 57, action_label: 'Conversas', cpa: 2.46 },
+            { name: 'ADS - NIUVS', spend: 136.00, conversions: 34, action_label: 'Conversas', cpa: 4.00 },
+            { name: 'Ads - Corolla', spend: 67.00, conversions: 25, action_label: 'Conversas', cpa: 2.68 },
+            { name: 'ADS - COMPASS', spend: 75.45, conversions: 15, action_label: 'Conversas', cpa: 5.03 },
+            { name: 'HILUX INTERNO', spend: 99.62, conversions: 17, action_label: 'Conversas', cpa: 5.86 },
+        ];
         const sampleVars = buildTemplateVars({
             client_name: clientName,
             greeting: 'Bom dia',
@@ -780,6 +787,8 @@ router.post('/whatsapp/preview/:accountId', async (req: Request, res: Response) 
             last7d: { metrics: { spend: 8500.00, impressions: 85300, leads: 142, cost_per_lead: 59.86, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 142 } as any, label: '22/06 a 28/06' },
             month:  { metrics: { spend: 24180.00, impressions: 320500, leads: 412, cost_per_lead: 58.69, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 412 } as any, label: '01/06 a 28/06' },
             activeAds: 8,
+            topAdsToday: sampleAds,
+            topAds7d: sampleAds,
         });
 
         const rendered = renderTemplate(template, sampleVars);
