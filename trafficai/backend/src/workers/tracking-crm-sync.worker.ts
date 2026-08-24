@@ -22,6 +22,7 @@ export interface CrmSyncResult {
     sources_processed: number;
     sources_skipped: number;
     purchases_created: number;
+    leads_created: number;
     enriched: number;
     failed: number;
 }
@@ -44,6 +45,7 @@ export async function runCrmAutoSync(): Promise<CrmSyncResult> {
         sources_processed: 0,
         sources_skipped: 0,
         purchases_created: 0,
+        leads_created: 0,
         enriched: 0,
         failed: 0,
     };
@@ -52,16 +54,18 @@ export async function runCrmAutoSync(): Promise<CrmSyncResult> {
         try {
             const r = await backfillSource(s.id, {
                 sync_won_purchases: true,
+                sync_leads: true,        // Lead retroativo — usa auto-detect por regex
                 enrich_existing: true,   // também aproveita pra enriquecer eventos sem PII
                 time_strategy: 'clamp_7d',
             });
             total.sources_processed++;
             total.purchases_created += r.purchases_created;
+            total.leads_created += r.leads_created || 0;
             total.enriched += r.enriched;
             total.failed += r.failed;
-            if (r.purchases_created > 0 || r.enriched > 0) {
+            if (r.purchases_created > 0 || r.leads_created > 0 || r.enriched > 0) {
                 logger.info(
-                    `🔄 CRM auto-sync [${s.name}]: ${r.purchases_created} Purchase novo(s), ${r.enriched} enriquecido(s)`
+                    `🔄 CRM auto-sync [${s.name}]: ${r.purchases_created} Purchase, ${r.leads_created || 0} Lead, ${r.enriched} enriquecido(s)`
                 );
             }
         } catch (err: any) {
@@ -80,7 +84,7 @@ export function startCrmSyncWorker() {
         try {
             const r = await runCrmAutoSync();
             logger.info(
-                `🔄 CRM auto-sync diário: ${r.sources_processed} fonte(s), ${r.purchases_created} Purchase, ${r.enriched} enriquecido(s), ${r.failed} falha(s)`
+                `🔄 CRM auto-sync diário: ${r.sources_processed} fonte(s), ${r.purchases_created} Purchase, ${r.leads_created} Lead, ${r.enriched} enriquecido(s), ${r.failed} falha(s)`
             );
         } catch (err: any) {
             logger.error('CRM auto-sync worker falhou', { error: err.message });

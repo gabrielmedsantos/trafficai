@@ -40,12 +40,35 @@ export class KommoAdapter {
     private subdomain: string;
 
     constructor(subdomain: string, accessToken: string) {
-        this.subdomain = subdomain;
+        // Normaliza — usuário às vezes cola URL inteira ("https://mapscar.kommo.com")
+        // ou domínio completo ("mapscar.kommo.com"). Extraímos só o subdomínio.
+        this.subdomain = normalizeKommoSubdomain(subdomain);
+        if (!this.subdomain) {
+            throw new Error('Subdomínio Kommo inválido. Ex: se você acessa "mapscar.kommo.com", cole apenas "mapscar".');
+        }
         this.client = axios.create({
-            baseURL: `https://${subdomain}.kommo.com/api/v4`,
+            baseURL: `https://${this.subdomain}.kommo.com/api/v4`,
             headers: { Authorization: `Bearer ${accessToken}` },
-            timeout: 20000,
+            // Kommo às vezes leva 30-45s pra listar em contas grandes.
+            // Timeout generoso + retry lida com isso; retry interceptor abaixo.
+            timeout: 60000,
         });
+
+        // Retry 1x em timeouts e 5xx (não em 4xx). Backoff simples de 1.5s.
+        this.client.interceptors.response.use(
+            (r) => r,
+            async (err) => {
+                const cfg: any = err.config;
+                if (!cfg || cfg.__isRetry) throw err;
+                const isTimeout = err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '');
+                const status = err.response?.status;
+                const shouldRetry = isTimeout || (typeof status === 'number' && status >= 500 && status <= 599);
+                if (!shouldRetry) throw err;
+                cfg.__isRetry = true;
+                await new Promise(r => setTimeout(r, 1500));
+                return this.client(cfg);
+            }
+        );
     }
 
     /** Valida as credenciais retornando info da conta. */
@@ -95,9 +118,47 @@ export class KommoAdapter {
         return won;
     }
 
-    /** Lista leads de um status específico (paginado). */
-    async listLeadsByStatus(pipelineId: number, statusId: number, maxPages = 50): Promise<any[]> {
+    /**
+     * Encontra estágios de "Qualificação/Lead" em todos os pipelines.
+     * Se o user passar stage_ids explícitos, filtra só esses. Senão, detecta por regex.
+     */
+    async findLeadStages(explicitStageIds?: number[]): Promise<WonStatus[]> {
+        const pipelines = await this.listPipelines();
+        const stages: WonStatus[] = [];
+        // Regex mais preciso: só nomes que indicam a CAPTURA INICIAL do lead.
+        // Evita pegar estágios de "engajamento" como "Contato inicial" (que é
+        // depois que o vendedor JÁ conversou — não é o momento de Lead pra Meta).
+        // Aceita: "leads de entrada", "lead qualificado", "novo lead", "prospect".
+        const re = /(^|\s|_)(qualif|leads?\s*(de\s*)?entrada|leads?\s*novo|novo\s*lead|prospec)/i;
+        // Estágios "padrão" do Kommo: 142=won, 143=lost. Nunca considerar como Lead.
+        const excludedIds = new Set([142, 143]);
+        for (const p of pipelines) {
+            for (const s of p.statuses) {
+                if (excludedIds.has(s.id)) continue;
+                const matchExplicit = explicitStageIds && explicitStageIds.length > 0
+                    ? explicitStageIds.includes(s.id)
+                    : false;
+                const matchAuto = !explicitStageIds || explicitStageIds.length === 0
+                    ? re.test(s.name)
+                    : false;
+                if (matchExplicit || matchAuto) {
+                    stages.push({
+                        pipeline_id: p.id,
+                        pipeline_name: p.name,
+                        status_id: s.id,
+                        status_name: s.name,
+                    });
+                }
+            }
+        }
+        return stages;
+    }
+
+    /** Lista leads de um status específico (paginado). Page size reduzido pra
+     *  suportar contas com muitos custom_fields sem timeout. */
+    async listLeadsByStatus(pipelineId: number, statusId: number, maxPages = 100): Promise<any[]> {
         const all: any[] = [];
+        const PAGE_SIZE = 100;
         for (let page = 1; page <= maxPages; page++) {
             try {
                 const r = await this.client.get('/leads', {
@@ -105,17 +166,17 @@ export class KommoAdapter {
                         'filter[statuses][0][pipeline_id]': pipelineId,
                         'filter[statuses][0][status_id]': statusId,
                         'with': 'contacts',
-                        'limit': 250,
+                        'limit': PAGE_SIZE,
                         'page': page,
                     },
                 });
                 const leads = r.data._embedded?.leads || [];
                 all.push(...leads);
-                if (leads.length < 250) break;
-                await sleep(120);
+                if (leads.length < PAGE_SIZE) break;
+                await sleep(200);
             } catch (e: any) {
                 if (e.response?.status === 204) break;
-                throw e;
+                throw new Error(`Kommo listLeadsByStatus (pipeline=${pipelineId}, status=${statusId}, page=${page}): ${e.message}`);
             }
         }
         return all;
@@ -217,4 +278,31 @@ export class KommoAdapter {
 
 function sleep(ms: number): Promise<void> {
     return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * Extrai o subdomínio Kommo de várias formas de input que o usuário pode colar.
+ *   "mapscar"                      → "mapscar"
+ *   "mapscar.kommo.com"            → "mapscar"
+ *   "https://mapscar.kommo.com"    → "mapscar"
+ *   "https://mapscar.kommo.com/"   → "mapscar"
+ *   "mapscar.kommo.com/leads/list" → "mapscar"
+ *   " MapsCar "                    → "mapscar"  (lowercase + trim)
+ *   ""                             → ""         (chamador valida)
+ */
+export function normalizeKommoSubdomain(input: string | null | undefined): string {
+    if (!input) return '';
+    let s = String(input).trim().toLowerCase();
+    // Remove protocolo se veio URL completa
+    s = s.replace(/^https?:\/\//, '');
+    // Se contém .kommo.com, pega tudo até esse ponto
+    const kommoIdx = s.indexOf('.kommo.com');
+    if (kommoIdx > 0) {
+        s = s.slice(0, kommoIdx);
+    }
+    // Remove qualquer path/query/hash restante
+    s = s.split('/')[0].split('?')[0].split('#')[0];
+    // Só letras/números/hífen/underscore
+    s = s.replace(/[^a-z0-9_-]/g, '');
+    return s;
 }
