@@ -610,6 +610,12 @@ export default function ClientesPage() {
                 </div>
             ) : (
                 <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
+                  {/* Wrapper com scroll horizontal — a grid abaixo tem colunas em px fixo
+                      (~890px de largura minima) que nao cabem em tela de celular; sem isso
+                      as colunas da direita (Pagamento/Reunioes/Acoes) ficavam cortadas pelo
+                      overflow:hidden do container pai e inacessiveis no mobile. */}
+                  <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                    <div style={{ minWidth: 780 }}>
                     {/* Table header */}
                     <div style={{
                         display: 'grid',
@@ -730,7 +736,7 @@ export default function ClientesPage() {
                                     <button
                                         onClick={() => openEditClient(client)}
                                         title="Editar"
-                                        style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
+                                        style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}
                                     >
                                         <Edit2 size={13} />
                                     </button>
@@ -738,6 +744,8 @@ export default function ClientesPage() {
                             </div>
                         );
                     })}
+                    </div>
+                  </div>
                 </div>
             )}
 
@@ -745,7 +753,7 @@ export default function ClientesPage() {
             {openClient && (
                 <>
                     <div onClick={closeDrawer} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 200 }} />
-                    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 201, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                    <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(520px, 100vw)', background: 'var(--bg-card)', borderLeft: '1px solid var(--border)', zIndex: 201, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                         {/* Header */}
                         <div style={{ padding: '22px 24px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 14 }}>
                             <div style={{ width: 48, height: 48, borderRadius: 12, background: openClient.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
@@ -759,13 +767,13 @@ export default function ClientesPage() {
                                     <span style={{ color: STATUS_CONFIG[openClient.status]?.color }}>{STATUS_CONFIG[openClient.status]?.label}</span>
                                 </div>
                             </div>
-                            <button onClick={() => openEditClient(openClient)} title="Editar" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                            <button onClick={() => openEditClient(openClient)} title="Editar" style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
                                 <Edit2 size={14} />
                             </button>
-                            <button onClick={() => setDeleteClientId(openClient.id)} title="Remover" style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: '#f87171', cursor: 'pointer' }}>
+                            <button onClick={() => setDeleteClientId(openClient.id)} title="Remover" style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, background: 'transparent', border: '1px solid var(--border)', color: '#f87171', cursor: 'pointer' }}>
                                 <Trash2 size={14} />
                             </button>
-                            <button onClick={closeDrawer} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+                            <button onClick={closeDrawer} style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
                                 <X size={20} />
                             </button>
                         </div>
