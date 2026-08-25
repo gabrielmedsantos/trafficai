@@ -62,10 +62,8 @@ export default function LoginPage() {
     };
 
     return (
-        <div style={{
+        <div className="auth-shell" style={{
             minHeight: '100vh',
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
             background: 'var(--bg-base)',
         }}>
             {/* Painel lateral de marca — escondido em telas pequenas */}
@@ -228,6 +226,13 @@ export default function LoginPage() {
             </main>
 
             <style jsx>{`
+                .auth-shell {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                }
+                @media (max-width: 960px) {
+                    .auth-shell { grid-template-columns: 1fr; }
+                }
                 .auth-panel {
                     background: linear-gradient(180deg, #0d1221 0%, var(--bg-base) 100%);
                     border-right: 1px solid var(--border);
