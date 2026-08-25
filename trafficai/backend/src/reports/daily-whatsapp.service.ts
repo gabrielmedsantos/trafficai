@@ -6,6 +6,7 @@
 import axios from 'axios';
 import crypto from 'crypto';
 import { query } from '../database/connection';
+import { metaService } from '../meta/meta.service';
 import { logger } from '../shared/logger';
 
 interface AccountWithSettings {
@@ -43,18 +44,21 @@ export const TEMPLATE_VARIABLES = [
     { key: 'today_leads',          label: 'Leads/conversões ontem',          example: '23' },
     { key: 'today_cpl',            label: 'Custo por lead ontem',            example: 'R$ 53,67' },
     { key: 'today_action_label',   label: 'Label da ação (lead/compra)',     example: 'lead' },
+    { key: 'today_breakdown_block', label: 'Detalhamento por objetivo (ontem) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 103 · R$ 2,90/conversa\n• Visitas ao perfil: 45 · R$ 1,10/visita' },
     { key: 'last7_label',          label: 'Período últimos 7 dias',          example: '22/06 a 28/06' },
     { key: 'last7_spend',          label: 'Investimento últimos 7d',         example: 'R$ 8.500,00' },
     { key: 'last7_impressions',    label: 'Impressões últimos 7d',           example: '85.300' },
     { key: 'last7_leads',          label: 'Leads últimos 7d',                example: '142' },
     { key: 'last7_cpl',            label: 'CPL últimos 7d',                  example: 'R$ 59,86' },
     { key: 'last7_action_label',   label: 'Label da ação (últimos 7d)',      example: 'lead' },
+    { key: 'last7_breakdown_block', label: 'Detalhamento por objetivo (7d) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 428 · R$ 3,42/conversa\n• Visitas ao perfil: 180 · R$ 1,05/visita' },
     { key: 'month_label',          label: 'Período do mês',                  example: '01/06 a 28/06' },
     { key: 'month_spend',          label: 'Investimento do mês',             example: 'R$ 24.180,00' },
     { key: 'month_impressions',    label: 'Impressões do mês',               example: '320.500' },
     { key: 'month_leads',          label: 'Leads do mês',                    example: '412' },
     { key: 'month_cpl',            label: 'CPL do mês',                      example: 'R$ 58,69' },
     { key: 'month_action_label',   label: 'Label da ação (mês)',             example: 'lead' },
+    { key: 'month_breakdown_block', label: 'Detalhamento por objetivo (mês) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 1.017 · R$ 4,05/conversa\n• Visitas ao perfil: 320 · R$ 0,95/visita' },
     { key: 'active_ads',           label: 'Anúncios ativos / em análise',    example: '8' },
     { key: 'top_ads_block',        label: 'Bloco top criativos (ontem)',    example: '🥇 ADS-GERAL IA\n   💰 R$ 141,66 · 57 conv. · R$ 2,46/conv\n\n🥈 ADS-NIUVS\n   💰 R$ 136,00 · 34 conv. · R$ 4,00/conv' },
     { key: 'top_ads_block_7d',     label: 'Bloco top criativos (7 dias)',   example: '🥇 ADS-GERAL IA · R$ 990/7d · 380 conv\n🥈 ADS-NIUVS · R$ 950/7d · 240 conv' },
@@ -146,7 +150,7 @@ export function getDefaultTemplate(): string {
         '💰 Investimento de {today_spend}',
         '⚡️ Impressões: {today_impressions}',
         '📊 Total de {today_leads} {today_action_label}',
-        '💰 Custo por {today_action_label} de {today_cpl}',
+        '💰 Custo por {today_action_label} de {today_cpl}{today_breakdown_block}',
         '',
         'Resumo de nossas campanhas nos últimos 7 dias:',
         '> [{last7_label}]',
@@ -154,7 +158,7 @@ export function getDefaultTemplate(): string {
         '💰 Investimento de {last7_spend}',
         '⚡️ Impressões: {last7_impressions}',
         '📊 Total de {last7_leads} {last7_action_label}',
-        '💰 Custo por {last7_action_label} de {last7_cpl}',
+        '💰 Custo por {last7_action_label} de {last7_cpl}{last7_breakdown_block}',
         '',
         'Resumo desse mês:',
         '> [{month_label}]',
@@ -162,7 +166,7 @@ export function getDefaultTemplate(): string {
         '💰 Investimento de {month_spend}',
         '⚡️ Impressões: {month_impressions}',
         '📊 Total de {month_leads} {month_action_label}',
-        '💰 Custo por {month_action_label} de {month_cpl}',
+        '💰 Custo por {month_action_label} de {month_cpl}{month_breakdown_block}',
         '',
         '📄 Relatório visual completo:',
         '{report_link}',
@@ -208,12 +212,35 @@ export function formatTopAdsBlock(ads: AdRankRow[], variant: 'today' | 'week' = 
     }).join('\n\n') + (ads.length > MAX ? `\n\n_+${ads.length - MAX} outros anúncios..._` : '');
 }
 
+interface TemplateMetrics {
+    spend: number;
+    impressions: number;
+    leads: number;
+    cost_per_lead: number;
+    primary_action_label: string;
+    objective_breakdown?: { label: string; count: number; spend: number; cost_per: number }[];
+}
+
+/** Lista "• Label: N · R$ X/label" por objetivo — só retorna algo quando há mais de
+ *  um resultado diferente no período (senão o {today_leads} normal já basta). */
+function formatBreakdownBlock(groups: TemplateMetrics['objective_breakdown']): string {
+    if (!groups || groups.length <= 1) return '';
+    const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const lines = groups.map(g => {
+        const singular = g.label.replace(/s$/, '').toLowerCase();
+        return `• ${g.label}: ${g.count.toLocaleString('pt-BR')} · ${fmtBRL(g.cost_per)}/${singular}`;
+    });
+    // \n\n na frente pra colar no final da linha de CPL sem deixar espaço extra
+    // quando vazio (conta com um objetivo só — maioria dos casos).
+    return `\n\n📌 Por objetivo:\n${lines.join('\n')}`;
+}
+
 export function buildTemplateVars(data: {
     client_name: string;
     greeting: string;
-    today: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
-    last7d: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
-    month: { metrics: { spend: number; impressions: number; leads: number; cost_per_lead: number; primary_action_label: string }; label: string };
+    today: { metrics: TemplateMetrics; label: string };
+    last7d: { metrics: TemplateMetrics; label: string };
+    month: { metrics: TemplateMetrics; label: string };
     activeAds: number;
     topAdsToday?: AdRankRow[];
     topAds7d?: AdRankRow[];
@@ -235,6 +262,7 @@ export function buildTemplateVars(data: {
         today_cpl: fmtBRL(data.today.metrics.cost_per_lead),
         today_action_label: todaySingular,
         today_action_label_singular: data.today.metrics.primary_action_label.replace(/s$/, ''),
+        today_breakdown_block: formatBreakdownBlock(data.today.metrics.objective_breakdown),
         // Last 7 days
         last7_label: data.last7d.label,
         last7_spend: fmtBRL(data.last7d.metrics.spend),
@@ -242,6 +270,7 @@ export function buildTemplateVars(data: {
         last7_leads: fmtNum(data.last7d.metrics.leads),
         last7_cpl: fmtBRL(data.last7d.metrics.cost_per_lead),
         last7_action_label: data.last7d.metrics.primary_action_label,
+        last7_breakdown_block: formatBreakdownBlock(data.last7d.metrics.objective_breakdown),
         // Month
         month_label: data.month.label,
         month_spend: fmtBRL(data.month.metrics.spend),
@@ -249,6 +278,7 @@ export function buildTemplateVars(data: {
         month_leads: fmtNum(data.month.metrics.leads),
         month_cpl: fmtBRL(data.month.metrics.cost_per_lead),
         month_action_label: data.month.metrics.primary_action_label,
+        month_breakdown_block: formatBreakdownBlock(data.month.metrics.objective_breakdown),
         // Active ads
         active_ads: data.activeAds,
         // Top criativos
@@ -287,12 +317,22 @@ interface DayMetrics {
     primary_action_label: string;
 }
 
+interface ObjectiveBreakdownGroup {
+    label: string;
+    count: number;
+    spend: number;
+    cost_per: number;
+}
+
 interface RangeMetrics {
     spend: number;
     impressions: number;
     leads: number;
     cost_per_lead: number;
     primary_action_label: string;
+    /** Um grupo por resultado detectado (ex: "Conversas iniciadas" x "Visitas ao perfil").
+     *  Só tem mais de 1 item quando a conta tem campanhas com objetivos/resultados diferentes. */
+    objective_breakdown: ObjectiveBreakdownGroup[];
 }
 
 export class DailyWhatsAppService {
@@ -624,33 +664,52 @@ export class DailyWhatsAppService {
     }
 
     private async getRangeMetrics(accountId: string, fromDate: string, toDate: string): Promise<RangeMetrics> {
+        // Uma linha por campanha/dia, com o objective da campanha — pra poder separar
+        // resultados quando a conta tem campanhas com objetivos diferentes (ex: uma
+        // rodando "Conversas WhatsApp" e outra rodando "Visitas ao perfil"). Antes disso
+        // o serviço somava tudo junto e etiquetava com um único label, misturando os dois.
         const rows = await query<any>(`
-            SELECT
-                COALESCE(SUM(ih.spend), 0)         AS spend,
-                COALESCE(SUM(ih.impressions), 0)   AS impressions,
-                COALESCE(SUM(ih.conversions), 0)   AS conversions
+            SELECT ih.spend, ih.impressions, ih.actions, c.objective
             FROM insights_history ih
             JOIN campaigns c ON ih.campaign_id = c.id
             WHERE c.account_id = $1
               AND ih.date >= $2 AND ih.date <= $3
         `, [accountId, fromDate, toDate]);
-        const t = rows[0] || {};
-        const spend = parseFloat(t.spend) || 0;
-        const conversions = parseInt(t.conversions) || 0;
 
-        // Detecta label da ação primária pelo período
-        const actionsRows = await query<any>(`
-            SELECT ih.actions FROM insights_history ih
-            JOIN campaigns c ON ih.campaign_id = c.id
-            WHERE c.account_id = $1 AND ih.date >= $2 AND ih.date <= $3
-        `, [accountId, fromDate, toDate]);
+        let spend = 0;
+        let impressions = 0;
+        const groups = new Map<string, { count: number; spend: number }>();
+
+        for (const row of rows) {
+            const rowSpend = parseFloat(row.spend) || 0;
+            spend += rowSpend;
+            impressions += parseInt(row.impressions) || 0;
+
+            const { count, label } = metaService.extractPrimaryAction(row.actions, row.objective);
+            if (count <= 0) continue;
+            const g = groups.get(label) || { count: 0, spend: 0 };
+            g.count += count;
+            g.spend += rowSpend;
+            groups.set(label, g);
+        }
+
+        const objective_breakdown: ObjectiveBreakdownGroup[] = Array.from(groups.entries())
+            .map(([label, g]) => ({ label, count: g.count, spend: g.spend, cost_per: g.count > 0 ? g.spend / g.count : 0 }))
+            .sort((a, b) => b.spend - a.spend);
+
+        // Grupo dominante (maior spend) alimenta os placeholders "simples" já existentes
+        // ({today_leads}, {today_action_label}...) — mantém templates antigos funcionando
+        // sem mudança, só que agora sem misturar contagem de objetivos diferentes.
+        const dominant = objective_breakdown[0];
+        const leads = dominant?.count || 0;
 
         return {
             spend,
-            impressions: parseInt(t.impressions) || 0,
-            leads: conversions,
-            cost_per_lead: conversions > 0 ? spend / conversions : 0,
-            primary_action_label: this.detectPrimaryAction(actionsRows),
+            impressions,
+            leads,
+            cost_per_lead: leads > 0 ? (dominant!.spend / leads) : 0,
+            primary_action_label: dominant?.label || 'Conversões',
+            objective_breakdown,
         };
     }
 
