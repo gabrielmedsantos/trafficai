@@ -39,6 +39,7 @@ interface AlertPayload {
     severity: 'info' | 'warning' | 'critical';
     title: string;
     message: string;
+    account_name?: string;
     metric_name?: string;
     previous_value?: number;
     current_value?: number;
@@ -88,7 +89,7 @@ export class NotificationService {
         try {
             const { sent } = await sendPushToUser(settings.user_id, {
                 title: `${{ critical: '🚨 CRÍTICO', warning: '⚠️ ATENÇÃO', info: 'ℹ️ INFO' }[alert.severity]} — ${alert.title}`,
-                body: alert.message,
+                body: alert.account_name ? `[${alert.account_name}] ${alert.message}` : alert.message,
                 url: '/alerts',
                 tag: alert.type,
             });
@@ -128,7 +129,7 @@ export class NotificationService {
             await axios.post('https://api.resend.com/emails', {
                 from: `${process.env.AGENCY_NAME || 'Alfamax Digital'} Alertas <${fromEmail}>`,
                 to: [settings.notification_email!],
-                subject: `[${severityLabel}] ${alert.title}`,
+                subject: alert.account_name ? `[${severityLabel}] ${alert.account_name} — ${alert.title}` : `[${severityLabel}] ${alert.title}`,
                 html,
             }, {
                 headers: {
@@ -198,6 +199,7 @@ export class NotificationService {
 
             <!-- Title -->
             <tr><td style="padding-bottom:16px">
+              ${alert.account_name ? `<div style="font-size:13px;font-weight:600;color:#8b5cf6;margin-bottom:4px">📍 ${alert.account_name}</div>` : ''}
               <div style="font-size:22px;font-weight:700;color:#f1f5f9;line-height:1.3">${alert.title}</div>
             </td></tr>
 
@@ -359,6 +361,7 @@ export class NotificationService {
         }[alert.severity];
 
         let msg = `${icon} ${label} — TrafficAI\n\n`;
+        if (alert.account_name) msg += `📍 *${alert.account_name}*\n`;
         msg += `*${alert.title}*\n\n`;
         msg += `${alert.message}`;
 

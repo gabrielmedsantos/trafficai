@@ -110,6 +110,7 @@ function cpaLabelFor(objective?: string, primaryAction?: PrimaryAction | null): 
 interface Alert {
     user_id: string;
     account_id?: string;
+    account_name?: string;
     campaign_id?: string;
     type: string;
     severity: 'info' | 'warning' | 'critical';
@@ -385,8 +386,9 @@ export class SmartAlertsService {
             }
         }
 
+        const accountLabel = account.account_name || undefined;
         for (const alert of alerts) {
-            await this.createAlertIfNotExists(alert);
+            await this.createAlertIfNotExists({ ...alert, account_name: accountLabel });
         }
     }
 
@@ -503,6 +505,7 @@ export class SmartAlertsService {
                     id: inserted[0].id,
                     type: alert.type, severity: alert.severity,
                     title: alert.title, message: alert.message,
+                    account_name: alert.account_name,
                     metric_name: alert.metric_name,
                     previous_value: alert.previous_value,
                     current_value: alert.current_value,
