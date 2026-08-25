@@ -20,6 +20,7 @@ import { startWeeklyMonthlyReportWorker } from './workers/weekly-monthly-report.
 import { startBalanceSyncWorker } from './workers/balance-sync.worker';
 import { startReportWorker } from './reports/report.worker';
 import { startBillingWorker } from './workers/billing.worker';
+import { startInvoiceReminderWorker } from './workers/invoice-reminder.worker';
 import { startTrackingRetryWorker } from './workers/tracking-retry.worker';
 import { startTrackingCleanupWorker } from './workers/tracking-cleanup.worker';
 import { startCrmSyncWorker } from './workers/tracking-crm-sync.worker';
@@ -128,6 +129,7 @@ app.listen(PORT, () => {
         startReportWorker();
         startCommercialWorker();
         startBillingWorker();
+        startInvoiceReminderWorker();
         startTrackingRetryWorker();
         startTrackingCleanupWorker();
         startCrmSyncWorker();
