@@ -209,7 +209,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ channel }),
       });
       const result = await res.json();
-      setTestMsg({ channel, success: result.success, msg: result.data?.message || result.error?.message || '' });
+      setTestMsg({ channel, success: result.success, msg: result.data?.message || friendlyError(result.error?.message, '') });
     } catch (e: any) {
       setTestMsg({ channel, success: false, msg: e.message });
     } finally {
@@ -234,6 +234,16 @@ export default function SettingsPage() {
         body: JSON.stringify(updated),
       });
     } catch { /* ignore — usuario ainda pode salvar manualmente depois */ }
+  };
+
+  // Traduz erros crus da API pra mensagens acionáveis — "Invalid or expired token"
+  // vinha aparecendo pro usuário como "erro no token" sem explicar que precisa
+  // sair e entrar de novo (o JWT dura 7 dias e nao se renova sozinho).
+  const friendlyError = (msg: string | undefined, fallback: string): string => {
+    if (msg && msg.toLowerCase().includes('invalid or expired token')) {
+      return 'Sua sessão expirou. Saia (Sidebar → Sair) e entre de novo, depois tente ativar o push outra vez.';
+    }
+    return msg || fallback;
   };
 
   const handlePushToggle = async (enable: boolean) => {
@@ -277,7 +287,7 @@ export default function SettingsPage() {
       });
       const keyResult = await keyRes.json();
       if (!keyResult.success) {
-        setPushError(keyResult.error?.message || 'Push não configurado no servidor');
+        setPushError(friendlyError(keyResult.error?.message, 'Push não configurado no servidor'));
         return;
       }
 
@@ -295,7 +305,7 @@ export default function SettingsPage() {
       });
       const subResult = await subRes.json();
       if (!subResult.success) {
-        setPushError(subResult.error?.message || 'Erro ao salvar inscrição');
+        setPushError(friendlyError(subResult.error?.message, 'Erro ao salvar inscrição'));
         return;
       }
 
