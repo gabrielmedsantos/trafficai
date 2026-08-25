@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   Link2, CheckCircle, XCircle, RefreshCw, AlertCircle, Key,
   Bell, Mail, MessageCircle, Save, Send, Moon, ShieldCheck, Info,
-  Zap, AlertTriangle,
+  Zap, AlertTriangle, Smartphone,
 } from 'lucide-react';
 import { MetaConnectButton } from '@/components/MetaConnectButton';
 
@@ -41,6 +41,7 @@ interface NotificationSettings {
   quiet_end: string;
   owner_whatsapp: string;
   daily_report_approval_required: boolean;
+  push_enabled: boolean;
 }
 
 const defaultSettings: NotificationSettings = {
@@ -66,7 +67,28 @@ const defaultSettings: NotificationSettings = {
   quiet_end: '08:00',
   owner_whatsapp: '',
   daily_report_approval_required: false,
+  push_enabled: false,
 };
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+function isIosDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const ua = window.navigator.userAgent;
+  return /iphone|ipad|ipod/i.test(ua) || (ua.includes('Macintosh') && (navigator as any).maxTouchPoints > 1);
+}
+
+function isStandaloneDisplay(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+}
 
 export default function SettingsPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -81,6 +103,9 @@ export default function SettingsPage() {
   const [notifSaved, setNotifSaved] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
   const [testingWpp, setTestingWpp] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState('');
   const [testMsg, setTestMsg] = useState<{ channel: string; success: boolean; msg: string } | null>(null);
 
   useEffect(() => {
@@ -172,9 +197,10 @@ export default function SettingsPage() {
     }
   };
 
-  const sendTest = async (channel: 'email' | 'whatsapp') => {
+  const sendTest = async (channel: 'email' | 'whatsapp' | 'push') => {
     if (channel === 'email') setTestingEmail(true);
-    else setTestingWpp(true);
+    else if (channel === 'whatsapp') setTestingWpp(true);
+    else setTestingPush(true);
     setTestMsg(null);
     try {
       const res = await fetch(`${API}/settings/notifications/test`, {
@@ -188,7 +214,96 @@ export default function SettingsPage() {
       setTestMsg({ channel, success: false, msg: e.message });
     } finally {
       if (channel === 'email') setTestingEmail(false);
-      else setTestingWpp(false);
+      else if (channel === 'whatsapp') setTestingWpp(false);
+      else setTestingPush(false);
+    }
+  };
+
+  // Ativa/desativa push notifications neste dispositivo. Diferente dos outros
+  // canais, isso precisa de uma dança com APIs do browser (permissão + inscrição
+  // no PushManager) antes de poder salvar push_enabled=true.
+  // Persiste push_enabled imediatamente (sem esperar o botão "Salvar Configurações")
+  // pra nao deixar a inscricao do dispositivo dessincronizada da flag no banco.
+  const persistPushEnabled = async (value: boolean) => {
+    const updated = { ...notif, push_enabled: value };
+    setNotif(updated);
+    try {
+      await fetch(`${API}/settings/notifications`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify(updated),
+      });
+    } catch { /* ignore — usuario ainda pode salvar manualmente depois */ }
+  };
+
+  const handlePushToggle = async (enable: boolean) => {
+    setPushError('');
+    if (!enable) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await sub.unsubscribe();
+          await fetch(`${API}/settings/notifications/push/unsubscribe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+            body: JSON.stringify({ endpoint: sub.endpoint }),
+          });
+        }
+      } catch { /* ignore */ }
+      await persistPushEnabled(false);
+      return;
+    }
+
+    if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setPushError('Este navegador não suporta notificações push.');
+      return;
+    }
+    if (isIosDevice() && !isStandaloneDisplay()) {
+      setPushError('No iPhone/iPad, abra o TrafficAI pelo ícone na Tela de Início (não pelo Safari) pra poder ativar notificações.');
+      return;
+    }
+
+    setPushBusy(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setPushError(permission === 'denied' ? 'Permissão de notificação negada no navegador.' : 'Permissão de notificação não concedida.');
+        return;
+      }
+
+      const keyRes = await fetch(`${API}/settings/notifications/push/vapid-public-key`, {
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      const keyResult = await keyRes.json();
+      if (!keyResult.success) {
+        setPushError(keyResult.error?.message || 'Push não configurado no servidor');
+        return;
+      }
+
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyResult.data.publicKey) as BufferSource,
+      });
+      const subJson = sub.toJSON();
+
+      const subRes = await fetch(`${API}/settings/notifications/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ endpoint: subJson.endpoint, keys: subJson.keys }),
+      });
+      const subResult = await subRes.json();
+      if (!subResult.success) {
+        setPushError(subResult.error?.message || 'Erro ao salvar inscrição');
+        return;
+      }
+
+      await persistPushEnabled(true);
+    } catch (e: any) {
+      setPushError(e.message || 'Erro ao ativar notificações push');
+    } finally {
+      setPushBusy(false);
     }
   };
 
@@ -523,6 +638,40 @@ export default function SettingsPage() {
                 onChange={e => setN('daily_report_approval_required', e.target.checked)} />
               Exigir minha aprovação antes de enviar pro cliente
             </label>
+          </div>
+        </ChannelBlock>
+
+        {/* Push (notificação nativa no dispositivo — PWA instalado) */}
+        <ChannelBlock
+          icon={<Smartphone size={16} color="#8b5cf6" />}
+          title="Notificação Push"
+          enabled={notif.push_enabled}
+          onToggle={handlePushToggle}
+          accent="#8b5cf6"
+        >
+          <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 1.6 }}>
+            Ativa neste dispositivo específico. No iPhone, precisa ter instalado o TrafficAI na Tela de Início
+            e abrir por lá (não pelo Safari) antes de ativar.
+          </p>
+          {pushBusy && (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '10px' }}>Ativando…</p>
+          )}
+          {pushError && (
+            <p style={{ fontSize: '13px', color: 'var(--accent-red)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <AlertCircle size={13} /> {pushError}
+            </p>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => sendTest('push')}
+              disabled={testingPush || !notif.push_enabled}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Send size={13} /> {testingPush ? 'Enviando...' : 'Testar Push'}
+            </button>
+            {testMsg?.channel === 'push' && (
+              <span style={{ fontSize: '13px', color: testMsg.success ? 'var(--accent-green)' : 'var(--accent-red)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                {testMsg.success ? <CheckCircle size={13} /> : <XCircle size={13} />} {testMsg.msg}
+              </span>
+            )}
           </div>
         </ChannelBlock>
 

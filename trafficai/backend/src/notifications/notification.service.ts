@@ -6,6 +6,7 @@
 import axios from 'axios';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
+import { sendPushToUser } from './push.service';
 
 interface NotificationSettings {
     user_id: string;
@@ -29,6 +30,7 @@ interface NotificationSettings {
     quiet_hours_enabled: boolean;
     quiet_start: string;
     quiet_end: string;
+    push_enabled: boolean;
 }
 
 interface AlertPayload {
@@ -73,7 +75,28 @@ export class NotificationService {
             promises.push(this.sendWhatsApp(settings, alert));
         }
 
+        if (settings.push_enabled) {
+            promises.push(this.sendPush(settings, alert));
+        }
+
         await Promise.allSettled(promises);
+    }
+
+    // ─── PUSH ─────────────────────────────────────────────────────────────────
+
+    private async sendPush(settings: NotificationSettings, alert: AlertPayload): Promise<void> {
+        try {
+            const { sent } = await sendPushToUser(settings.user_id, {
+                title: `${{ critical: '🚨 CRÍTICO', warning: '⚠️ ATENÇÃO', info: 'ℹ️ INFO' }[alert.severity]} — ${alert.title}`,
+                body: alert.message,
+                url: '/alerts',
+                tag: alert.type,
+            });
+            await this.logNotification(settings.user_id, alert.id, 'push', sent > 0 ? 'sent' : 'skipped');
+        } catch (error: any) {
+            await this.logNotification(settings.user_id, alert.id, 'push', 'failed', error.message);
+            logger.error(`Falha ao enviar push: ${error.message}`);
+        }
     }
 
     // ─── EMAIL ────────────────────────────────────────────────────────────────
@@ -397,7 +420,7 @@ export class NotificationService {
     /**
      * Envia uma notificação de teste
      */
-    async sendTestNotification(userId: string, channel: 'email' | 'whatsapp'): Promise<{ success: boolean; message: string }> {
+    async sendTestNotification(userId: string, channel: 'email' | 'whatsapp' | 'push'): Promise<{ success: boolean; message: string }> {
         const settings = await this.getSettings(userId);
         if (!settings) {
             return { success: false, message: 'Configurações não encontradas' };
@@ -418,9 +441,17 @@ export class NotificationService {
             if (channel === 'email') {
                 if (!settings.notification_email) return { success: false, message: 'Email não configurado' };
                 await this.sendEmail(settings, testAlert);
-            } else {
+            } else if (channel === 'whatsapp') {
                 if (!settings.whatsapp_number) return { success: false, message: 'WhatsApp não configurado' };
                 await this.sendWhatsApp(settings, testAlert);
+            } else {
+                const { sent } = await sendPushToUser(userId, {
+                    title: '🧪 Notificação de Teste — TrafficAI',
+                    body: testAlert.message,
+                    url: '/alerts',
+                    tag: 'test',
+                });
+                if (sent === 0) return { success: false, message: 'Nenhum dispositivo inscrito para push — ative nas Configurações neste dispositivo primeiro' };
             }
             return { success: true, message: `Teste enviado com sucesso via ${channel}` };
         } catch (error: any) {

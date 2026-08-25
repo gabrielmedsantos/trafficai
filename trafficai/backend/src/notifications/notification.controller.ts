@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { notificationService } from './notification.service';
+import { getVapidPublicKey, saveSubscription, removeSubscription } from './push.service';
 import { logger } from '../shared/logger';
 
 const router = Router();
@@ -25,6 +26,7 @@ router.get('/', async (req: Request, res: Response) => {
                     notify_critical, notify_warning, notify_info,
                     quiet_hours_enabled, quiet_start, quiet_end,
                     owner_whatsapp, daily_report_approval_required,
+                    push_enabled,
                     created_at, updated_at
              FROM notification_settings WHERE user_id = $1 LIMIT 1`,
             [userId]
@@ -54,6 +56,7 @@ router.put('/', async (req: Request, res: Response) => {
             notify_critical, notify_warning, notify_info,
             quiet_hours_enabled, quiet_start, quiet_end,
             owner_whatsapp, daily_report_approval_required,
+            push_enabled,
         } = req.body;
 
         await query(
@@ -67,8 +70,9 @@ router.put('/', async (req: Request, res: Response) => {
                 notify_critical, notify_warning, notify_info,
                 quiet_hours_enabled, quiet_start, quiet_end,
                 owner_whatsapp, daily_report_approval_required,
+                push_enabled,
                 updated_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,NOW())
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,NOW())
             ON CONFLICT (user_id) DO UPDATE SET
                 email_enabled = EXCLUDED.email_enabled,
                 notification_email = EXCLUDED.notification_email,
@@ -92,6 +96,7 @@ router.put('/', async (req: Request, res: Response) => {
                 quiet_end = EXCLUDED.quiet_end,
                 owner_whatsapp = EXCLUDED.owner_whatsapp,
                 daily_report_approval_required = EXCLUDED.daily_report_approval_required,
+                push_enabled = EXCLUDED.push_enabled,
                 updated_at = NOW()`,
             [
                 userId,
@@ -103,6 +108,7 @@ router.put('/', async (req: Request, res: Response) => {
                 notify_critical ?? true, notify_warning ?? true, notify_info ?? false,
                 quiet_hours_enabled ?? false, quiet_start || '22:00', quiet_end || '08:00',
                 owner_whatsapp || null, daily_report_approval_required ?? false,
+                push_enabled ?? false,
             ]
         );
 
@@ -117,10 +123,10 @@ router.put('/', async (req: Request, res: Response) => {
 router.post('/test', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { channel } = req.body as { channel: 'email' | 'whatsapp' };
+        const { channel } = req.body as { channel: 'email' | 'whatsapp' | 'push' };
 
-        if (!['email', 'whatsapp'].includes(channel)) {
-            return res.status(400).json({ success: false, error: { message: 'Canal inválido. Use: email | whatsapp' } });
+        if (!['email', 'whatsapp', 'push'].includes(channel)) {
+            return res.status(400).json({ success: false, error: { message: 'Canal inválido. Use: email | whatsapp | push' } });
         }
 
         const result = await notificationService.sendTestNotification(userId, channel);
@@ -133,6 +139,51 @@ router.post('/test', async (req: Request, res: Response) => {
     } catch (error: any) {
         logger.error('Erro ao enviar notificação de teste', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro ao enviar teste' } });
+    }
+});
+
+// GET /settings/notifications/push/vapid-public-key
+router.get('/push/vapid-public-key', async (req: Request, res: Response) => {
+    const publicKey = getVapidPublicKey();
+    if (!publicKey) {
+        return res.status(503).json({ success: false, error: { message: 'Push notifications não configuradas no servidor' } });
+    }
+    res.json({ success: true, data: { publicKey } });
+});
+
+// POST /settings/notifications/push/subscribe
+router.post('/push/subscribe', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { endpoint, keys } = req.body as { endpoint: string; keys: { p256dh: string; auth: string } };
+
+        if (!endpoint || !keys?.p256dh || !keys?.auth) {
+            return res.status(400).json({ success: false, error: { message: 'Assinatura de push inválida' } });
+        }
+
+        await saveSubscription(userId, endpoint, keys.p256dh, keys.auth, req.get('User-Agent'));
+        res.json({ success: true, data: { message: 'Push inscrito com sucesso' } });
+    } catch (error: any) {
+        logger.error('Erro ao salvar inscrição de push', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /settings/notifications/push/unsubscribe
+router.post('/push/unsubscribe', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { endpoint } = req.body as { endpoint: string };
+
+        if (!endpoint) {
+            return res.status(400).json({ success: false, error: { message: 'endpoint é obrigatório' } });
+        }
+
+        await removeSubscription(userId, endpoint);
+        res.json({ success: true, data: { message: 'Push removido' } });
+    } catch (error: any) {
+        logger.error('Erro ao remover inscrição de push', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
 
