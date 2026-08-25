@@ -110,6 +110,10 @@ class ApiClient {
         return this.request<{ token: string; user: any }>('POST', '/auth/register', { email, password, name });
     }
 
+    async submitLead(name: string, email: string, phone: string, plan?: string) {
+        return this.request<{ message: string }>('POST', '/leads', { name, email, phone, plan });
+    }
+
     async getMe() {
         return this.request<any>('GET', '/auth/me');
     }

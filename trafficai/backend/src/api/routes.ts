@@ -33,6 +33,7 @@ import { billingController, billingPublicController } from '../billing/billing.c
 import { metaSignupController } from '../auth/meta-signup.controller';
 import { pdfReportController, pdfReportPublicController } from '../reports/pdf-report.controller';
 import { templatesController } from '../templates/templates.controller';
+import { leadsController } from '../leads/leads.controller';
 import { planGuard } from '../billing/plan.middleware';
 
 const router = Router();
@@ -82,6 +83,9 @@ router.use('/financial', financialController);
 router.use('/tasks', tasksController);
 router.use('/team', teamController);
 router.use('/board', boardController);
+
+// Leads do site de marketing (sem JWT) — captura antes do redirect pro Stripe
+router.use('/leads', leadsController);
 
 // Tracking público (sem JWT) — pixel, ingest e webhook
 router.use('/track', trackingPublicController);

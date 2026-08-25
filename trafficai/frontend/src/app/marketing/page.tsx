@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import React, { useState } from 'react';
+import { api } from '@/lib/api';
 import {
     Zap, Check, X, MessageCircle, TrendingUp, ShieldCheck, Bot, Cloud,
     KanbanSquare, Target, ChevronDown, BarChart3, PieChart, Play,
@@ -1991,6 +1993,8 @@ function Pricing() {
         },
     ];
 
+    const [selectedPlan, setSelectedPlan] = useState<{ name: string; slug: string } | null>(null);
+
     return (
         <section id="planos" style={{ padding: '80px 0', borderTop: `1px solid ${C.border}` }}>
             <div className="container" style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
@@ -2005,7 +2009,9 @@ function Pricing() {
                 </div>
 
                 <div className="stack-mobile" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-                    {plans.map(p => <PlanCard key={p.slug} {...p} />)}
+                    {plans.map(p => (
+                        <PlanCard key={p.slug} {...p} onSelect={() => setSelectedPlan({ name: p.name, slug: p.slug })} />
+                    ))}
                 </div>
 
                 <p style={{ textAlign: 'center', color: C.textDim, marginTop: 32, fontSize: 13 }}>
@@ -2013,11 +2019,15 @@ function Pricing() {
                     <a href="mailto:contato@alfamaxdigital.com.br" style={{ color: C.primary, textDecoration: 'none', fontWeight: 700 }}>Fale com a gente</a>
                 </p>
             </div>
+
+            {selectedPlan && (
+                <LeadModal plan={selectedPlan} onClose={() => setSelectedPlan(null)} />
+            )}
         </section>
     );
 }
 
-function PlanCard({ name, slug, price, oldPrice, clients, ai, seats, features, popular }: any) {
+function PlanCard({ name, slug, price, oldPrice, clients, ai, seats, features, popular, onSelect }: any) {
     return (
         <div className={popular ? 'plan-popular' : ''} style={{
             padding: 26,
@@ -2057,13 +2067,152 @@ function PlanCard({ name, slug, price, oldPrice, clients, ai, seats, features, p
                     </li>
                 ))}
             </ul>
-            <Link href={`/?plan=${slug}`} className="btn-primary" style={{
-                display: 'block', textAlign: 'center', padding: '12px',
+            <button type="button" onClick={onSelect} className="btn-primary" style={{
+                display: 'block', width: '100%', textAlign: 'center', padding: '12px',
                 background: popular ? C.primary : 'transparent',
                 border: popular ? 'none' : `1px solid ${C.border}`,
                 color: popular ? C.bg : C.text,
                 borderRadius: 10, textDecoration: 'none', fontWeight: 800, fontSize: 13.5,
-            }}>Selecionar {name}</Link>
+                cursor: 'pointer', fontFamily: 'inherit',
+            }}>Selecionar {name}</button>
+        </div>
+    );
+}
+
+// ─── LEAD CAPTURE MODAL ────────────────────────────────────────
+// Abre antes do redirect pro signup/Stripe. Envia pra planilha (Google Sheets
+// via webhook no backend) sem bloquear o funil se o envio falhar.
+
+function LeadModal({ plan, onClose }: { plan: { name: string; slug: string }; onClose: () => void }) {
+    const router = useRouter();
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const proceed = () => router.push(`/?plan=${plan.slug}`);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+
+        if (!name.trim() || !email.trim() || !phone.trim()) {
+            setError('Preencha nome, email e telefone.');
+            return;
+        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+            setError('Email inválido.');
+            return;
+        }
+
+        setLoading(true);
+        try {
+            await api.submitLead(name.trim(), email.trim(), phone.trim(), plan.slug);
+        } catch {
+            // Não bloqueia o funil por falha no envio da planilha — segue pro signup.
+        } finally {
+            setLoading(false);
+            proceed();
+        }
+    };
+
+    return (
+        <div
+            onClick={onClose}
+            style={{
+                position: 'fixed', inset: 0, background: 'rgba(6,8,15,.75)', backdropFilter: 'blur(3px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 20,
+            }}
+        >
+            <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                    width: '100%', maxWidth: 400, background: C.card, border: `1px solid ${C.border}`,
+                    borderRadius: 16, padding: 28, position: 'relative',
+                }}
+            >
+                <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Fechar"
+                    style={{
+                        position: 'absolute', top: 16, right: 16, background: 'transparent', border: 'none',
+                        color: C.textMuted, cursor: 'pointer', padding: 4, lineHeight: 0,
+                    }}
+                >
+                    <X size={18} />
+                </button>
+
+                <div style={{ fontSize: 11, color: C.primary, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>
+                    Plano {plan.name}
+                </div>
+                <h3 style={{ fontSize: 19, fontWeight: 800, marginBottom: 6, color: C.text }}>
+                    Antes de continuar, seus dados
+                </h3>
+                <p style={{ fontSize: 13, color: C.textMuted, marginBottom: 20, lineHeight: 1.5 }}>
+                    Assim que você criar a conta, alguém do nosso time entra em contato pra ajudar no onboarding.
+                </p>
+
+                <form onSubmit={handleSubmit}>
+                    <div style={{ marginBottom: 12 }}>
+                        <input
+                            type="text"
+                            placeholder="Nome completo"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            required
+                            style={{
+                                width: '100%', padding: '11px 14px', borderRadius: 9, border: `1px solid ${C.border}`,
+                                background: C.bgSoft, color: C.text, fontSize: 14, fontFamily: 'inherit',
+                            }}
+                        />
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                        <input
+                            type="email"
+                            placeholder="Email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            required
+                            style={{
+                                width: '100%', padding: '11px 14px', borderRadius: 9, border: `1px solid ${C.border}`,
+                                background: C.bgSoft, color: C.text, fontSize: 14, fontFamily: 'inherit',
+                            }}
+                        />
+                    </div>
+                    <div style={{ marginBottom: 16 }}>
+                        <input
+                            type="tel"
+                            placeholder="WhatsApp (com DDD)"
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                            required
+                            style={{
+                                width: '100%', padding: '11px 14px', borderRadius: 9, border: `1px solid ${C.border}`,
+                                background: C.bgSoft, color: C.text, fontSize: 14, fontFamily: 'inherit',
+                            }}
+                        />
+                    </div>
+
+                    {error && (
+                        <div style={{ fontSize: 12.5, color: '#fca5a5', marginBottom: 14 }}>{error}</div>
+                    )}
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        style={{
+                            width: '100%', padding: '12px', borderRadius: 10, border: 'none',
+                            background: C.primary, color: C.bg, fontWeight: 800, fontSize: 14,
+                            cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1,
+                            fontFamily: 'inherit',
+                        }}
+                    >
+                        {loading ? 'Enviando...' : 'Continuar'}
+                    </button>
+                </form>
+            </div>
         </div>
     );
 }

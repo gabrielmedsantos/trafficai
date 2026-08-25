@@ -26,6 +26,7 @@ const EXEMPT_PATH_PREFIXES = [
     '/meta-signup/',          // fluxo de onboarding Meta antes de ter plano
     '/google/oauth/callback', // callback OAuth Google
     '/track/',                // pixel público, webhooks CRM (cliente-final)
+    '/leads',                 // captura de lead no site de marketing (público)
     '/r/',                    // aprovação pública de relatório
     '/reports/public/',       // relatório visual público
     '/commercial/webhooks/',
