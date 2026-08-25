@@ -161,6 +161,36 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
 });
 
+// PUT /clients/:id/reminder-mode — override por cliente do modo de lembrete de
+// fatura (approval | automatic | null pra voltar a usar o padrão geral)
+router.put('/:id/reminder-mode', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { reminder_mode } = req.body as { reminder_mode: 'approval' | 'automatic' | null };
+
+        if (reminder_mode !== null && !['approval', 'automatic'].includes(reminder_mode)) {
+            return res.status(400).json({ success: false, error: { message: 'reminder_mode inválido' } });
+        }
+
+        const rows = await query<any>(
+            `UPDATE clients SET reminder_mode = $3, updated_at = NOW()
+             WHERE id = $1 AND user_id = $2
+             RETURNING id, reminder_mode`,
+            [id, userId, reminder_mode]
+        );
+
+        if (!rows.length) {
+            return res.status(404).json({ success: false, error: { message: 'Cliente não encontrado' } });
+        }
+
+        res.json({ success: true, data: rows[0] });
+    } catch (error: any) {
+        logger.error('Erro ao atualizar modo de lembrete do cliente', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
 // DELETE /clients/:id
 router.delete('/:id', async (req: Request, res: Response) => {
     try {

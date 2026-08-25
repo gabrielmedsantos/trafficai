@@ -116,11 +116,31 @@ interface BillingSummary {
     client_id: string;
     client_name: string;
     avatar_color: string;
+    reminder_mode: 'approval' | 'automatic' | null;
     pending_count: number;
     total_owed: number;
     total_paid: number;
     oldest_pending: string | null;
 }
+
+interface PendingReminder {
+    id: string;
+    reminder_type: 'before' | 'due' | 'overdue';
+    message: string;
+    created_at: string;
+    client_id: string;
+    client_name: string;
+    avatar_color: string;
+    total_amount: number;
+    due_date: string;
+    reference_month: string;
+}
+
+const REMINDER_TYPE_LABELS: Record<PendingReminder['reminder_type'], { label: string; color: string }> = {
+    before:  { label: 'Vence em breve', color: '#f59e0b' },
+    due:     { label: 'Vence hoje',     color: '#3b82f6' },
+    overdue: { label: 'Atrasada',       color: '#ef4444' },
+};
 
 interface TxForm {
     type: 'income' | 'expense';
@@ -242,16 +262,33 @@ export default function FinanceiroPage() {
 
     // Lembretes automáticos de fatura (WhatsApp)
     const [reminderEnabled, setReminderEnabled] = useState(false);
+    const [defaultReminderMode, setDefaultReminderMode] = useState<'approval' | 'automatic'>('approval');
     const [reminderLoading, setReminderLoading] = useState(false);
     const [reminderSaving, setReminderSaving] = useState(false);
+    const [pendingReminders, setPendingReminders] = useState<PendingReminder[]>([]);
+    const [pendingLoading, setPendingLoading] = useState(false);
+    const [resolvingId, setResolvingId] = useState<string | null>(null);
+    const [savingClientMode, setSavingClientMode] = useState<string | null>(null);
 
     const fetchReminderSettings = useCallback(async () => {
         setReminderLoading(true);
         try {
             const res = await fetch(`${API}/financial/settings`, { headers: { Authorization: `Bearer ${token()}` } });
             const json = await res.json();
-            if (json.success) setReminderEnabled(!!json.data.invoice_reminders_enabled);
+            if (json.success) {
+                setReminderEnabled(!!json.data.invoice_reminders_enabled);
+                setDefaultReminderMode(json.data.default_reminder_mode === 'automatic' ? 'automatic' : 'approval');
+            }
         } catch { /* ignore */ } finally { setReminderLoading(false); }
+    }, []);
+
+    const fetchPendingReminders = useCallback(async () => {
+        setPendingLoading(true);
+        try {
+            const res = await fetch(`${API}/financial/reminders/pending`, { headers: { Authorization: `Bearer ${token()}` } });
+            const json = await res.json();
+            if (json.success) setPendingReminders(json.data);
+        } catch { /* ignore */ } finally { setPendingLoading(false); }
     }, []);
 
     async function toggleReminders(value: boolean) {
@@ -267,6 +304,58 @@ export default function FinanceiroPage() {
             setReminderEnabled(!value); // reverte se falhar
         } finally {
             setReminderSaving(false);
+        }
+    }
+
+    async function saveDefaultReminderMode(mode: 'approval' | 'automatic') {
+        const prev = defaultReminderMode;
+        setDefaultReminderMode(mode);
+        setReminderSaving(true);
+        try {
+            await fetch(`${API}/financial/settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                body: JSON.stringify({ default_reminder_mode: mode }),
+            });
+        } catch {
+            setDefaultReminderMode(prev);
+        } finally {
+            setReminderSaving(false);
+        }
+    }
+
+    async function resolveReminder(id: string, action: 'approve' | 'dismiss') {
+        setResolvingId(id);
+        try {
+            const res = await fetch(`${API}/financial/reminders/${id}/${action}`, {
+                method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+            });
+            const json = await res.json();
+            if (json.success) {
+                setPendingReminders(list => list.filter(r => r.id !== id));
+            } else {
+                alert(json.error?.message || 'Erro ao processar');
+            }
+        } catch {
+            alert('Erro ao processar');
+        } finally {
+            setResolvingId(null);
+        }
+    }
+
+    async function setClientReminderMode(clientId: string, mode: 'approval' | 'automatic' | null) {
+        setSavingClientMode(clientId);
+        try {
+            await fetch(`${API}/clients/${clientId}/reminder-mode`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                body: JSON.stringify({ reminder_mode: mode }),
+            });
+            setBillingSummary(list => list.map(s => s.client_id === clientId ? { ...s, reminder_mode: mode } : s));
+        } catch {
+            alert('Erro ao salvar modo de lembrete do cliente');
+        } finally {
+            setSavingClientMode(null);
         }
     }
 
@@ -335,7 +424,7 @@ export default function FinanceiroPage() {
     }, [billingMonths]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
-    useEffect(() => { if (activeTab === 'recurring') { fetchRecurring(); fetchBilling(); fetchReminderSettings(); } }, [activeTab, fetchRecurring, fetchBilling, fetchReminderSettings]);
+    useEffect(() => { if (activeTab === 'recurring') { fetchRecurring(); fetchBilling(); fetchReminderSettings(); fetchPendingReminders(); } }, [activeTab, fetchRecurring, fetchBilling, fetchReminderSettings, fetchPendingReminders]);
     useEffect(() => { if (activeTab === 'contracts') fetchContracts(); }, [activeTab, fetchContracts]);
     useEffect(() => { if (activeTab === 'recurring') fetchBilling(); }, [billingMonths, fetchBilling]);
     useEffect(() => { if (activeTab === 'management') fetchManagement(); }, [activeTab, fetchManagement]);
@@ -727,39 +816,126 @@ export default function FinanceiroPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
                     {/* ── Lembretes automáticos de fatura (WhatsApp) ── */}
-                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
-                        <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(16,185,129,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <MessageCircle size={18} color="#10b981" />
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+                            <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(16,185,129,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <MessageCircle size={18} color="#10b981" />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 240 }}>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Lembretes de fatura (WhatsApp)</div>
+                                <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.6 }}>
+                                    Avisa o cliente 3 dias antes do vencimento, no dia do vencimento, e repete a cada 5 dias se ficar atrasada.
+                                    Precisa do WhatsApp conectado em{' '}
+                                    <Link href="/comercial/integrations" style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
+                                        Comercial → Integrações
+                                    </Link>.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => toggleReminders(!reminderEnabled)}
+                                disabled={reminderLoading || reminderSaving}
+                                aria-label="Ativar lembretes de fatura"
+                                style={{
+                                    width: 44, height: 26, borderRadius: 999, border: 'none', flexShrink: 0,
+                                    background: reminderEnabled ? '#10b981' : 'var(--border)',
+                                    position: 'relative', cursor: (reminderLoading || reminderSaving) ? 'not-allowed' : 'pointer',
+                                    opacity: (reminderLoading || reminderSaving) ? .6 : 1, transition: 'background .15s',
+                                }}
+                            >
+                                <span style={{
+                                    position: 'absolute', top: 3, left: reminderEnabled ? 21 : 3,
+                                    width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                                    transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.3)',
+                                }} />
+                            </button>
                         </div>
-                        <div style={{ flex: 1, minWidth: 240 }}>
-                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Lembretes automáticos de fatura (WhatsApp)</div>
-                            <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.6 }}>
-                                Avisa o cliente 3 dias antes do vencimento, no dia do vencimento, e repete a cada 5 dias se ficar atrasada.
-                                Precisa do WhatsApp conectado em{' '}
-                                <Link href="/comercial/integrations" style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
-                                    Comercial → Integrações
-                                </Link>.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => toggleReminders(!reminderEnabled)}
-                            disabled={reminderLoading || reminderSaving}
-                            aria-label="Ativar lembretes automáticos"
-                            style={{
-                                width: 44, height: 26, borderRadius: 999, border: 'none', flexShrink: 0,
-                                background: reminderEnabled ? '#10b981' : 'var(--border)',
-                                position: 'relative', cursor: (reminderLoading || reminderSaving) ? 'not-allowed' : 'pointer',
-                                opacity: (reminderLoading || reminderSaving) ? .6 : 1, transition: 'background .15s',
-                            }}
-                        >
-                            <span style={{
-                                position: 'absolute', top: 3, left: reminderEnabled ? 21 : 3,
-                                width: 20, height: 20, borderRadius: '50%', background: '#fff',
-                                transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.3)',
-                            }} />
-                        </button>
+
+                        {reminderEnabled && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                                <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Padrão pra todos os clientes:</span>
+                                <div style={{ display: 'flex', background: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 9, padding: 3, gap: 2 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => saveDefaultReminderMode('approval')}
+                                        disabled={reminderSaving}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+                                            background: defaultReminderMode === 'approval' ? 'var(--primary)' : 'transparent',
+                                            color: defaultReminderMode === 'approval' ? '#fff' : 'var(--text-muted)',
+                                        }}
+                                    >
+                                        Aprovar manualmente
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => saveDefaultReminderMode('automatic')}
+                                        disabled={reminderSaving}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+                                            background: defaultReminderMode === 'automatic' ? 'var(--primary)' : 'transparent',
+                                            color: defaultReminderMode === 'automatic' ? '#fff' : 'var(--text-muted)',
+                                        }}
+                                    >
+                                        Automático pra todos
+                                    </button>
+                                </div>
+                                <span style={{ fontSize: 11.5, color: 'var(--text-subtle)' }}>
+                                    (dá pra sobrescrever por cliente específico logo abaixo)
+                                </span>
+                            </div>
+                        )}
                     </div>
+
+                    {/* ── Pendentes de aprovação ── */}
+                    {reminderEnabled && pendingReminders.length > 0 && (
+                        <div style={{ background: 'rgba(59,130,246,.06)', border: '1px solid rgba(59,130,246,.25)', borderRadius: 14, padding: '16px 20px' }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 12 }}>
+                                {pendingReminders.length} lembrete{pendingReminders.length !== 1 ? 's' : ''} aguardando aprovação
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {pendingReminders.map(r => {
+                                    const typeInfo = REMINDER_TYPE_LABELS[r.reminder_type];
+                                    const busy = resolvingId === r.id;
+                                    return (
+                                        <div key={r.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                                                <div style={{ width: 26, height: 26, borderRadius: 7, background: r.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                                                    {r.client_name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()}
+                                                </div>
+                                                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{r.client_name}</span>
+                                                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20, color: typeInfo.color, background: 'rgba(0,0,0,.2)' }}>
+                                                    {typeInfo.label}
+                                                </span>
+                                                <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 'auto' }}>{formatBRL(Number(r.total_amount))}</span>
+                                            </div>
+                                            <p style={{ fontSize: 12.5, color: 'var(--text-muted)', whiteSpace: 'pre-line', margin: '0 0 12px', lineHeight: 1.6, background: 'rgba(0,0,0,.15)', padding: '8px 10px', borderRadius: 8 }}>
+                                                {r.message}
+                                            </p>
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => resolveReminder(r.id, 'approve')}
+                                                    disabled={busy}
+                                                    style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 600, border: 'none', cursor: busy ? 'not-allowed' : 'pointer', background: '#10b981', color: '#fff', opacity: busy ? .6 : 1 }}
+                                                >
+                                                    {busy ? 'Enviando...' : 'Aprovar e enviar'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => resolveReminder(r.id, 'dismiss')}
+                                                    disabled={busy}
+                                                    style={{ padding: '7px 14px', borderRadius: 8, fontSize: 12.5, fontWeight: 500, border: '1px solid var(--border)', cursor: busy ? 'not-allowed' : 'pointer', background: 'transparent', color: 'var(--text-muted)' }}
+                                                >
+                                                    Descartar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
 
                     {/* ── Reminders / Alerts ── */}
                     {(() => {
@@ -824,6 +1000,21 @@ export default function FinanceiroPage() {
                                     {s.oldest_pending && (
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
                                             Desde {(safeDate(s.oldest_pending)?.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })) || '—'}
+                                        </div>
+                                    )}
+                                    {reminderEnabled && (
+                                        <div style={{ position: 'relative', marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                                            <select
+                                                value={s.reminder_mode ?? ''}
+                                                onChange={e => setClientReminderMode(s.client_id, e.target.value === '' ? null : e.target.value as 'approval' | 'automatic')}
+                                                disabled={savingClientMode === s.client_id}
+                                                style={{ width: '100%', padding: '6px 26px 6px 8px', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-muted)', fontSize: 11.5, outline: 'none', appearance: 'none', cursor: 'pointer' }}
+                                            >
+                                                <option value="">Lembrete: padrão ({defaultReminderMode === 'automatic' ? 'automático' : 'aprovar'})</option>
+                                                <option value="approval">Lembrete: sempre aprovar</option>
+                                                <option value="automatic">Lembrete: sempre automático</option>
+                                            </select>
+                                            <ChevronDown size={12} style={{ position: 'absolute', right: 8, bottom: 16, color: 'var(--text-muted)', pointerEvents: 'none' }} />
                                         </div>
                                     )}
                                 </div>

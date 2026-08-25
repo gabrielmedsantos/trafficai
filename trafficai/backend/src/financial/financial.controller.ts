@@ -5,6 +5,7 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
+import { sendWhatsAppMessage } from '../notifications/whatsapp.helper';
 import { logger } from '../shared/logger';
 
 const router = Router();
@@ -455,6 +456,7 @@ router.get('/billing/summary', async (req: Request, res: Response) => {
                 cl.id AS client_id,
                 cl.name AS client_name,
                 cl.avatar_color,
+                cl.reminder_mode,
                 COUNT(cb.id) FILTER (WHERE cb.status IN ('pending', 'overdue')) AS pending_count,
                 COALESCE(SUM(cb.total_amount) FILTER (WHERE cb.status IN ('pending', 'overdue')), 0) AS total_owed,
                 COALESCE(SUM(cb.total_amount) FILTER (WHERE cb.status = 'paid'), 0) AS total_paid,
@@ -462,7 +464,7 @@ router.get('/billing/summary', async (req: Request, res: Response) => {
              FROM clients cl
              LEFT JOIN contract_billing cb ON cb.client_id = cl.id AND cb.user_id = $1
              WHERE cl.user_id = $1
-             GROUP BY cl.id, cl.name, cl.avatar_color
+             GROUP BY cl.id, cl.name, cl.avatar_color, cl.reminder_mode
              HAVING COUNT(cb.id) > 0
              ORDER BY total_owed DESC`,
             [userId]
@@ -847,35 +849,139 @@ router.post('/billing/mark-overdue', async (req: Request, res: Response) => {
 router.get('/settings', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const rows = await query<{ invoice_reminders_enabled: boolean }>(
-            `SELECT invoice_reminders_enabled FROM financial_settings WHERE user_id = $1`,
+        const rows = await query<{ invoice_reminders_enabled: boolean; default_reminder_mode: string }>(
+            `SELECT invoice_reminders_enabled, default_reminder_mode FROM financial_settings WHERE user_id = $1`,
             [userId]
         );
-        res.json({ success: true, data: { invoice_reminders_enabled: rows[0]?.invoice_reminders_enabled ?? false } });
+        res.json({
+            success: true,
+            data: {
+                invoice_reminders_enabled: rows[0]?.invoice_reminders_enabled ?? false,
+                default_reminder_mode: rows[0]?.default_reminder_mode ?? 'approval',
+            },
+        });
     } catch (error: any) {
         logger.error('Erro ao buscar configurações financeiras', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
 
-// PUT /financial/settings
+// PUT /financial/settings — aceita um ou os dois campos (update parcial)
 router.put('/settings', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { invoice_reminders_enabled } = req.body as { invoice_reminders_enabled: boolean };
+        const { invoice_reminders_enabled, default_reminder_mode } = req.body as {
+            invoice_reminders_enabled?: boolean;
+            default_reminder_mode?: 'approval' | 'automatic';
+        };
 
-        await query(
-            `INSERT INTO financial_settings (user_id, invoice_reminders_enabled, updated_at)
-             VALUES ($1, $2, NOW())
+        if (default_reminder_mode !== undefined && !['approval', 'automatic'].includes(default_reminder_mode)) {
+            return res.status(400).json({ success: false, error: { message: 'default_reminder_mode inválido' } });
+        }
+
+        const enabledParam = invoice_reminders_enabled === undefined ? null : !!invoice_reminders_enabled;
+        const modeParam = default_reminder_mode ?? null;
+
+        const rows = await query<{ invoice_reminders_enabled: boolean; default_reminder_mode: string }>(
+            `INSERT INTO financial_settings (user_id, invoice_reminders_enabled, default_reminder_mode, updated_at)
+             VALUES ($1, COALESCE($2, false), COALESCE($3, 'approval'), NOW())
              ON CONFLICT (user_id) DO UPDATE SET
-                invoice_reminders_enabled = EXCLUDED.invoice_reminders_enabled,
-                updated_at = NOW()`,
-            [userId, !!invoice_reminders_enabled]
+                invoice_reminders_enabled = COALESCE($2, financial_settings.invoice_reminders_enabled),
+                default_reminder_mode = COALESCE($3, financial_settings.default_reminder_mode),
+                updated_at = NOW()
+             RETURNING invoice_reminders_enabled, default_reminder_mode`,
+            [userId, enabledParam, modeParam]
         );
 
-        res.json({ success: true, data: { invoice_reminders_enabled: !!invoice_reminders_enabled } });
+        res.json({ success: true, data: rows[0] });
     } catch (error: any) {
         logger.error('Erro ao salvar configurações financeiras', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── PENDING REMINDERS (fila de aprovação) ────────────────────────────────
+
+// GET /financial/reminders/pending
+router.get('/reminders/pending', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const rows = await query<any>(
+            `SELECT pr.id, pr.reminder_type, pr.message, pr.created_at,
+                    cl.id AS client_id, cl.name AS client_name, cl.avatar_color,
+                    cb.total_amount, cb.due_date, cb.reference_month
+             FROM pending_invoice_reminders pr
+             JOIN clients cl ON cl.id = pr.client_id
+             JOIN contract_billing cb ON cb.id = pr.billing_id
+             WHERE pr.user_id = $1 AND pr.status = 'pending'
+             ORDER BY pr.created_at ASC`,
+            [userId]
+        );
+        res.json({ success: true, data: rows });
+    } catch (error: any) {
+        logger.error('Erro ao buscar lembretes pendentes', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /financial/reminders/:id/approve — envia pro cliente agora
+router.post('/reminders/:id/approve', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+
+        const rows = await query<any>(
+            `SELECT pr.*, cl.phone AS client_phone
+             FROM pending_invoice_reminders pr
+             JOIN clients cl ON cl.id = pr.client_id
+             WHERE pr.id = $1 AND pr.user_id = $2 AND pr.status = 'pending'`,
+            [id, userId]
+        );
+        const pending = rows[0];
+        if (!pending) {
+            return res.status(404).json({ success: false, error: { message: 'Lembrete não encontrado ou já resolvido' } });
+        }
+        if (!pending.client_phone) {
+            return res.status(400).json({ success: false, error: { message: 'Cliente sem telefone cadastrado' } });
+        }
+
+        await sendWhatsAppMessage(userId, pending.client_phone, pending.message);
+
+        await query(
+            `INSERT INTO billing_reminders (billing_id, reminder_type) VALUES ($1, $2)`,
+            [pending.billing_id, pending.reminder_type]
+        );
+        await query(
+            `UPDATE pending_invoice_reminders SET status = 'sent', resolved_at = NOW() WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ success: true, data: { message: 'Lembrete enviado' } });
+    } catch (error: any) {
+        logger.error('Erro ao aprovar lembrete', { error: error.message });
+        res.status(500).json({ success: false, error: { message: error.message || 'Erro ao enviar' } });
+    }
+});
+
+// POST /financial/reminders/:id/dismiss — descarta sem enviar
+router.post('/reminders/:id/dismiss', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+
+        const rows = await query<any>(
+            `UPDATE pending_invoice_reminders SET status = 'dismissed', resolved_at = NOW()
+             WHERE id = $1 AND user_id = $2 AND status = 'pending'
+             RETURNING id`,
+            [id, userId]
+        );
+        if (!rows.length) {
+            return res.status(404).json({ success: false, error: { message: 'Lembrete não encontrado ou já resolvido' } });
+        }
+
+        res.json({ success: true, data: { message: 'Descartado' } });
+    } catch (error: any) {
+        logger.error('Erro ao descartar lembrete', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
