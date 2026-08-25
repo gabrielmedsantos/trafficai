@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import {
     ChevronLeft, ChevronRight, Plus, X, ArrowUpCircle, ArrowDownCircle,
     Wallet, TrendingUp, TrendingDown, RefreshCw, Trash2, Edit2,
     ChevronDown, RotateCcw, FileText, Percent,
     CheckCircle2, Clock, AlertCircle, Zap, DollarSign,
-    Users, UserMinus, UserPlus, BarChart3, Repeat, Target,
+    Users, UserMinus, UserPlus, BarChart3, Repeat, Target, MessageCircle,
 } from 'lucide-react';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
@@ -239,6 +240,36 @@ export default function FinanceiroPage() {
     const [billingModal, setBillingModal] = useState<BillingRecord | null>(null);
     const [billingForm, setBillingForm] = useState({ status: 'paid', percentage_amount: '', payment_method: '', notes: '', due_date: '' });
 
+    // Lembretes automáticos de fatura (WhatsApp)
+    const [reminderEnabled, setReminderEnabled] = useState(false);
+    const [reminderLoading, setReminderLoading] = useState(false);
+    const [reminderSaving, setReminderSaving] = useState(false);
+
+    const fetchReminderSettings = useCallback(async () => {
+        setReminderLoading(true);
+        try {
+            const res = await fetch(`${API}/financial/settings`, { headers: { Authorization: `Bearer ${token()}` } });
+            const json = await res.json();
+            if (json.success) setReminderEnabled(!!json.data.invoice_reminders_enabled);
+        } catch { /* ignore */ } finally { setReminderLoading(false); }
+    }, []);
+
+    async function toggleReminders(value: boolean) {
+        setReminderEnabled(value);
+        setReminderSaving(true);
+        try {
+            await fetch(`${API}/financial/settings`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                body: JSON.stringify({ invoice_reminders_enabled: value }),
+            });
+        } catch {
+            setReminderEnabled(!value); // reverte se falhar
+        } finally {
+            setReminderSaving(false);
+        }
+    }
+
     const fetchAll = useCallback(async () => {
         setLoading(true);
         try {
@@ -304,7 +335,7 @@ export default function FinanceiroPage() {
     }, [billingMonths]);
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
-    useEffect(() => { if (activeTab === 'recurring') { fetchRecurring(); fetchBilling(); } }, [activeTab, fetchRecurring, fetchBilling]);
+    useEffect(() => { if (activeTab === 'recurring') { fetchRecurring(); fetchBilling(); fetchReminderSettings(); } }, [activeTab, fetchRecurring, fetchBilling, fetchReminderSettings]);
     useEffect(() => { if (activeTab === 'contracts') fetchContracts(); }, [activeTab, fetchContracts]);
     useEffect(() => { if (activeTab === 'recurring') fetchBilling(); }, [billingMonths, fetchBilling]);
     useEffect(() => { if (activeTab === 'management') fetchManagement(); }, [activeTab, fetchManagement]);
@@ -694,6 +725,41 @@ export default function FinanceiroPage() {
             {/* ─── Recurring tab ─── */}
             {activeTab === 'recurring' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+                    {/* ── Lembretes automáticos de fatura (WhatsApp) ── */}
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
+                        <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(16,185,129,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <MessageCircle size={18} color="#10b981" />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 240 }}>
+                            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Lembretes automáticos de fatura (WhatsApp)</div>
+                            <p style={{ fontSize: 12.5, color: 'var(--text-muted)', margin: '4px 0 0', lineHeight: 1.6 }}>
+                                Avisa o cliente 3 dias antes do vencimento, no dia do vencimento, e repete a cada 5 dias se ficar atrasada.
+                                Precisa do WhatsApp conectado em{' '}
+                                <Link href="/comercial/integrations" style={{ color: 'var(--primary)', textDecoration: 'none', fontWeight: 500 }}>
+                                    Comercial → Integrações
+                                </Link>.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => toggleReminders(!reminderEnabled)}
+                            disabled={reminderLoading || reminderSaving}
+                            aria-label="Ativar lembretes automáticos"
+                            style={{
+                                width: 44, height: 26, borderRadius: 999, border: 'none', flexShrink: 0,
+                                background: reminderEnabled ? '#10b981' : 'var(--border)',
+                                position: 'relative', cursor: (reminderLoading || reminderSaving) ? 'not-allowed' : 'pointer',
+                                opacity: (reminderLoading || reminderSaving) ? .6 : 1, transition: 'background .15s',
+                            }}
+                        >
+                            <span style={{
+                                position: 'absolute', top: 3, left: reminderEnabled ? 21 : 3,
+                                width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                                transition: 'left .15s', boxShadow: '0 1px 2px rgba(0,0,0,.3)',
+                            }} />
+                        </button>
+                    </div>
 
                     {/* ── Reminders / Alerts ── */}
                     {(() => {

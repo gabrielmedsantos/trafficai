@@ -53,6 +53,7 @@ async function fetchPendingReminders(): Promise<ReminderRow[]> {
             FROM contract_billing cb
             JOIN clients cl ON cl.id = cb.client_id
             JOIN users u ON u.id = cb.user_id
+            JOIN financial_settings fs ON fs.user_id = cb.user_id AND fs.invoice_reminders_enabled = true
             WHERE cb.status = 'pending'
               AND cb.due_date = CURRENT_DATE + INTERVAL '3 days'
               AND cl.phone IS NOT NULL AND cl.phone <> ''
@@ -71,6 +72,7 @@ async function fetchPendingReminders(): Promise<ReminderRow[]> {
             FROM contract_billing cb
             JOIN clients cl ON cl.id = cb.client_id
             JOIN users u ON u.id = cb.user_id
+            JOIN financial_settings fs ON fs.user_id = cb.user_id AND fs.invoice_reminders_enabled = true
             WHERE cb.status = 'pending'
               AND cb.due_date = CURRENT_DATE
               AND cl.phone IS NOT NULL AND cl.phone <> ''
@@ -89,6 +91,7 @@ async function fetchPendingReminders(): Promise<ReminderRow[]> {
             FROM contract_billing cb
             JOIN clients cl ON cl.id = cb.client_id
             JOIN users u ON u.id = cb.user_id
+            JOIN financial_settings fs ON fs.user_id = cb.user_id AND fs.invoice_reminders_enabled = true
             WHERE cb.status = 'overdue'
               AND cl.phone IS NOT NULL AND cl.phone <> ''
               AND NOT EXISTS (
@@ -133,11 +136,9 @@ export async function sendInvoiceReminders(): Promise<{ sent: number; failed: nu
  * já enxergar o status atualizado no mesmo dia.
  */
 export function startInvoiceReminderWorker() {
-    if (process.env.INVOICE_REMINDERS_ENABLED !== 'true') {
-        logger.info('💬 Invoice reminder worker desabilitado (defina INVOICE_REMINDERS_ENABLED=true pra ativar)');
-        return;
-    }
-
+    // Liga/desliga é por user (Financeiro → Recorrências → "Lembretes automáticos
+    // de fatura"), via financial_settings.invoice_reminders_enabled — o worker
+    // roda sempre, mas o JOIN na query já filtra só quem ativou.
     cron.schedule('15 4 * * *', async () => {
         try {
             const r = await sendInvoiceReminders();

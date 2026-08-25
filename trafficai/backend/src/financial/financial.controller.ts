@@ -841,4 +841,43 @@ router.post('/billing/mark-overdue', async (req: Request, res: Response) => {
     }
 });
 
+// ─── SETTINGS ─────────────────────────────────────────────────────────────
+
+// GET /financial/settings
+router.get('/settings', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const rows = await query<{ invoice_reminders_enabled: boolean }>(
+            `SELECT invoice_reminders_enabled FROM financial_settings WHERE user_id = $1`,
+            [userId]
+        );
+        res.json({ success: true, data: { invoice_reminders_enabled: rows[0]?.invoice_reminders_enabled ?? false } });
+    } catch (error: any) {
+        logger.error('Erro ao buscar configurações financeiras', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// PUT /financial/settings
+router.put('/settings', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { invoice_reminders_enabled } = req.body as { invoice_reminders_enabled: boolean };
+
+        await query(
+            `INSERT INTO financial_settings (user_id, invoice_reminders_enabled, updated_at)
+             VALUES ($1, $2, NOW())
+             ON CONFLICT (user_id) DO UPDATE SET
+                invoice_reminders_enabled = EXCLUDED.invoice_reminders_enabled,
+                updated_at = NOW()`,
+            [userId, !!invoice_reminders_enabled]
+        );
+
+        res.json({ success: true, data: { invoice_reminders_enabled: !!invoice_reminders_enabled } });
+    } catch (error: any) {
+        logger.error('Erro ao salvar configurações financeiras', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
 export const financialController = router;
