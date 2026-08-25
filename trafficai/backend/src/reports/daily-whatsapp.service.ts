@@ -669,7 +669,7 @@ export class DailyWhatsAppService {
         // rodando "Conversas WhatsApp" e outra rodando "Visitas ao perfil"). Antes disso
         // o serviço somava tudo junto e etiquetava com um único label, misturando os dois.
         const rows = await query<any>(`
-            SELECT ih.spend, ih.impressions, ih.actions, c.objective
+            SELECT ih.spend, ih.impressions, ih.actions, c.objective, c.optimization_goal
             FROM insights_history ih
             JOIN campaigns c ON ih.campaign_id = c.id
             WHERE c.account_id = $1
@@ -685,7 +685,7 @@ export class DailyWhatsAppService {
             spend += rowSpend;
             impressions += parseInt(row.impressions) || 0;
 
-            const { count, label } = metaService.extractPrimaryAction(row.actions, row.objective);
+            const { count, label } = metaService.extractPrimaryAction(row.actions, row.objective, row.optimization_goal);
             if (count <= 0) continue;
             const g = groups.get(label) || { count: 0, spend: 0 };
             g.count += count;

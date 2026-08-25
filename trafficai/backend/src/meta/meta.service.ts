@@ -152,7 +152,7 @@ export class MetaService {
             try {
                 const client = this.createClient(accessToken);
                 return await this.fetchAllPages(client, `/${campaignId}/adsets`, {
-                    fields: 'id,name,status,daily_budget,targeting,optimization_goal',
+                    fields: 'id,name,status,daily_budget,targeting,optimization_goal,destination_type',
                 });
             } catch (error: any) {
                 this.handleMetaError(error);
@@ -639,7 +639,7 @@ export class MetaService {
         campaignsSynced = campaigns.length;
 
         for (const campaign of campaigns) {
-            const dbCampaign = await metaRepository.upsertCampaign(dbAccountId, {
+            let dbCampaign = await metaRepository.upsertCampaign(dbAccountId, {
                 meta_campaign_id: campaign.id,
                 name: campaign.name,
                 objective: campaign.objective,
@@ -648,6 +648,29 @@ export class MetaService {
                 lifetime_budget: campaign.lifetime_budget ? parseFloat(campaign.lifetime_budget) / 100 : undefined,
                 created_time: campaign.created_time,
             });
+
+            // Optimization goal/destination (ex: "Visitas ao perfil" numa campanha de
+            // Tráfego) só existe no ad set, não na campanha — busca 1x e guarda; nos
+            // próximos syncs pula essa chamada extra pra Meta (raramente muda depois
+            // de criado).
+            if (!dbCampaign.optimization_goal) {
+                try {
+                    const adSets = await this.getAdSets(userId, accessToken, campaign.id);
+                    const primary = adSets?.[0];
+                    if (primary?.optimization_goal || primary?.destination_type) {
+                        dbCampaign = await metaRepository.upsertCampaign(dbAccountId, {
+                            meta_campaign_id: campaign.id,
+                            name: campaign.name,
+                            objective: campaign.objective,
+                            status: campaign.status,
+                            optimization_goal: primary.optimization_goal,
+                            destination_type: primary.destination_type,
+                        });
+                    }
+                } catch (err: any) {
+                    logger.warn(`Falha ao buscar optimization_goal (campanha ${campaign.id})`, { error: err.message });
+                }
+            }
 
             try {
                 const insights = await this.getCampaignInsights(
@@ -869,8 +892,31 @@ export class MetaService {
         ],
     };
 
-    extractPrimaryAction(actions?: any[], objective?: string): { count: number; label: string; action_type: string } {
+    /**
+     * Mapeia optimization_goal do AD SET (mais específico que o objective da campanha)
+     * → tipo de action + label. Ex: campanha de Tráfego (objective=OUTCOME_TRAFFIC)
+     * cujo ad set otimiza pra "Visitas ao perfil" — o Meta conta isso como link_click
+     * nas actions[], mas o resultado exibido no Gerenciador é "Visitas ao perfil",
+     * não "Cliques no link". Checado ANTES do objective por ser mais específico.
+     */
+    private static OPTIMIZATION_GOAL_PRIORITY: Record<string, { type: string; label: string }[]> = {
+        PROFILE_VISIT: [
+            { type: 'link_click', label: 'Visitas ao perfil' },
+        ],
+    };
+
+    extractPrimaryAction(actions?: any[], objective?: string, optimizationGoal?: string): { count: number; label: string; action_type: string } {
         if (!actions || actions.length === 0) return { count: 0, label: 'Conversões', action_type: '' };
+        // 0) Prioridade do optimization_goal do ad set (mais específico que o objective)
+        const goalList = optimizationGoal ? MetaService.OPTIMIZATION_GOAL_PRIORITY[optimizationGoal] : null;
+        if (goalList) {
+            for (const priority of goalList) {
+                const match = actions.find((a: any) => a.action_type === priority.type);
+                if (match && parseInt(match.value, 10) > 0) {
+                    return { count: parseInt(match.value, 10), label: priority.label, action_type: priority.type };
+                }
+            }
+        }
         // 1) Prioridade específica do objetivo da campanha (se conhecido)
         const objList = objective ? MetaService.OBJECTIVE_PRIORITY[objective] : null;
         if (objList) {

@@ -36,6 +36,8 @@ export interface Campaign {
     daily_budget?: number;
     lifetime_budget?: number;
     created_time?: Date;
+    optimization_goal?: string;
+    destination_type?: string;
     // joined
     account_name?: string;
     meta_account_id?: string;
@@ -111,12 +113,17 @@ export class MetaRepository {
         daily_budget?: number;
         lifetime_budget?: number;
         created_time?: string;
+        optimization_goal?: string;
+        destination_type?: string;
     }): Promise<Campaign> {
         const rows = await query<Campaign>(
-            `INSERT INTO campaigns (account_id, meta_campaign_id, name, objective, status, daily_budget, lifetime_budget, created_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (account_id, meta_campaign_id) 
-       DO UPDATE SET name = $3, objective = $4, status = $5, daily_budget = $6, lifetime_budget = $7, updated_at = NOW()
+            `INSERT INTO campaigns (account_id, meta_campaign_id, name, objective, status, daily_budget, lifetime_budget, created_time, optimization_goal, destination_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT (account_id, meta_campaign_id)
+       DO UPDATE SET name = $3, objective = $4, status = $5, daily_budget = $6, lifetime_budget = $7,
+                      optimization_goal = COALESCE($9, campaigns.optimization_goal),
+                      destination_type = COALESCE($10, campaigns.destination_type),
+                      updated_at = NOW()
        RETURNING *`,
             [
                 accountId,
@@ -127,6 +134,8 @@ export class MetaRepository {
                 campaign.daily_budget || null,
                 campaign.lifetime_budget || null,
                 campaign.created_time || null,
+                campaign.optimization_goal || null,
+                campaign.destination_type || null,
             ]
         );
         return rows[0];
