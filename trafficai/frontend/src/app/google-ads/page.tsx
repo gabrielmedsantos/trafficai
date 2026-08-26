@@ -167,8 +167,8 @@ function CredentialsModal({ creds, onClose, onSaved }: any) {
         developer_token: '',
         login_customer_id: creds?.login_customer_id || '',
         refresh_token: '',
-        client_id: '380336265166-v7ujf7rln685ql9j3obvlpe76p36u61g.apps.googleusercontent.com',
-        client_secret: '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',
+        client_id: '',
+        client_secret: '',
     });
     const [saving, setSaving] = useState(false);
 
