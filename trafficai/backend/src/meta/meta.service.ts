@@ -538,6 +538,49 @@ export class MetaService {
     }
 
     /**
+     * Busca tipo de criativo (imagem/vídeo) + link do post original de cada anúncio.
+     * Usado pro relatório público mostrar "Assistir" em anúncios de vídeo, abrindo o
+     * post real no Instagram/Facebook (não dá pra embutir o vídeo direto — a CDN da
+     * Meta exige assinatura/expira).
+     */
+    async getAdVideoInfo(
+        userId: string,
+        accessToken: string,
+        metaAccountId: string,
+        adIds: string[]
+    ): Promise<Map<string, { object_type?: string; video_id?: string; permalink_url?: string }>> {
+        const info = new Map<string, { object_type?: string; video_id?: string; permalink_url?: string }>();
+        if (!adIds.length) return info;
+
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            const client = this.createClient(accessToken);
+            const acctPath = metaAccountId.startsWith('act_') ? metaAccountId : `act_${metaAccountId}`;
+            const BATCH = 50;
+            for (let i = 0; i < adIds.length; i += BATCH) {
+                const slice = adIds.slice(i, i + BATCH);
+                try {
+                    const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
+                        fields: 'id,creative{object_type,video_id,instagram_permalink_url,effective_object_story_id}',
+                        filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
+                    });
+                    for (const ad of ads) {
+                        const cre = ad.creative || {};
+                        info.set(ad.id, {
+                            object_type: cre.object_type,
+                            video_id: cre.video_id,
+                            permalink_url: cre.instagram_permalink_url
+                                || (cre.effective_object_story_id ? `https://www.facebook.com/${cre.effective_object_story_id}` : undefined),
+                        });
+                    }
+                } catch (err: any) {
+                    logger.warn('Failed to fetch ad video info batch', { error: err.message });
+                }
+            }
+            return info;
+        });
+    }
+
+    /**
      * Fetch insights for a campaign with specified date range (paginado).
      * Preferir time_range quando possível — date_preset é relativo ao momento da chamada.
      */

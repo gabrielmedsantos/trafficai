@@ -34,6 +34,9 @@ interface AdData {
   spend: number;
   impressions: number;
   clicks: number;
+  link_clicks?: number;
+  reach?: number;
+  frequency?: number;
   conversions: number;
   action_label: string;
   action_singular: string;
@@ -43,6 +46,8 @@ interface AdData {
   cpa: number;
   hook_rate: number | null;
   thumbnail_url?: string;
+  is_video?: boolean;
+  watch_url?: string;
 }
 
 interface ReportMetrics {
@@ -215,9 +220,10 @@ function PublicReportPageInner() {
     if (bc > 0) return 1;
     return b.spend - a.spend;
   });
-  const isVideoAd = (name: string) => /video|vídeo|reel/i.test(name);
-  const staticAds = topAds.filter(ad => !isVideoAd(ad.name));
-  const videoAds = topAds.filter(ad => isVideoAd(ad.name));
+  // Fallback pro nome quando o relatório é antigo e não tem is_video salvo ainda.
+  const isVideoAd = (ad: AdData) => ad.is_video ?? /video|vídeo|reel/i.test(ad.name);
+  const staticAds = topAds.filter(ad => !isVideoAd(ad));
+  const videoAds = topAds.filter(ad => isVideoAd(ad));
 
   const typeStats = (ads: AdData[]) => {
     const results = ads.reduce((s, a) => s + (a.conversions || 0), 0);
@@ -511,7 +517,7 @@ function PublicReportPageInner() {
                 {topAds.map((ad, i) => {
                   const cpa = ad.cpa || 0;
                   const barH = Math.max(cpa > 0 ? 12 : 0, (cpa / maxCpa) * 140);
-                  const isVid = isVideoAd(ad.name);
+                  const isVid = isVideoAd(ad);
                   return (
                     <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', gap: 4 }}>
                       {cpa > 0 && <div style={{ fontSize: 11, color: isVid ? C.purple : C.primary, fontWeight: 800, whiteSpace: 'nowrap' }}>{fmt(cpa)}</div>}
@@ -537,11 +543,11 @@ function PublicReportPageInner() {
             <SectionHeader title="Ranking de Criativos" icon="🏆" />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
               {topAds.map((ad, i) => {
-                const isVid = isVideoAd(ad.name);
+                const isVid = isVideoAd(ad);
                 const color = isVid ? C.purple : C.primary;
-                return (
-                  <div key={ad.ad_id || i} className="card" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', position: 'relative' }}>
-                    <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 2, background: color, color: '#0a0e1a', fontSize: 12, fontWeight: 900, padding: '5px 12px', borderRadius: 10, boxShadow: `0 4px 12px ${color}55` }}>#{i + 1}</div>
+                const canWatch = isVid && !!ad.watch_url;
+                const thumbBox = (
+                  <>
                     {ad.thumbnail_url ? (
                       <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', overflow: 'hidden', background: '#000' }}>
                         {/* Fundo blurred da mesma imagem pra preencher moldura sem cortar */}
@@ -557,6 +563,32 @@ function PublicReportPageInner() {
                         {isVid ? '▶ VÍDEO' : '📷 IMAGEM'}
                       </div>
                     )}
+                    {canWatch && (
+                      <div style={{
+                        position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
+                        background: 'rgba(10,14,26,.15)', transition: 'background .15s',
+                      }}>
+                        <div style={{
+                          width: 52, height: 52, borderRadius: '50%', background: 'rgba(10,14,26,.55)',
+                          border: `2px solid ${C.purple}`, display: 'grid', placeItems: 'center',
+                          backdropFilter: 'blur(4px)',
+                        }}>
+                          <span style={{ color: '#fff', fontSize: 20, marginLeft: 3 }}>▶</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+                return (
+                  <div key={ad.ad_id || i} className="card" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 2, background: color, color: '#0a0e1a', fontSize: 12, fontWeight: 900, padding: '5px 12px', borderRadius: 10, boxShadow: `0 4px 12px ${color}55` }}>#{i + 1}</div>
+                    {canWatch ? (
+                      <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" title="Assistir anúncio" style={{ display: 'block', position: 'relative', cursor: 'pointer' }}>
+                        {thumbBox}
+                      </a>
+                    ) : (
+                      <div style={{ position: 'relative' }}>{thumbBox}</div>
+                    )}
                     <div style={{ padding: 16 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={ad.name}>{ad.name}</div>
                       <div style={{ fontSize: 10.5, color: C.textDim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 10 }}>Custo por {ad.action_singular || actionSingular[actionLabel] || actionLabel}</div>
@@ -565,8 +597,23 @@ function PublicReportPageInner() {
                         <div><div style={{ color: C.textDim, marginBottom: 2 }}>Invest.</div><b style={{ color: C.text }}>{fmt(ad.spend)}</b></div>
                         <div><div style={{ color: C.textDim, marginBottom: 2 }}>{ad.action_label || actionLabel}</div><b style={{ color: C.text }}>{ad.conversions || 0}</b></div>
                         <div><div style={{ color: C.textDim, marginBottom: 2 }}>Impressões</div><b style={{ color: C.text }}>{fmtNum(ad.impressions)}</b></div>
+                        <div><div style={{ color: C.textDim, marginBottom: 2 }}>Alcance</div><b style={{ color: C.text }}>{fmtNum(ad.reach || 0)}</b></div>
+                        <div><div style={{ color: C.textDim, marginBottom: 2 }}>Frequência</div><b style={{ color: C.text }}>{(ad.frequency || 0).toFixed(2)}</b></div>
                         <div><div style={{ color: C.textDim, marginBottom: 2 }}>Cliques</div><b style={{ color: C.blue }}>{fmtNum(ad.clicks)}</b></div>
+                        <div><div style={{ color: C.textDim, marginBottom: 2 }}>Cliques no Link</div><b style={{ color: C.blue }}>{fmtNum(ad.link_clicks || 0)}</b></div>
+                        {ad.roas > 0 && (
+                          <div><div style={{ color: C.textDim, marginBottom: 2 }}>ROI</div><b style={{ color: C.green }}>{ad.roas.toFixed(2)}×</b></div>
+                        )}
                       </div>
+                      {canWatch && (
+                        <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                          marginTop: 12, padding: '8px', borderRadius: 8, fontSize: 11.5, fontWeight: 700,
+                          color: C.purple, border: `1px solid ${C.purple}55`, textDecoration: 'none',
+                        }}>
+                          ▶ Assistir anúncio
+                        </a>
+                      )}
                     </div>
                   </div>
                 );

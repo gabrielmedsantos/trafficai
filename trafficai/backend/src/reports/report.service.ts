@@ -288,10 +288,11 @@ export class ReportService {
                 );
                 if (adInsights.length > 0) {
                     const adIds = adInsights.map((a: any) => a.ad_id).filter(Boolean);
-                    const thumbnails = await metaService.getAdThumbnails(
-                        userId, user.access_token, account.meta_account_id, adIds
-                    );
-                    metrics.top_ads = this.processAdInsights(adInsights, thumbnails);
+                    const [thumbnails, videoInfo] = await Promise.all([
+                        metaService.getAdThumbnails(userId, user.access_token, account.meta_account_id, adIds),
+                        metaService.getAdVideoInfo(userId, user.access_token, account.meta_account_id, adIds),
+                    ]);
+                    metrics.top_ads = this.processAdInsights(adInsights, thumbnails, videoInfo);
                 }
 
                 // Breakdowns pra seções de segmentação (plataforma, posicionamento, idade+gênero, dispositivo, região)
@@ -831,7 +832,11 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
 
     // ─── CRIATIVOS ────────────────────────────────────────────────────────────
 
-    private processAdInsights(adInsights: any[], thumbnails: Map<string, string>) {
+    private processAdInsights(
+        adInsights: any[],
+        thumbnails: Map<string, string>,
+        videoInfo?: Map<string, { object_type?: string; video_id?: string; permalink_url?: string }>,
+    ) {
         const AD_ACTION_TIERS: { type: string; label: string; singular: string }[][] = [
             [
                 { type: 'offsite_conversion.fb_pixel_purchase', label: 'Compras',    singular: 'Compra' },
@@ -858,9 +863,14 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                 const spend = parseFloat(a.spend || '0');
                 const impressions = parseInt(a.impressions || '0', 10);
                 const clicks = parseInt(a.clicks || '0', 10);
+                const reach = parseInt(a.reach || '0', 10);
+                const frequency = parseFloat(a.frequency || '0');
                 const ctr = parseFloat(a.ctr || '0');
                 const cpc = parseFloat(a.cpc || '0');
                 const actions: any[] = Array.isArray(a.actions) ? a.actions : [];
+
+                const linkClickAction = actions.find((x: any) => x.action_type === 'link_click');
+                const linkClicks = linkClickAction ? parseInt(linkClickAction.value || '0', 10) : 0;
 
                 // Por criativo: dentro do tier mais alto com dados, o PRIMEIRO tipo da
                 // lista com valor > 0 vence — a ordem da lista é a prioridade e bate com
@@ -895,12 +905,17 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                     ? (parseInt(threeSecViews.value || '0', 10) / impressions) * 100
                     : null;
 
+                const video = videoInfo?.get(a.ad_id);
+
                 return {
                     ad_id: a.ad_id || '',
                     name: a.ad_name || 'Anúncio',
                     spend,
                     impressions,
                     clicks,
+                    link_clicks: linkClicks,
+                    reach,
+                    frequency,
                     conversions,
                     action_label: actionLabel,
                     action_singular: actionSingular,
@@ -910,6 +925,8 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                     cpa: conversions > 0 ? spend / conversions : 0,
                     hook_rate: hookRate,
                     thumbnail_url: thumbnails.get(a.ad_id) || undefined,
+                    is_video: video?.object_type === 'VIDEO' || !!video?.video_id,
+                    watch_url: video?.permalink_url || undefined,
                 };
             })
             .filter(a => a.spend > 0)
