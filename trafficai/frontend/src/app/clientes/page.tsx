@@ -131,6 +131,7 @@ export default function ClientesPage() {
     const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [billingSummaryMap, setBillingSummaryMap] = useState<Record<string, BillingSummary>>({});
 
@@ -172,12 +173,19 @@ export default function ClientesPage() {
     // Summary de onboardings pra badge por cliente na tabela
     const [onboardingSummary, setOnboardingSummary] = useState<Record<string, { pct: number; status: string }>>({});
 
+    // Debounce: só refaz a busca 350ms depois que o usuário parar de digitar —
+    // antes disso disparava 3-4 chamadas de API a cada tecla.
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedSearch(search), 350);
+        return () => clearTimeout(t);
+    }, [search]);
+
     const fetchClients = useCallback(async () => {
         setLoading(true);
         try {
             const params = new URLSearchParams();
             if (statusFilter) params.set('status', statusFilter);
-            if (search) params.set('search', search);
+            if (debouncedSearch) params.set('search', debouncedSearch);
             const [clientsRes, summaryRes, meetingStatsRes] = await Promise.all([
                 fetch(`${API}/clients?${params}`, { headers: { Authorization: `Bearer ${token()}` } }),
                 fetch(`${API}/financial/billing/summary`, { headers: { Authorization: `Bearer ${token()}` } }),
@@ -205,7 +213,7 @@ export default function ClientesPage() {
                 setOnboardingSummary(map);
             } catch { /* ignore */ }
         } catch { /* ignore */ } finally { setLoading(false); }
-    }, [search, statusFilter]);
+    }, [debouncedSearch, statusFilter]);
 
     const fetchClientMeetings = useCallback(async (clientId: string) => {
         setLoadingMeetings(true);
@@ -300,11 +308,19 @@ export default function ClientesPage() {
     function openDrawer(client: Client, tab: 'overview' | 'contracts' | 'meetings' | 'onboarding' = 'overview') {
         setOpenClient(client);
         setDrawerTab(tab);
-        // Pre-carrega os datasets (não é caro)
-        setContractsClient(client); fetchContracts(client.id);
-        setMeetingsClient(client); fetchClientMeetings(client.id);
-        fetchClientOnboardings(client.id);
+        setContractsClient(client);
+        setMeetingsClient(client);
     }
+
+    // Carrega os dados de cada aba só quando ela é aberta, não todas de uma vez —
+    // antes disparava 3 fetches a cada clique na linha, mesmo se o usuário só
+    // olhasse a Visão Geral.
+    useEffect(() => {
+        if (!openClient) return;
+        if (drawerTab === 'contracts') fetchContracts(openClient.id);
+        else if (drawerTab === 'meetings') fetchClientMeetings(openClient.id);
+        else if (drawerTab === 'onboarding') fetchClientOnboardings(openClient.id);
+    }, [openClient?.id, drawerTab, fetchContracts, fetchClientMeetings]);
 
     async function fetchClientOnboardings(clientId: string) {
         setLoadingOnboardings(true);

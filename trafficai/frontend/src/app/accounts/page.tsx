@@ -86,6 +86,7 @@ export default function AccountsPage() {
   const [syncingBalances, setSyncingBalances] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [mainSearch, setMainSearch] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNotes, setEditNotes] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -119,7 +120,7 @@ export default function AccountsPage() {
 
   useEffect(() => {
     filterAccounts();
-  }, [accounts, filter]);
+  }, [accounts, filter, mainSearch]);
 
   // Carrega contatos de contas novas (uma vez por conta — não refaz fetch a
   // cada reload, senão cada toggle de status dispara 1 request por conta
@@ -146,13 +147,17 @@ export default function AccountsPage() {
   };
 
   const filterAccounts = () => {
-    if (filter === 'all') {
-      setFilteredAccounts(accounts);
-    } else if (filter === 'active') {
-      setFilteredAccounts(accounts.filter(acc => acc.is_client_active));
-    } else {
-      setFilteredAccounts(accounts.filter(acc => !acc.is_client_active));
+    let list = accounts;
+    if (filter === 'active') list = list.filter(acc => acc.is_client_active);
+    else if (filter === 'inactive') list = list.filter(acc => !acc.is_client_active);
+    if (mainSearch.trim()) {
+      const q = mainSearch.trim().toLowerCase();
+      list = list.filter(acc =>
+        acc.account_name?.toLowerCase().includes(q) ||
+        acc.meta_account_id?.toLowerCase().includes(q)
+      );
     }
+    setFilteredAccounts(list);
   };
 
   const toggleClientStatus = async (accountId: string, currentStatus: boolean, notes?: string) => {
@@ -485,6 +490,17 @@ export default function AccountsPage() {
         >
           Inativas ({inactiveCount})
         </button>
+        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320, marginLeft: 8 }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou ID..."
+            value={mainSearch}
+            onChange={e => setMainSearch(e.target.value)}
+            className="input"
+            style={{ paddingLeft: 30, width: '100%' }}
+          />
+        </div>
       </div>
 
       {/* Accounts List */}
@@ -508,39 +524,18 @@ export default function AccountsPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
                     <h3 style={{ fontSize: '18px', fontWeight: 700 }}>{account.account_name}</h3>
                     {account.is_client_active ? (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '4px',
-                        padding: '4px 12px',
-                        background: 'rgba(34, 197, 94, 0.1)',
-                        border: '1px solid rgba(34, 197, 94, 0.3)',
-                        borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                        color: 'var(--accent-green)'
-                      }}>
+                      <span className="badge badge-green" style={{ padding: '4px 12px', fontSize: '12px' }}>
                         <CheckCircle size={14} />
                         Cliente Ativo
                       </span>
                     ) : (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '4px',
-                        padding: '4px 12px',
-                        background: 'rgba(156, 163, 175, 0.1)',
-                        border: '1px solid rgba(156, 163, 175, 0.3)',
-                        borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                        color: 'var(--text-muted)'
-                      }}>
+                      <span className="badge badge-gray" style={{ padding: '4px 12px', fontSize: '12px' }}>
                         <XCircle size={14} />
                         Cliente Inativo
                       </span>
                     )}
                     {hasPaymentProblem && (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: '4px',
-                        padding: '4px 12px',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.4)',
-                        borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                        color: 'var(--accent-red)'
-                      }}>
+                      <span className="badge badge-red" style={{ padding: '4px 12px', fontSize: '12px' }}>
                         <AlertCircle size={13} />
                         Pagamento Pendente
                       </span>
@@ -1102,12 +1097,7 @@ export default function AccountsPage() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.account_name}</span>
-                          <span style={{
-                            fontSize: 10, padding: '2px 7px', borderRadius: 10, fontWeight: 800,
-                            background: acc.is_client_active ? 'rgba(34,197,94,.15)' : 'rgba(148,163,184,.15)',
-                            color: acc.is_client_active ? 'var(--accent-green)' : 'var(--text-muted)',
-                            textTransform: 'uppercase', letterSpacing: '.04em',
-                          }}>
+                          <span className={`badge ${acc.is_client_active ? 'badge-green' : 'badge-gray'}`} style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                             {acc.is_client_active ? 'Ativa' : 'Inativa'}
                           </span>
                         </div>
