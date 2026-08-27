@@ -10,6 +10,7 @@ import { authRepository } from '../auth/auth.repository';
 import { AppError } from '../shared/errors';
 import { query } from '../database/connection';
 import { requireCapability } from '../team/capabilities';
+import { recordAudit } from '../audit/audit.service';
 
 const router = Router();
 
@@ -126,6 +127,15 @@ router.patch('/campaigns/:id/status', requireCapability('meta_campaigns'), async
         const accessToken = await getAccessToken(userId);
         await metaService.setCampaignStatus(userId, accessToken, campaign.meta_campaign_id, status);
         await query('UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
+
+        recordAudit({
+            userId,
+            action: 'campaign.status_changed',
+            entityType: 'meta_campaign',
+            entityId: id,
+            entityLabel: campaign.name,
+            details: { status, previous_status: campaign.status },
+        });
 
         res.json({ success: true, data: { id, status } });
     } catch (err) {

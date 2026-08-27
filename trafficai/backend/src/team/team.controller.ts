@@ -9,6 +9,7 @@ import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
 import { CAPABILITIES } from './capabilities';
+import { recordAudit } from '../audit/audit.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -97,6 +98,15 @@ router.post('/members', async (req: Request, res: Response) => {
             ]
         );
 
+        recordAudit({
+            userId: (req as any).user.userId,
+            action: 'team.member_created',
+            entityType: 'user',
+            entityId: rows[0].id,
+            entityLabel: rows[0].name,
+            details: { role: rows[0].role, email: rows[0].email },
+        });
+
         res.json({ success: true, data: rows[0] });
     } catch (error: any) {
         logger.error('Erro ao criar membro', { error: error.message });
@@ -154,6 +164,15 @@ router.patch('/members/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, error: { message: 'Membro não encontrado' } });
         }
 
+        recordAudit({
+            userId: (req as any).user.userId,
+            action: 'team.member_updated',
+            entityType: 'user',
+            entityId: rows[0].id,
+            entityLabel: rows[0].name,
+            details: { fields_changed: Object.keys(req.body) },
+        });
+
         res.json({ success: true, data: rows[0] });
     } catch (error: any) {
         logger.error('Erro ao atualizar membro', { error: error.message });
@@ -180,13 +199,21 @@ router.delete('/members/:id', async (req: Request, res: Response) => {
         }
 
         const deleted = await query<any>(
-            `DELETE FROM users WHERE id = $1 RETURNING id`,
+            `DELETE FROM users WHERE id = $1 RETURNING id, name, email`,
             [id]
         );
 
         if (!deleted.length) {
             return res.status(404).json({ success: false, error: { message: 'Membro não encontrado' } });
         }
+
+        recordAudit({
+            userId,
+            action: 'team.member_removed',
+            entityType: 'user',
+            entityId: deleted[0].id,
+            entityLabel: deleted[0].name || deleted[0].email,
+        });
 
         res.json({ success: true, data: { message: 'Membro removido' } });
     } catch (error: any) {

@@ -8,6 +8,7 @@ import { query } from '../database/connection';
 import { ValidationError } from '../shared/errors';
 import { listAccessibleCustomers, syncAccount, setCampaignStatus } from './google-ads.service';
 import { requireCapability } from '../team/capabilities';
+import { recordAudit } from '../audit/audit.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -122,6 +123,13 @@ router.patch('/campaigns/:googleId/status', requireCapability('google_campaigns'
         const { account_id, status } = req.body;
         if (!['ENABLED', 'PAUSED'].includes(status)) throw new ValidationError('status inválido');
         await setCampaignStatus(req.user!.userId, account_id, req.params.googleId, status);
+        recordAudit({
+            userId: req.user!.userId,
+            action: 'campaign.status_changed',
+            entityType: 'google_campaign',
+            entityId: req.params.googleId,
+            details: { status },
+        });
         res.json({ success: true });
     } catch (err) { next(err); }
 });

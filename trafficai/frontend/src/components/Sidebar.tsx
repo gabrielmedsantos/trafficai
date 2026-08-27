@@ -33,6 +33,7 @@ import {
     X,
     MessageCircle,
     ClipboardCheck,
+    History,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -109,6 +110,7 @@ const AREAS = [
                 items: [
                     { href: '/team',        label: 'Time',         icon: Users },
                     { href: '/board',       label: 'Demandas',     icon: KanbanSquare },
+                    { href: '/audit-log',   label: 'Auditoria',    icon: History, adminOnly: true },
                 ],
             },
         ],
@@ -163,7 +165,7 @@ export default function Sidebar() {
     const [activeArea, setActiveArea] = useState<AreaId>(() => detectArea(pathname || ''));
     const [mobileOpen, setMobileOpen] = useState(false);
     const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
-    const { can } = useCurrentUser();
+    const { can, user } = useCurrentUser();
 
     useEffect(() => {
         if (pathname) setActiveArea(detectArea(pathname));
@@ -294,7 +296,7 @@ export default function Sidebar() {
                 {currentArea.groups.map((group: any) => (
                     <div key={group.label}>
                         <div className="nav-group-label">{group.label}</div>
-                        {group.items.filter((item: any) => !item.capability || can(item.capability)).map((item: any) => {
+                        {group.items.filter((item: any) => (!item.capability || can(item.capability)) && (!item.adminOnly || user?.role === 'admin')).map((item: any) => {
                             const Icon = item.icon;
                             const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
                             return (

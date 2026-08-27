@@ -17,6 +17,7 @@ import { clientsController } from '../clients/clients.controller';
 import { financialController } from '../financial/financial.controller';
 import { tasksController } from '../tasks/tasks.controller';
 import { teamController } from '../team/team.controller';
+import { auditController } from '../audit/audit.controller';
 import { trackingController } from '../tracking/tracking.controller';
 import { trackingPublicController } from '../tracking/tracking.public';
 import { boardController } from '../board/board.controller';
@@ -82,6 +83,7 @@ router.use('/clients', clientsController);
 router.use('/financial', financialController);
 router.use('/tasks', tasksController);
 router.use('/team', teamController);
+router.use('/audit-log', auditController);
 router.use('/board', boardController);
 
 // Leads do site de marketing (sem JWT) — captura antes do redirect pro Stripe

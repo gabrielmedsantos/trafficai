@@ -397,6 +397,30 @@ class ApiClient {
         return this.request<{ key: string; label: string }[]>('GET', '/team/capabilities');
     }
 
+    // Audit log
+    async getAuditLog(params?: { limit?: number; before?: string; user_id?: string; action?: string }) {
+        const qs = new URLSearchParams();
+        if (params?.limit) qs.set('limit', String(params.limit));
+        if (params?.before) qs.set('before', params.before);
+        if (params?.user_id) qs.set('user_id', params.user_id);
+        if (params?.action) qs.set('action', params.action);
+        const suffix = qs.toString() ? `?${qs.toString()}` : '';
+        return this.request<{
+            id: string;
+            user_id: string | null;
+            user_name: string | null;
+            action: string;
+            entity_type: string;
+            entity_id: string | null;
+            entity_label: string | null;
+            details: Record<string, any> | null;
+            created_at: string;
+        }[]>('GET', `/audit-log${suffix}`);
+    }
+    async getAuditLogActions() {
+        return this.request<string[]>('GET', '/audit-log/actions');
+    }
+
     // Tracking (CAPI)
     async getTrackingSources() {
         return this.request<any[]>('GET', '/tracking/sources');

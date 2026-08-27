@@ -15,6 +15,7 @@ import { metaRepository } from '../meta/meta.repository';
 import { metaService } from '../meta/meta.service';
 import { authRepository } from '../auth/auth.repository';
 import { requireCapability } from '../team/capabilities';
+import { recordAudit } from '../audit/audit.service';
 
 const router = Router();
 const upload = multer({
@@ -189,6 +190,15 @@ router.post('/agent/apply-suggestion', requireCapability('ai_agent'), async (req
             await metaService.setCampaignStatus(userId, user.access_token, campaign.meta_campaign_id, status);
             await query('UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2', [status, campaign_id]);
         }
+
+        recordAudit({
+            userId,
+            action: 'agent.suggestion_applied',
+            entityType: 'meta_campaign',
+            entityId: campaign_id,
+            entityLabel: campaign.name,
+            details: { action, value },
+        });
 
         res.json({ success: true, data: { campaign_id, action, value } });
     } catch (err) {
