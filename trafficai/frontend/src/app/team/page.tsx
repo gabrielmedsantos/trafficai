@@ -37,6 +37,7 @@ interface Member {
     department: string | null;
     job_title: string | null;
     avatar_color: string;
+    capabilities?: string[] | null;
     created_at?: string;
     updated_at?: string;
 }
@@ -49,7 +50,22 @@ interface MemberForm {
     department: string;
     job_title: string;
     avatar_color: string;
+    capabilities: string[] | null;
 }
+
+// Permissão de equipe por funcionalidade — admins sempre têm acesso total,
+// independente do que estiver aqui. `null` = sem restrição (default).
+const CAPABILITIES: { key: string; label: string }[] = [
+    { key: 'meta_campaigns', label: 'Gerenciar Campanhas Meta' },
+    { key: 'google_campaigns', label: 'Gerenciar Campanhas Google' },
+    { key: 'ai_agent', label: 'Acesso ao Agente IA' },
+    { key: 'compiled_data', label: 'Dados Compilados' },
+    { key: 'creatives', label: 'Criativos' },
+    { key: 'metrics', label: 'Métricas' },
+    { key: 'balance_alerts', label: 'Alerta de Saldo' },
+    { key: 'dashboard_share', label: 'Compartilhar Dashboard' },
+    { key: 'whatsapp_connections', label: 'Conexões WhatsApp' },
+];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -101,6 +117,7 @@ const DEFAULT_FORM: MemberForm = {
     department: '',
     job_title: '',
     avatar_color: '#ff6b35',
+    capabilities: null,
 };
 
 type RangeMode = 'week' | 'month' | 'custom';
@@ -861,12 +878,21 @@ function MemberFormModal({ mode, member, currentUserId, onClose, onSaved }: {
                 department: member.department || '',
                 job_title: member.job_title || '',
                 avatar_color: member.avatar_color || '#ff6b35',
+                capabilities: member.capabilities ?? null,
             };
         }
         return DEFAULT_FORM;
     });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+
+    const isRestricted = form.capabilities !== null;
+    const toggleRestrict = () => setForm(f => ({ ...f, capabilities: f.capabilities === null ? [] : null }));
+    const toggleCap = (key: string) => setForm(f => {
+        const current = f.capabilities || [];
+        const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key];
+        return { ...f, capabilities: next };
+    });
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -903,6 +929,7 @@ function MemberFormModal({ mode, member, currentUserId, onClose, onSaved }: {
                     department: form.department.trim() || undefined,
                     job_title: form.job_title.trim() || undefined,
                     avatar_color: form.avatar_color,
+                    capabilities: form.capabilities,
                 });
             } else if (member) {
                 const payload: any = {
@@ -912,6 +939,7 @@ function MemberFormModal({ mode, member, currentUserId, onClose, onSaved }: {
                     department: form.department.trim(),
                     job_title: form.job_title.trim(),
                     avatar_color: form.avatar_color,
+                    capabilities: form.capabilities,
                 };
                 if (form.password) payload.password = form.password;
                 await api.updateTeamMember(member.id, payload);
@@ -1040,6 +1068,37 @@ function MemberFormModal({ mode, member, currentUserId, onClose, onSaved }: {
                             <option value="admin">Administrador</option>
                         </select>
                     </div>
+
+                    {form.role === 'member' && (
+                        <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                            <label className="form-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span>Permissões por funcionalidade</span>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 400, fontSize: 12.5, cursor: 'pointer', textTransform: 'none' }}>
+                                    <input type="checkbox" checked={!isRestricted} onChange={toggleRestrict} />
+                                    Acesso total
+                                </label>
+                            </label>
+                            {isRestricted && (
+                                <div style={{
+                                    display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+                                    padding: 12, marginTop: 4,
+                                    background: 'var(--bg-surface-2, rgba(255,255,255,.03))',
+                                    border: '1px solid var(--border)', borderRadius: 8,
+                                }}>
+                                    {CAPABILITIES.map(cap => (
+                                        <label key={cap.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={(form.capabilities || []).includes(cap.key)}
+                                                onChange={() => toggleCap(cap.key)}
+                                            />
+                                            {cap.label}
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="form-group" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
                         <label className="form-label">Cor do avatar</label>

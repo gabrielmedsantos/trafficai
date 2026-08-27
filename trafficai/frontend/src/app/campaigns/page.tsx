@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { Brain, Loader, ChevronRight, Search, Filter, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import Link from 'next/link';
 import { useAccount } from '@/app/AccountContext';
+import { useCurrentUser } from '@/app/UserContext';
 
 interface Campaign {
     id: string;
@@ -95,6 +96,8 @@ export default function CampaignsPage() {
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [bulkBusy, setBulkBusy] = useState(false);
     const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
+    const { can } = useCurrentUser();
+    const canManage = can('meta_campaigns');
 
     useEffect(() => {
         setLoading(true);
@@ -300,8 +303,8 @@ export default function CampaignsPage() {
                     padding: '10px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8,
                 }}>
                     <span style={{ fontSize: 13, fontWeight: 500 }}>{selected.size} selecionada{selected.size > 1 ? 's' : ''}</span>
-                    <button className="btn btn-sm btn-secondary" disabled={bulkBusy} onClick={() => handleBulkStatus('ACTIVE')}>Ativar</button>
-                    <button className="btn btn-sm btn-secondary" disabled={bulkBusy} onClick={() => handleBulkStatus('PAUSED')}>Pausar</button>
+                    <button className="btn btn-sm btn-secondary" disabled={bulkBusy || !canManage} title={!canManage ? 'Sem permissão para gerenciar Campanhas Meta' : undefined} onClick={() => handleBulkStatus('ACTIVE')}>Ativar</button>
+                    <button className="btn btn-sm btn-secondary" disabled={bulkBusy || !canManage} title={!canManage ? 'Sem permissão para gerenciar Campanhas Meta' : undefined} onClick={() => handleBulkStatus('PAUSED')}>Pausar</button>
                     <button className="btn btn-sm" style={{ marginLeft: 'auto', color: 'var(--text-muted)' }} disabled={bulkBusy} onClick={() => setSelected(new Set())}>Limpar seleção</button>
                 </div>
             )}
@@ -359,14 +362,14 @@ export default function CampaignsPage() {
                                         <button
                                             role="switch"
                                             aria-checked={c.status === 'ACTIVE'}
-                                            title={c.status === 'ACTIVE' ? 'Pausar campanha' : 'Ativar campanha'}
+                                            title={!canManage ? 'Sem permissão para gerenciar Campanhas Meta' : c.status === 'ACTIVE' ? 'Pausar campanha' : 'Ativar campanha'}
                                             onClick={() => handleToggleStatus(c)}
-                                            disabled={togglingId === c.id || !['ACTIVE', 'PAUSED'].includes(c.status)}
+                                            disabled={togglingId === c.id || !['ACTIVE', 'PAUSED'].includes(c.status) || !canManage}
                                             style={{
                                                 width: 36, height: 20, borderRadius: 999, border: 'none', position: 'relative',
                                                 background: c.status === 'ACTIVE' ? 'var(--accent-green, #22c55e)' : 'var(--border)',
-                                                cursor: togglingId === c.id ? 'wait' : 'pointer',
-                                                opacity: !['ACTIVE', 'PAUSED'].includes(c.status) ? 0.4 : 1,
+                                                cursor: togglingId === c.id ? 'wait' : !canManage ? 'not-allowed' : 'pointer',
+                                                opacity: !['ACTIVE', 'PAUSED'].includes(c.status) || !canManage ? 0.4 : 1,
                                                 flexShrink: 0,
                                             }}
                                         >

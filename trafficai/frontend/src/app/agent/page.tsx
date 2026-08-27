@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, Send, Loader2, Zap, ChevronDown, Trash2, Brain, Paperclip, X, FileSpreadsheet, Check, XCircle } from 'lucide-react';
+import { Bot, Send, Loader2, Zap, ChevronDown, Trash2, Brain, Paperclip, X, FileSpreadsheet, Check, XCircle, Lock } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useCurrentUser } from '@/app/UserContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Suggestion {
@@ -65,6 +66,7 @@ function parseCSV(text: string): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function AgentPage() {
+    const { can, loading: userLoading } = useCurrentUser();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -232,6 +234,17 @@ export default function AgentPage() {
         }
     }, [messages, loading]);
 
+    // Auto-send a prompt passed via ?q= (e.g. "Perguntar ao Agente" from Alertas/Insights)
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const q = params.get('q');
+        if (q) {
+            send(q);
+            window.history.replaceState({}, '', '/agent');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -254,6 +267,16 @@ export default function AgentPage() {
         overview_conta: 'analisando conta',
         comparar_campanhas: 'comparando campanhas',
     };
+
+    if (!userLoading && !can('ai_agent')) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: 12, color: 'var(--text-muted)' }}>
+                <Lock size={32} />
+                <p style={{ fontSize: 14 }}>Você não tem permissão para acessar o Agente IA.</p>
+                <p style={{ fontSize: 12.5 }}>Fale com um administrador do time para liberar essa funcionalidade.</p>
+            </div>
+        );
+    }
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-primary)' }}>

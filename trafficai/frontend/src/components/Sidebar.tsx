@@ -37,6 +37,7 @@ import {
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAccount } from '@/app/AccountContext';
+import { useCurrentUser } from '@/app/UserContext';
 import AccountSelect from '@/components/AccountSelect';
 import PWAInstallButton from '@/components/PWAInstallButton';
 
@@ -63,7 +64,7 @@ const AREAS = [
                 label: 'Inteligência',
                 items: [
                     { href: '/dashboard',   label: 'Dashboard',    icon: LayoutDashboard },
-                    { href: '/agent',       label: 'Gestor IA',    icon: Bot },
+                    { href: '/agent',       label: 'Gestor IA',    icon: Bot, capability: 'ai_agent' },
                     { href: '/insights',    label: 'Insights IA',  icon: Brain },
                 ],
             },
@@ -82,7 +83,7 @@ const AREAS = [
                 items: [
                     { href: '/reports',           label: 'Relatórios',       icon: FileText },
                     { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle },
-                    { href: '/creative',          label: 'Criativos',        icon: Palette },
+                    { href: '/creative',          label: 'Criativos',        icon: Palette, capability: 'creatives' },
                     { href: '/templates',         label: 'Templates',        icon: FileText },
                     { href: '/tracking',          label: 'Tracking',         icon: Activity },
                     { href: '/accounts',          label: 'Contas',           icon: Users },
@@ -162,6 +163,7 @@ export default function Sidebar() {
     const [activeArea, setActiveArea] = useState<AreaId>(() => detectArea(pathname || ''));
     const [mobileOpen, setMobileOpen] = useState(false);
     const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
+    const { can } = useCurrentUser();
 
     useEffect(() => {
         if (pathname) setActiveArea(detectArea(pathname));
@@ -292,7 +294,7 @@ export default function Sidebar() {
                 {currentArea.groups.map((group: any) => (
                     <div key={group.label}>
                         <div className="nav-group-label">{group.label}</div>
-                        {group.items.map((item: any) => {
+                        {group.items.filter((item: any) => !item.capability || can(item.capability)).map((item: any) => {
                             const Icon = item.icon;
                             const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
                             return (

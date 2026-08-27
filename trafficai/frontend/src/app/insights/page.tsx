@@ -1,14 +1,21 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { Brain, AlertTriangle, CheckCircle, XCircle, Info, MessageCircle, ShoppingCart, Users, MousePointerClick, Megaphone, Target } from 'lucide-react';
+import { Brain, AlertTriangle, CheckCircle, XCircle, Info, MessageCircle, ShoppingCart, Users, MousePointerClick, Megaphone, Target, Bot } from 'lucide-react';
 import { useAccount } from '@/app/AccountContext';
 
 export default function InsightsPage() {
+    const router = useRouter();
     const [analyses, setAnalyses] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const { selectedAccountId } = useAccount();
+
+    function handleAskAgent(analysis: any) {
+        const prompt = `Analise a campanha "${analysis.campaign_name || 'Campanha'}"${analysis.account_name ? ` (conta "${analysis.account_name}")` : ''}. Diagnóstico atual: ${analysis.analysis}${analysis.recommendation ? ` Recomendação: ${analysis.recommendation}` : ''}. O que você sugere fazer agora?`;
+        router.push(`/agent?q=${encodeURIComponent(prompt)}`);
+    }
 
     useEffect(() => {
         setLoading(true);
@@ -166,6 +173,17 @@ export default function InsightsPage() {
                                         </p>
                                     </div>
                                 )}
+
+                                <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+                                    <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        onClick={() => handleAskAgent(analysis)}
+                                        style={{ fontSize: '12px', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                        <Bot size={14} /> Perguntar ao Agente sobre isso
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     ))}

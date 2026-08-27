@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import { Bell, AlertTriangle, XCircle, Info, Check, CheckCheck, Building2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bell, AlertTriangle, XCircle, Info, Check, CheckCheck, Building2, ChevronDown, ChevronRight, Bot } from 'lucide-react';
 
 interface AlertItem {
     id: string;
@@ -95,7 +96,7 @@ function SeverityDot({ severity }: { severity: 'info' | 'warning' | 'critical' }
     );
 }
 
-function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: string, e: React.MouseEvent) => void }) {
+function AlertRow({ alert, onMarkRead, onAskAgent }: { alert: AlertItem; onMarkRead: (id: string, e: React.MouseEvent) => void; onAskAgent: (alert: AlertItem, e: React.MouseEvent) => void }) {
     const campaign = shortMessage(alert.message);
     const title = stripEmoji(alert.title);
     const hasDelta = alert.previous_value != null && alert.current_value != null;
@@ -169,6 +170,22 @@ function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: st
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 28, textAlign: 'right' }}>
                     {timeSince(alert.created_at)}
                 </span>
+                <button
+                    type="button"
+                    onClick={(e) => onAskAgent(alert, e)}
+                    title="Perguntar ao Agente sobre isso"
+                    style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 22, height: 22, borderRadius: 6,
+                        background: 'var(--bg-input)',
+                        border: '1px solid var(--border)',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                    }}
+                >
+                    <Bot size={11} />
+                </button>
                 {!alert.is_read && (
                     <button
                         type="button"
@@ -197,9 +214,11 @@ const PREVIEW_COUNT = 5;
 function AccountGroupCard({
     group,
     onMarkRead,
+    onAskAgent,
 }: {
     group: AccountGroup;
     onMarkRead: (id: string, e: React.MouseEvent) => void;
+    onAskAgent: (alert: AlertItem, e: React.MouseEvent) => void;
 }) {
     const [expanded, setExpanded] = useState(group.unreadCount > 0 && group.alerts.length <= 10);
     const [showAll, setShowAll] = useState(false);
@@ -263,7 +282,7 @@ function AccountGroupCard({
             {expanded && (
                 <div>
                     {visible.map((alert) => (
-                        <AlertRow key={alert.id} alert={alert} onMarkRead={onMarkRead} />
+                        <AlertRow key={alert.id} alert={alert} onMarkRead={onMarkRead} onAskAgent={onAskAgent} />
                     ))}
 
                     {/* Show more / less */}
@@ -291,9 +310,17 @@ function AccountGroupCard({
 }
 
 export default function AlertsPage() {
+    const router = useRouter();
     const [alerts, setAlerts] = useState<AlertItem[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [loading, setLoading] = useState(true);
+
+    function handleAskAgent(alert: AlertItem, e: React.MouseEvent) {
+        e.stopPropagation();
+        const campaign = shortMessage(alert.message);
+        const prompt = `Analise este alerta${alert.account_name ? ` da conta "${alert.account_name}"` : ''}${campaign ? ` (campanha "${campaign}")` : ''}: "${stripEmoji(alert.title)}" — ${alert.message}. O que devo fazer a respeito?`;
+        router.push(`/agent?q=${encodeURIComponent(prompt)}`);
+    }
 
     useEffect(() => { loadAlerts(); }, []);
 
@@ -367,6 +394,7 @@ export default function AlertsPage() {
                             key={group.account_name}
                             group={group}
                             onMarkRead={handleMarkRead}
+                            onAskAgent={handleAskAgent}
                         />
                     ))}
                 </div>

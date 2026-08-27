@@ -7,6 +7,7 @@ import { authMiddleware } from '../auth/auth.middleware';
 import { query } from '../database/connection';
 import { ValidationError } from '../shared/errors';
 import { listAccessibleCustomers, syncAccount, setCampaignStatus } from './google-ads.service';
+import { requireCapability } from '../team/capabilities';
 
 const router = Router();
 router.use(authMiddleware);
@@ -116,7 +117,7 @@ router.get('/accounts/:id/campaigns', async (req: Request, res: Response, next: 
 });
 
 // PATCH /google-ads/campaigns/:googleId/status — pausa/ativa via API
-router.patch('/campaigns/:googleId/status', async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/campaigns/:googleId/status', requireCapability('google_campaigns'), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { account_id, status } = req.body;
         if (!['ENABLED', 'PAUSED'].includes(status)) throw new ValidationError('status inválido');

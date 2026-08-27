@@ -14,6 +14,7 @@ import { query } from '../database/connection';
 import { metaRepository } from '../meta/meta.repository';
 import { metaService } from '../meta/meta.service';
 import { authRepository } from '../auth/auth.repository';
+import { requireCapability } from '../team/capabilities';
 
 const router = Router();
 const upload = multer({
@@ -132,7 +133,7 @@ router.get('/analyses', async (req: Request, res: Response, next: NextFunction) 
  * Conversational agent — streams SSE response
  * Body: { messages: [{ role: 'user'|'assistant', content: string }] }
  */
-router.post('/chat', async (req: Request, res: Response) => {
+router.post('/chat', requireCapability('ai_agent'), async (req: Request, res: Response) => {
     const userId = req.user!.userId;
     const { messages } = req.body as { messages: ChatMessage[] };
 
@@ -156,7 +157,7 @@ router.post('/chat', async (req: Request, res: Response) => {
  * (pausar/ativar/mudar orçamento) depois que o usuário clicou em "Aplicar".
  * Nunca chamado automaticamente pelo agente — só por ação explícita do usuário.
  */
-router.post('/agent/apply-suggestion', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/agent/apply-suggestion', requireCapability('ai_agent'), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.user!.userId;
         const { campaign_id, action, value } = req.body as {

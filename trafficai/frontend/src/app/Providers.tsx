@@ -1,11 +1,14 @@
 'use client';
 
 import { AccountProvider } from './AccountContext';
+import { UserProvider } from './UserContext';
 
 export function Providers({ children }: { children: React.ReactNode }) {
     return (
-        <AccountProvider>
-            {children}
-        </AccountProvider>
+        <UserProvider>
+            <AccountProvider>
+                {children}
+            </AccountProvider>
+        </UserProvider>
     );
 }

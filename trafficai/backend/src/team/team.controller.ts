@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
+import { CAPABILITIES } from './capabilities';
 
 const router = Router();
 router.use(authMiddleware);
@@ -27,11 +28,16 @@ async function requireAdmin(req: Request, res: Response): Promise<boolean> {
     return true;
 }
 
+// ─── GET /team/capabilities ─────────────────────────────────────────────────
+router.get('/capabilities', async (_req: Request, res: Response) => {
+    res.json({ success: true, data: CAPABILITIES });
+});
+
 // ─── GET /team/members ──────────────────────────────────────────────────────
 router.get('/members', async (req: Request, res: Response) => {
     try {
         const rows = await query<any>(
-            `SELECT id, name, email, role, department, job_title, avatar_color, created_at
+            `SELECT id, name, email, role, department, job_title, avatar_color, capabilities, created_at
              FROM users
              ORDER BY name ASC`
         );
@@ -56,13 +62,16 @@ router.post('/members', async (req: Request, res: Response) => {
             });
         }
 
-        const { name, email, password, role, department, job_title, avatar_color } = req.body;
+        const { name, email, password, role, department, job_title, avatar_color, capabilities } = req.body;
 
         if (!name || !email || !password) {
             return res.status(400).json({ success: false, error: { message: 'Nome, email e senha são obrigatórios' } });
         }
         if (password.length < 8) {
             return res.status(400).json({ success: false, error: { message: 'Senha precisa de no mínimo 8 caracteres' } });
+        }
+        if (capabilities !== undefined && capabilities !== null && !Array.isArray(capabilities)) {
+            return res.status(400).json({ success: false, error: { message: 'capabilities deve ser um array ou null' } });
         }
 
         const existing = await query<any>(`SELECT id FROM users WHERE email = $1`, [email]);
@@ -73,9 +82,9 @@ router.post('/members', async (req: Request, res: Response) => {
         const password_hash = await bcrypt.hash(password, 10);
 
         const rows = await query<any>(
-            `INSERT INTO users (name, email, password_hash, role, department, job_title, avatar_color)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING id, name, email, role, department, job_title, avatar_color, created_at`,
+            `INSERT INTO users (name, email, password_hash, role, department, job_title, avatar_color, capabilities)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id, name, email, role, department, job_title, avatar_color, capabilities, created_at`,
             [
                 name,
                 email,
@@ -84,6 +93,7 @@ router.post('/members', async (req: Request, res: Response) => {
                 department || null,
                 job_title || null,
                 avatar_color || '#6366f1',
+                capabilities ?? null,
             ]
         );
 
@@ -99,7 +109,11 @@ router.patch('/members/:id', async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     try {
         const { id } = req.params;
-        const { name, email, role, department, job_title, avatar_color, password } = req.body;
+        const { name, email, role, department, job_title, avatar_color, password, capabilities } = req.body;
+
+        if (capabilities !== undefined && capabilities !== null && !Array.isArray(capabilities)) {
+            return res.status(400).json({ success: false, error: { message: 'capabilities deve ser um array ou null' } });
+        }
 
         const fields: string[] = [];
         const params: any[] = [];
@@ -111,6 +125,7 @@ router.patch('/members/:id', async (req: Request, res: Response) => {
         if (department !== undefined)    { fields.push(`department = $${idx++}`); params.push(department || null); }
         if (job_title !== undefined)     { fields.push(`job_title = $${idx++}`); params.push(job_title || null); }
         if (avatar_color !== undefined)  { fields.push(`avatar_color = $${idx++}`); params.push(avatar_color); }
+        if (capabilities !== undefined)  { fields.push(`capabilities = $${idx++}`); params.push(capabilities); }
 
         if (password) {
             if (password.length < 8) {
@@ -131,7 +146,7 @@ router.patch('/members/:id', async (req: Request, res: Response) => {
         const rows = await query<any>(
             `UPDATE users SET ${fields.join(', ')}
              WHERE id = $${idx}
-             RETURNING id, name, email, role, department, job_title, avatar_color, updated_at`,
+             RETURNING id, name, email, role, department, job_title, avatar_color, capabilities, updated_at`,
             params
         );
 

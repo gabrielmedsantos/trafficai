@@ -9,6 +9,7 @@ import { metaRepository } from './meta.repository';
 import { authRepository } from '../auth/auth.repository';
 import { AppError } from '../shared/errors';
 import { query } from '../database/connection';
+import { requireCapability } from '../team/capabilities';
 
 const router = Router();
 
@@ -110,7 +111,7 @@ router.get('/campaigns', async (req: Request, res: Response, next: NextFunction)
  * PATCH /meta/campaigns/:id/status — pausa/ativa uma campanha no Meta.
  * Usado pelo toggle na tabela de Campanhas, pela Automação e pelo Agente de IA.
  */
-router.patch('/campaigns/:id/status', async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/campaigns/:id/status', requireCapability('meta_campaigns'), async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.user!.userId;
         const { id } = req.params;

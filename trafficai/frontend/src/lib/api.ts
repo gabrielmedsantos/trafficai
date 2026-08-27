@@ -376,6 +376,7 @@ class ApiClient {
     async createTeamMember(data: {
         name: string; email: string; password: string;
         role?: 'admin' | 'member'; department?: string; job_title?: string; avatar_color?: string;
+        capabilities?: string[] | null;
     }) {
         return this.request<any>('POST', '/team/members', data);
     }
@@ -383,12 +384,17 @@ class ApiClient {
     async updateTeamMember(id: string, data: Partial<{
         name: string; email: string; password: string;
         role: 'admin' | 'member'; department: string; job_title: string; avatar_color: string;
+        capabilities: string[] | null;
     }>) {
         return this.request<any>('PATCH', `/team/members/${id}`, data);
     }
 
     async deleteTeamMember(id: string) {
         return this.request<{ message: string }>('DELETE', `/team/members/${id}`);
+    }
+
+    async getCapabilityDefs() {
+        return this.request<{ key: string; label: string }[]>('GET', '/team/capabilities');
     }
 
     // Tracking (CAPI)
