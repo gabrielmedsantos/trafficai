@@ -8,9 +8,12 @@ Legenda: `[ ]` não iniciada · `[~]` em andamento · `[x]` concluída
 
 ## Agora (P0) — maior impacto na experiência do dia a dia
 
+> 🎥 = confirmado por vídeo real do Criativivo em 27/08/2026, não só pelo site.
+
+- [ ] **🎥 Copiloto de IA acionável** — no Agente (`/agent`), dar 1-2 ferramentas de escrita (pausar campanha, ajustar orçamento) sobre os mesmos endpoints que a Automação já usa no Meta. Replicar o padrão visto no Criativivo: card de sugestão com "Atual → Sugerido", abas Pendente/Aplicada, botão "Aplicar" com confirmação explícita do usuário antes de executar, toast confirmando o resultado. Maior gap real do produto — hoje toda IA é só leitura.
+- [ ] **🎥 Adicionar controle de campanha Meta (toggle pausar/ativar direto na linha da tabela)** — confirmado que é assim que o Criativivo faz (toggle inline, sem modal). Hoje só existe pro Google Ads no TrafficAI.
+- [ ] **🎥 Redesenhar a tabela de Campanhas** com as colunas confirmadas no vídeo deles (Objetivo, Status, Campanha, Data Início, Resultados, CPR, ROAS, Gasto) + ordenação, período, ações em massa.
 - [ ] **Resolver a colisão de nomenclatura Otimizações / Demandas / Agenda / Rotina** — hoje 3 itens de menu descrevem conceitos sobrepostos com nomes que não diferenciam o conteúdo. Decidir: renomear "Otimizações" pra refletir o que ela realmente é (agenda interna), e decidir se "Demandas" (board) deveria estar embutido ali ou permanecer separado.
-- [ ] **Adicionar controle de campanha Meta (pausar/ativar, ajustar orçamento) direto na tabela de Campanhas** — hoje só existe pro Google Ads. É a lacuna funcional mais visível do produto.
-- [ ] **Redesenhar a tabela de Campanhas**: adicionar colunas de métrica (gasto, CTR, ROAS, conversões), ordenação por coluna, seletor de período, ações em massa.
 - [ ] **Adicionar comparação com período anterior no Dashboard** — delta percentual visualmente destacado em cada KPI card, não só o número absoluto.
 - [ ] **Dashboard: seção "campanhas que precisam de atenção"** acima do fold, com base nos mesmos sinais que já alimentam os Alertas — hoje essa informação existe (Alertas) mas não aparece resumida no primeiro lugar que o usuário olha.
 - [ ] **Corrigir o bug de agrupamento de alertas de conta** (saldo baixo / pagamento falhou caem em "Sem conta" por falta de JOIN direto em `alerts.account_id`) — são os dois tipos de alerta mais críticos financeiramente.
@@ -18,8 +21,10 @@ Legenda: `[ ]` não iniciada · `[~]` em andamento · `[x]` concluída
 
 ## Próximo (P1) — grande impacto
 
-- [ ] **Transformar o diagnóstico de IA em ação clicável** ("Copiloto do Gestor de Tráfego" — ver seção dedicada abaixo). Primeiro passo realista: adicionar botão "Ver campanhas" / "Criar regra de automação a partir deste alerta" nos Alertas e no Insights IA, linkando pra telas que já existem, antes de dar ao agente permissão de executar ação real.
-- [ ] **Permissão de equipe por conta** — hoje é só admin/member. Adicionar ao menos "quais contas este membro pode ver", que é o bloqueio mais citado pra agências de porte médio+ fecharem plano maior.
+- [ ] **Conectar Alertas/Insights ao Copiloto**: botão "Ver campanhas" / "Perguntar ao Agente sobre isso" nos Alertas e no Insights IA, linkando pro `/agent` já com o contexto da campanha carregado.
+- [ ] **🎥 Permissão de equipe por funcionalidade** — trocar o admin/member binário por uma lista de capacidades individualmente ativáveis por membro (mesmo modelo confirmado no Criativivo: Gerenciar Campanhas Meta, Gerenciar Campanhas Google, Acesso ao Agente IA, Dados Compilados, Criativos, Métricas, Alerta de Saldo, Compartilhar Dashboard, CRM, Conexões WhatsApp — adaptar pra lista real de módulos do TrafficAI).
+- [ ] **🎥 Seletor "Nível de Conta" vs. "Nível de Campanha" na configuração de relatório WhatsApp** — hoje a separação por objetivo é automática (fix de backend); o Criativivo expõe como escolha explícita do usuário, com seleção de quais campanhas/métricas entram no nível de campanha.
+- [ ] **🎥 Prévia ao vivo no editor de template** (relatório WhatsApp e alerta de saldo) — mostrar o texto renderizado com dados reais da conta antes de salvar, não só o texto com `{placeholder}`.
 - [ ] **Log de auditoria básico** (quem mudou o quê, quando) — hoje não existe em lugar nenhum; risco real numa ferramenta multiusuário.
 - [ ] **Suporte a toque no Board (Kanban)** — hoje só funciona com mouse (drag-and-drop HTML5 nativo); adicionar fallback de toque ou pelo menos um menu de "mover pra coluna X" acessível por toque.
 - [ ] **Campo de responsável/dono nos cards do Board** — permitir visão "minhas tarefas".
@@ -42,6 +47,8 @@ Legenda: `[ ]` não iniciada · `[~]` em andamento · `[x]` concluída
 - [ ] **Consolidar a lógica de classificação de objetivo** (`AWARENESS_OBJECTIVES`/`TRAFFIC_OBJECTIVES`/`MESSAGE_OBJECTIVES` está duplicada em pelo menos 2 arquivos backend) num módulo compartilhado — evita as duas listas saírem de sincronia no futuro.
 - [ ] **Corrigir o texto de estado vazio do Onboarding** ("48 tarefas" → "54 tarefas").
 - [ ] **Preview renderizado nos Templates** (hoje só texto puro com variáveis, sem simular como fica com dados reais) + indicar quais contas usam cada template antes de editar.
+- [ ] **🎥 Reorganizar `TEMPLATE_VARIABLES` em categorias pesquisáveis** (Meta/Google × tipo de métrica), como o seletor de variável visto no Criativivo — hoje é uma lista fixa sem busca nem agrupamento.
+- [ ] **🎥 Agendamento por dia da semana + horário no Alerta de Saldo**, e um botão "Testar Alerta" antes de ativar de verdade.
 
 ## Futuro (P3) — polimento
 
