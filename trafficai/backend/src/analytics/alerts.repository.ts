@@ -53,7 +53,7 @@ export class AlertsRepository {
         return query<Alert>(
             `SELECT a.*, c.name as campaign_name, acc.account_name FROM alerts a
        LEFT JOIN campaigns c ON a.campaign_id = c.id
-       LEFT JOIN ad_accounts acc ON c.account_id = acc.id
+       LEFT JOIN ad_accounts acc ON acc.id = COALESCE(c.account_id, a.account_id)
        WHERE a.user_id = $1
          AND (acc.id IS NULL OR acc.is_client_active = true)
        ORDER BY a.created_at DESC
@@ -66,7 +66,7 @@ export class AlertsRepository {
         return query<Alert>(
             `SELECT a.*, c.name as campaign_name, acc.account_name FROM alerts a
        LEFT JOIN campaigns c ON a.campaign_id = c.id
-       LEFT JOIN ad_accounts acc ON c.account_id = acc.id
+       LEFT JOIN ad_accounts acc ON acc.id = COALESCE(c.account_id, a.account_id)
        WHERE a.user_id = $1 AND a.is_read = FALSE
          AND (acc.id IS NULL OR acc.is_client_active = true)
        ORDER BY a.created_at DESC`,
@@ -86,7 +86,7 @@ export class AlertsRepository {
         const row = await queryOne<{ count: string }>(
             `SELECT COUNT(*) as count FROM alerts a
              LEFT JOIN campaigns c ON a.campaign_id = c.id
-             LEFT JOIN ad_accounts acc ON c.account_id = acc.id
+             LEFT JOIN ad_accounts acc ON acc.id = COALESCE(c.account_id, a.account_id)
              WHERE a.user_id = $1 AND a.is_read = FALSE
                AND (acc.id IS NULL OR acc.is_client_active = true)`,
             [userId]

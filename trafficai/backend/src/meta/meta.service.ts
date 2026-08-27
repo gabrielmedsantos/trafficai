@@ -177,6 +177,38 @@ export class MetaService {
     }
 
     /**
+     * Pausa/ativa uma campanha no Meta. Usado pela tabela de Campanhas (toggle),
+     * pela Automação (SE/ENTÃO) e pelo Agente de IA (ação sugerida aplicada).
+     * Única função que muda status de campanha no Meta — não duplicar em outro arquivo.
+     */
+    async setCampaignStatus(userId: string, accessToken: string, metaCampaignId: string, status: 'PAUSED' | 'ACTIVE'): Promise<void> {
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            try {
+                const client = this.createClient(accessToken);
+                await client.post(`/${metaCampaignId}`, null, { params: { status } });
+            } catch (error: any) {
+                this.handleMetaError(error);
+            }
+        });
+    }
+
+    /**
+     * Ajusta o orçamento diário de uma campanha no Meta (valor em reais, convertido
+     * pra centavos como a API exige). Usado pelo Agente de IA (ação sugerida aplicada).
+     */
+    async setCampaignDailyBudget(userId: string, accessToken: string, metaCampaignId: string, dailyBudgetReais: number): Promise<void> {
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            try {
+                const client = this.createClient(accessToken);
+                const cents = Math.round(dailyBudgetReais * 100);
+                await client.post(`/${metaCampaignId}`, null, { params: { daily_budget: cents } });
+            } catch (error: any) {
+                this.handleMetaError(error);
+            }
+        });
+    }
+
+    /**
      * Top ads da conta ordenados por spend nos últimos N dias.
      * Retorna cada ad com stats agregadas + thumbnail + video_id (se houver).
      * Usado pela análise de Top Criativos com IA.

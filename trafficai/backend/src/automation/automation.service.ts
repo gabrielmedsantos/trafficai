@@ -2,9 +2,9 @@
 // Automation Service — avalia regras SE/ENTÃO e executa ações
 // ==============================
 
-import axios from 'axios';
 import { query } from '../database/connection';
 import { authRepository } from '../auth/auth.repository';
+import { metaService } from '../meta/meta.service';
 import { logger } from '../shared/logger';
 import { dailyWhatsAppService } from '../reports/daily-whatsapp.service';
 
@@ -49,14 +49,10 @@ async function metaCampaignAction(userId: string, campaignMetaId: string, newSta
     const user = await authRepository.findById(userId);
     if (!user?.access_token) return { ok: false, error: 'sem access token' };
     try {
-        await axios.post(
-            `https://graph.facebook.com/v21.0/${campaignMetaId}`,
-            null,
-            { params: { status: newStatus, access_token: user.access_token }, timeout: 20000 },
-        );
+        await metaService.setCampaignStatus(userId, user.access_token, campaignMetaId, newStatus);
         return { ok: true };
     } catch (e: any) {
-        return { ok: false, error: e.response?.data?.error?.message || e.message };
+        return { ok: false, error: e.message };
     }
 }
 

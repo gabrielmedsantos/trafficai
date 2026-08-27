@@ -49,12 +49,46 @@ router.get('/ad-accounts', async (req: Request, res: Response, next: NextFunctio
 router.get('/campaigns', async (req: Request, res: Response, next: NextFunction) => {
     try {
         const userId = req.user!.userId;
-        const { account_id, live } = req.query;
+        const { account_id, live, since, until } = req.query;
 
         // Force fetch from Meta (live)
         if (account_id && live === 'true') {
             const accessToken = await getAccessToken(userId);
             const campaigns = await metaService.getCampaigns(userId, accessToken, account_id as string);
+            return res.json({ success: true, data: campaigns });
+        }
+
+        // Com período: campanhas + métricas agregadas (tabela de Campanhas)
+        if (since && until) {
+            const rows = account_id
+                ? await metaRepository.getCampaignsByAccountWithMetrics(account_id as string, since as string, until as string)
+                : await metaRepository.getCampaignsByUserWithMetrics(userId, since as string, until as string);
+
+            const campaigns = rows.map((c: any) => {
+                const mergedActions = new Map<string, number>();
+                for (const dayActions of (c.actions_by_day || [])) {
+                    const acts: any[] = Array.isArray(dayActions) ? dayActions : [];
+                    for (const a of acts) {
+                        const v = parseInt(a.value || '0', 10);
+                        mergedActions.set(a.action_type, (mergedActions.get(a.action_type) || 0) + v);
+                    }
+                }
+                const actionsArr = Array.from(mergedActions.entries()).map(([action_type, value]) => ({ action_type, value: String(value) }));
+                const { count, label } = metaService.extractPrimaryAction(actionsArr, c.objective, c.optimization_goal);
+                const spend = Number(c.spend) || 0;
+                return {
+                    ...c,
+                    spend,
+                    impressions: Number(c.impressions) || 0,
+                    clicks: Number(c.clicks) || 0,
+                    roas: c.roas != null ? Number(c.roas) : 0,
+                    results: count,
+                    result_label: label,
+                    cost_per_result: count > 0 ? spend / count : 0,
+                    actions_by_day: undefined,
+                };
+            });
+
             return res.json({ success: true, data: campaigns });
         }
 
@@ -67,6 +101,32 @@ router.get('/campaigns', async (req: Request, res: Response, next: NextFunction)
         }
 
         res.json({ success: true, data: campaigns });
+    } catch (err) {
+        next(err);
+    }
+});
+
+/**
+ * PATCH /meta/campaigns/:id/status — pausa/ativa uma campanha no Meta.
+ * Usado pelo toggle na tabela de Campanhas, pela Automação e pelo Agente de IA.
+ */
+router.patch('/campaigns/:id/status', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user!.userId;
+        const { id } = req.params;
+        const { status } = req.body as { status: 'ACTIVE' | 'PAUSED' };
+        if (status !== 'ACTIVE' && status !== 'PAUSED') {
+            throw new AppError('status deve ser ACTIVE ou PAUSED', 400);
+        }
+
+        const campaign = await metaRepository.getCampaignById(id);
+        if (!campaign) throw new AppError('Campanha não encontrada', 404);
+
+        const accessToken = await getAccessToken(userId);
+        await metaService.setCampaignStatus(userId, accessToken, campaign.meta_campaign_id, status);
+        await query('UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
+
+        res.json({ success: true, data: { id, status } });
     } catch (err) {
         next(err);
     }

@@ -166,6 +166,47 @@ export class MetaRepository {
         return queryOne<Campaign>('SELECT * FROM campaigns WHERE id = $1', [campaignId]);
     }
 
+    /**
+     * Mesmo shape de getCampaignsByAccount/getCampaignsByUser, mas com métricas do
+     * período agregadas (gasto, impressões, cliques, ROAS médio, actions cru pra
+     * detecção de resultado primário). Usado pela tabela de Campanhas.
+     */
+    async getCampaignsByAccountWithMetrics(accountId: string, since: string, until: string): Promise<any[]> {
+        return query<any>(
+            `SELECT c.*, a.account_name, a.meta_account_id,
+                    COALESCE(SUM(ih.spend), 0) AS spend,
+                    COALESCE(SUM(ih.impressions), 0) AS impressions,
+                    COALESCE(SUM(ih.clicks), 0) AS clicks,
+                    AVG(NULLIF(ih.roas, 0)) AS roas,
+                    COALESCE(array_agg(ih.actions) FILTER (WHERE ih.actions IS NOT NULL), '{}') AS actions_by_day
+             FROM campaigns c
+             JOIN ad_accounts a ON c.account_id = a.id
+             LEFT JOIN insights_history ih ON ih.campaign_id = c.id AND ih.date >= $2 AND ih.date <= $3
+             WHERE c.account_id = $1
+             GROUP BY c.id, a.account_name, a.meta_account_id
+             ORDER BY spend DESC, c.name`,
+            [accountId, since, until]
+        );
+    }
+
+    async getCampaignsByUserWithMetrics(userId: string, since: string, until: string): Promise<any[]> {
+        return query<any>(
+            `SELECT c.*, a.account_name, a.meta_account_id,
+                    COALESCE(SUM(ih.spend), 0) AS spend,
+                    COALESCE(SUM(ih.impressions), 0) AS impressions,
+                    COALESCE(SUM(ih.clicks), 0) AS clicks,
+                    AVG(NULLIF(ih.roas, 0)) AS roas,
+                    COALESCE(array_agg(ih.actions) FILTER (WHERE ih.actions IS NOT NULL), '{}') AS actions_by_day
+             FROM campaigns c
+             JOIN ad_accounts a ON c.account_id = a.id
+             LEFT JOIN insights_history ih ON ih.campaign_id = c.id AND ih.date >= $2 AND ih.date <= $3
+             WHERE a.user_id = $1 AND a.is_client_active = true
+             GROUP BY c.id, a.account_name, a.meta_account_id
+             ORDER BY spend DESC, a.account_name, c.name`,
+            [userId, since, until]
+        );
+    }
+
     // ---- Insights ----
 
     async upsertInsight(insight: InsightRecord): Promise<void> {

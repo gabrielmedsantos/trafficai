@@ -160,9 +160,17 @@ class ApiClient {
         return this.request<{ synced: number; message: string }>('POST', '/meta/accounts/sync-balances');
     }
 
-    async getCampaigns(accountId?: string) {
-        const query = accountId ? `?account_id=${accountId}` : '';
-        return this.request<any[]>('GET', `/meta/campaigns${query}`);
+    async getCampaigns(accountId?: string, since?: string, until?: string) {
+        const params = new URLSearchParams();
+        if (accountId) params.set('account_id', accountId);
+        if (since) params.set('since', since);
+        if (until) params.set('until', until);
+        const qs = params.toString();
+        return this.request<any[]>('GET', `/meta/campaigns${qs ? `?${qs}` : ''}`);
+    }
+
+    async setCampaignStatus(campaignId: string, status: 'ACTIVE' | 'PAUSED') {
+        return this.request<{ id: string; status: string }>('PATCH', `/meta/campaigns/${campaignId}/status`, { status });
     }
 
     async getInsights(campaignId: string, limit = 10000, since?: string, until?: string) {
