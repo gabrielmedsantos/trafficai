@@ -54,7 +54,7 @@ const AREAS = [
                 items: [
                     { href: '/agenda',       label: 'Agenda',          icon: CalendarDays },
                     { href: '/rotina',       label: 'Rotina',          icon: CalendarDays },
-                    { href: '/otimizacoes',  label: 'Otimizações',     icon: ClipboardList },
+                    { href: '/otimizacoes',  label: 'Fluxo Semanal',     icon: ClipboardList },
                     { href: '/onboarding',   label: 'Onboarding',      icon: ClipboardCheck, showOnboardingBadge: true },
                     { href: '/calendar',     label: 'Google Calendar', icon: CalendarDays },
                 ],
