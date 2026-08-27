@@ -31,6 +31,9 @@ interface AccountWithSettings {
     // approval workflow
     owner_whatsapp: string | null;
     daily_report_approval_required: boolean | null;
+    // 'auto' (default) = mostra detalhamento por objetivo só quando há mais de 1;
+    // 'account' = sempre agregado (nível de conta); 'campaign' = sempre detalhado.
+    report_level?: 'auto' | 'account' | 'campaign' | null;
 }
 
 // ─── Template variables disponíveis ────────────────────────────────────────
@@ -221,10 +224,14 @@ interface TemplateMetrics {
     objective_breakdown?: { label: string; count: number; spend: number; cost_per: number }[];
 }
 
-/** Lista "• Label: N · R$ X/label" por objetivo — só retorna algo quando há mais de
- *  um resultado diferente no período (senão o {today_leads} normal já basta). */
-function formatBreakdownBlock(groups: TemplateMetrics['objective_breakdown']): string {
-    if (!groups || groups.length <= 1) return '';
+/** Lista "• Label: N · R$ X/label" por objetivo.
+ *  level 'auto' (default): só mostra quando há mais de 1 objetivo no período.
+ *  level 'account': nunca mostra (nível de conta — número agregado único).
+ *  level 'campaign': sempre mostra, mesmo com 1 objetivo só. */
+function formatBreakdownBlock(groups: TemplateMetrics['objective_breakdown'], level: 'auto' | 'account' | 'campaign' = 'auto'): string {
+    if (level === 'account') return '';
+    if (!groups || groups.length === 0) return '';
+    if (level === 'auto' && groups.length <= 1) return '';
     const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const lines = groups.map(g => {
         const singular = g.label.replace(/s$/, '').toLowerCase();
@@ -246,7 +253,9 @@ export function buildTemplateVars(data: {
     topAds7d?: AdRankRow[];
     reportLink?: string;
     reportLink7d?: string;
+    reportLevel?: 'auto' | 'account' | 'campaign' | null;
 }): Record<string, string | number> {
+    const level = data.reportLevel || 'auto';
     const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const fmtNum = (v: number) => v.toLocaleString('pt-BR');
     const todaySingular = data.today.metrics.leads === 1 ? data.today.metrics.primary_action_label.replace(/s$/, '') : data.today.metrics.primary_action_label;
@@ -262,7 +271,7 @@ export function buildTemplateVars(data: {
         today_cpl: fmtBRL(data.today.metrics.cost_per_lead),
         today_action_label: todaySingular,
         today_action_label_singular: data.today.metrics.primary_action_label.replace(/s$/, ''),
-        today_breakdown_block: formatBreakdownBlock(data.today.metrics.objective_breakdown),
+        today_breakdown_block: formatBreakdownBlock(data.today.metrics.objective_breakdown, level),
         // Last 7 days
         last7_label: data.last7d.label,
         last7_spend: fmtBRL(data.last7d.metrics.spend),
@@ -270,7 +279,7 @@ export function buildTemplateVars(data: {
         last7_leads: fmtNum(data.last7d.metrics.leads),
         last7_cpl: fmtBRL(data.last7d.metrics.cost_per_lead),
         last7_action_label: data.last7d.metrics.primary_action_label,
-        last7_breakdown_block: formatBreakdownBlock(data.last7d.metrics.objective_breakdown),
+        last7_breakdown_block: formatBreakdownBlock(data.last7d.metrics.objective_breakdown, level),
         // Month
         month_label: data.month.label,
         month_spend: fmtBRL(data.month.metrics.spend),
@@ -278,7 +287,7 @@ export function buildTemplateVars(data: {
         month_leads: fmtNum(data.month.metrics.leads),
         month_cpl: fmtBRL(data.month.metrics.cost_per_lead),
         month_action_label: data.month.metrics.primary_action_label,
-        month_breakdown_block: formatBreakdownBlock(data.month.metrics.objective_breakdown),
+        month_breakdown_block: formatBreakdownBlock(data.month.metrics.objective_breakdown, level),
         // Active ads
         active_ads: data.activeAds,
         // Top criativos
@@ -356,7 +365,7 @@ export class DailyWhatsAppService {
                     a.id, a.user_id, a.account_name, a.meta_account_id,
                     rs.client_name, rs.client_phone,
                     rs.daily_whatsapp_template,
-                    rs.report_template,
+                    rs.report_template, rs.report_level,
                     ns.whatsapp_provider,
                     ns.uazapi_url, ns.uazapi_token,
                     ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
@@ -417,7 +426,7 @@ export class DailyWhatsAppService {
                 a.id, a.user_id, a.account_name, a.meta_account_id,
                 rs.client_name, rs.client_phone,
                 rs.daily_whatsapp_template,
-                    rs.report_template,
+                    rs.report_template, rs.report_level,
                 ns.whatsapp_provider,
                 ns.uazapi_url, ns.uazapi_token,
                 ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
@@ -460,7 +469,7 @@ export class DailyWhatsAppService {
                     a.id, a.user_id, a.account_name, a.meta_account_id,
                     rs.client_name, rs.client_phone,
                     rs.daily_whatsapp_template,
-                    rs.report_template,
+                    rs.report_template, rs.report_level,
                     ns.whatsapp_provider,
                     ns.uazapi_url, ns.uazapi_token,
                     ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,
@@ -770,6 +779,7 @@ export class DailyWhatsAppService {
             topAds7d: data.topAds7d,
             reportLink: data.reportLink,
             reportLink7d: data.reportLink7d,
+            reportLevel: acc.report_level,
         });
 
         return renderTemplate(template, vars);
@@ -866,7 +876,7 @@ export class DailyWhatsAppService {
             SELECT
                 a.id, a.user_id, a.account_name, a.meta_account_id,
                 rs.client_name, rs.client_phone,
-                rs.daily_whatsapp_template, rs.report_template,
+                rs.daily_whatsapp_template, rs.report_template, rs.report_level,
                 ns.whatsapp_provider,
                 ns.uazapi_url, ns.uazapi_token,
                 ns.evolution_api_url, ns.evolution_api_key, ns.evolution_instance,

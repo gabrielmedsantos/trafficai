@@ -28,6 +28,7 @@ interface Settings {
     daily_whatsapp_time: string;
     daily_whatsapp_last_sent_date: string | null;
     daily_whatsapp_template: string | null;
+    report_level: 'auto' | 'account' | 'campaign';
     effective_template: string;
     default_template: string;
 }
@@ -268,6 +269,7 @@ function SettingsDrawer({ account, variables, onClose, onSaved }: {
     const [time, setTime] = useState('11:15');
     const [template, setTemplate] = useState<string>('');
     const [usingDefault, setUsingDefault] = useState(true);
+    const [reportLevel, setReportLevel] = useState<'auto' | 'account' | 'campaign'>('auto');
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -287,6 +289,7 @@ function SettingsDrawer({ account, variables, onClose, onSaved }: {
                 setTime(s.daily_whatsapp_time);
                 setTemplate(s.effective_template);
                 setUsingDefault(!s.daily_whatsapp_template);
+                setReportLevel(s.report_level || 'auto');
             })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
@@ -297,13 +300,13 @@ function SettingsDrawer({ account, variables, onClose, onSaved }: {
         if (tab !== 'preview' || !settings) return;
         const t = setTimeout(() => {
             setLoadingPreview(true);
-            api.previewWhatsappReport(account.account_id, template)
+            api.previewWhatsappReport(account.account_id, template, reportLevel)
                 .then(r => setPreview(r.preview))
                 .catch(() => setPreview('Erro ao gerar preview'))
                 .finally(() => setLoadingPreview(false));
         }, 400);
         return () => clearTimeout(t);
-    }, [tab, template, account.account_id, settings]);
+    }, [tab, template, reportLevel, account.account_id, settings]);
 
     async function save() {
         setSaving(true); setFeedback(null);
@@ -314,6 +317,7 @@ function SettingsDrawer({ account, variables, onClose, onSaved }: {
                 daily_whatsapp_time: time,
                 // Se template é igual ao default, salva null (volta a usar default)
                 daily_whatsapp_template: usingDefault ? null : template,
+                report_level: reportLevel,
             });
             setFeedback({ ok: true, msg: 'Salvo' });
             setTimeout(() => onSaved(), 600);
@@ -453,6 +457,38 @@ function SettingsDrawer({ account, variables, onClose, onSaved }: {
                                         />
                                         <span style={hintSt}>
                                             Equivalente: <strong>{utcToBrtLabel(time)} BRT</strong>. O worker checa a cada 15min — use múltiplos de 15.
+                                        </span>
+                                    </div>
+
+                                    {/* Nível do relatório */}
+                                    <div>
+                                        <label style={labelSt}>Nível do relatório</label>
+                                        <div style={{ display: 'flex', gap: 6 }}>
+                                            {([
+                                                { v: 'auto', l: 'Automático' },
+                                                { v: 'account', l: 'Nível de Conta' },
+                                                { v: 'campaign', l: 'Nível de Campanha' },
+                                            ] as const).map(opt => (
+                                                <button
+                                                    key={opt.v}
+                                                    type="button"
+                                                    onClick={() => setReportLevel(opt.v)}
+                                                    style={{
+                                                        flex: 1, padding: '8px 10px', fontSize: 12.5, fontWeight: 600,
+                                                        borderRadius: 8, cursor: 'pointer',
+                                                        color: reportLevel === opt.v ? '#fff' : 'var(--text-muted)',
+                                                        background: reportLevel === opt.v ? 'var(--primary)' : 'var(--bg-surface-2)',
+                                                        border: `1px solid ${reportLevel === opt.v ? 'var(--primary)' : 'var(--border)'}`,
+                                                    }}
+                                                >
+                                                    {opt.l}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <span style={hintSt}>
+                                            {reportLevel === 'auto' && 'Mostra o detalhamento por objetivo (ex: Conversas x Visitas ao perfil) só quando a conta tem mais de um no período — comportamento atual.'}
+                                            {reportLevel === 'account' && 'Sempre um número agregado só, sem detalhar por objetivo/campanha, mesmo que a conta rode mais de um tipo de campanha.'}
+                                            {reportLevel === 'campaign' && 'Sempre mostra o detalhamento por objetivo, mesmo quando só há um no período.'}
                                         </span>
                                     </div>
 

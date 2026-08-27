@@ -507,6 +507,7 @@ class ApiClient {
             daily_whatsapp_time: string;
             daily_whatsapp_last_sent_date: string | null;
             daily_whatsapp_template: string | null;
+            report_level: 'auto' | 'account' | 'campaign';
             effective_template: string;
             default_template: string;
         }>('GET', `/reports/whatsapp/settings/${accountId}`);
@@ -517,12 +518,16 @@ class ApiClient {
         daily_whatsapp_enabled?: boolean;
         daily_whatsapp_time?: string;
         daily_whatsapp_template?: string | null;
+        report_level?: 'auto' | 'account' | 'campaign';
     }) {
         return this.request<any>('PUT', `/reports/whatsapp/settings/${accountId}`, payload);
     }
-    async previewWhatsappReport(accountId: string, template?: string) {
+    async previewWhatsappReport(accountId: string, template?: string, reportLevel?: 'auto' | 'account' | 'campaign') {
         return this.request<{ preview: string; vars_used: Record<string, string> }>(
-            'POST', `/reports/whatsapp/preview/${accountId}`, template !== undefined ? { template } : {}
+            'POST', `/reports/whatsapp/preview/${accountId}`, {
+                ...(template !== undefined ? { template } : {}),
+                ...(reportLevel !== undefined ? { report_level: reportLevel } : {}),
+            }
         );
     }
     async sendWhatsappReportNow(accountId: string) {

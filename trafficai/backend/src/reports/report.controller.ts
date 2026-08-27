@@ -634,7 +634,8 @@ router.get('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
                 rs.daily_whatsapp_enabled,
                 COALESCE(rs.daily_whatsapp_time, '11:15') AS daily_whatsapp_time,
                 rs.daily_whatsapp_last_sent_date,
-                rs.daily_whatsapp_template
+                rs.daily_whatsapp_template,
+                COALESCE(rs.report_level, 'auto') AS report_level
              FROM report_settings rs
              WHERE rs.account_id = $1`,
             [accountId]
@@ -648,6 +649,7 @@ router.get('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
             daily_whatsapp_time: '11:15',
             daily_whatsapp_last_sent_date: null,
             daily_whatsapp_template: null,
+            report_level: 'auto',
         };
 
         res.json({
@@ -671,7 +673,7 @@ router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
     try {
         const userId = (req as any).user.userId;
         const { accountId } = req.params;
-        const { client_name, client_phone, daily_whatsapp_enabled, daily_whatsapp_time, daily_whatsapp_template } = req.body;
+        const { client_name, client_phone, daily_whatsapp_enabled, daily_whatsapp_time, daily_whatsapp_template, report_level } = req.body;
 
         // Ownership
         const own = await query<any>(
@@ -686,6 +688,9 @@ router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
                 return res.status(400).json({ success: false, error: { message: 'Horário inválido. Use HH:MM (24h, UTC).' } });
             }
         }
+        if (report_level !== undefined && !['auto', 'account', 'campaign'].includes(report_level)) {
+            return res.status(400).json({ success: false, error: { message: 'report_level deve ser auto, account ou campaign' } });
+        }
 
         // Upsert
         const exists = await query<any>(`SELECT id FROM report_settings WHERE account_id = $1`, [accountId]);
@@ -693,8 +698,8 @@ router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
         if (exists.length === 0) {
             await query(
                 `INSERT INTO report_settings
-                 (user_id, account_id, client_name, client_phone, daily_whatsapp_enabled, daily_whatsapp_time, daily_whatsapp_template)
-                 VALUES ($1, $2, $3, $4, COALESCE($5, false), COALESCE($6, '11:15'), $7)`,
+                 (user_id, account_id, client_name, client_phone, daily_whatsapp_enabled, daily_whatsapp_time, daily_whatsapp_template, report_level)
+                 VALUES ($1, $2, $3, $4, COALESCE($5, false), COALESCE($6, '11:15'), $7, COALESCE($8, 'auto'))`,
                 [
                     userId, accountId,
                     client_name ?? null,
@@ -703,6 +708,7 @@ router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
                     daily_whatsapp_time,
                     // null explícito limpa o template
                     daily_whatsapp_template === undefined ? null : daily_whatsapp_template,
+                    report_level,
                 ]
             );
         } else {
@@ -714,6 +720,7 @@ router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
             if (daily_whatsapp_enabled !== undefined)  { fields.push(`daily_whatsapp_enabled = $${idx++}`); params.push(Boolean(daily_whatsapp_enabled)); }
             if (daily_whatsapp_time !== undefined)     { fields.push(`daily_whatsapp_time = $${idx++}`); params.push(daily_whatsapp_time); }
             if (daily_whatsapp_template !== undefined) { fields.push(`daily_whatsapp_template = $${idx++}`); params.push(daily_whatsapp_template); }
+            if (report_level !== undefined)            { fields.push(`report_level = $${idx++}`); params.push(report_level); }
             if (fields.length === 0) {
                 return res.status(400).json({ success: false, error: { message: 'Nada para atualizar' } });
             }
@@ -729,7 +736,8 @@ router.put('/whatsapp/settings/:accountId', async (req: Request, res: Response) 
             `SELECT id, account_id, client_name, client_phone,
                     daily_whatsapp_enabled,
                     COALESCE(daily_whatsapp_time, '11:15') AS daily_whatsapp_time,
-                    daily_whatsapp_template
+                    daily_whatsapp_template,
+                    COALESCE(report_level, 'auto') AS report_level
              FROM report_settings WHERE account_id = $1`,
             [accountId]
         );
@@ -758,7 +766,7 @@ router.post('/whatsapp/preview/:accountId', async (req: Request, res: Response) 
         const { accountId } = req.params;
 
         const acc = await query<any>(
-            `SELECT a.account_name, rs.client_name, rs.daily_whatsapp_template
+            `SELECT a.account_name, rs.client_name, rs.daily_whatsapp_template, rs.report_level
              FROM ad_accounts a
              LEFT JOIN report_settings rs ON rs.account_id = a.id
              WHERE a.id = $1 AND a.user_id = $2`,
@@ -770,7 +778,18 @@ router.post('/whatsapp/preview/:accountId', async (req: Request, res: Response) 
             ? req.body.template
             : (acc[0].daily_whatsapp_template || getDefaultTemplate());
 
+        const reportLevel = ['auto', 'account', 'campaign'].includes(req.body?.report_level)
+            ? req.body.report_level
+            : (acc[0].report_level || 'auto');
+
         const clientName = acc[0].client_name || acc[0].account_name || 'Cliente';
+
+        // Amostra de detalhamento por objetivo — pra preview mostrar como fica
+        // o {X_breakdown_block} nos níveis 'auto' (2+ objetivos) e 'campaign'.
+        const sampleBreakdown = [
+            { label: 'Conversas iniciadas', count: 18, spend: 640.20, cost_per: 35.57 },
+            { label: 'Visitas ao perfil', count: 9, spend: 594.36, cost_per: 66.04 },
+        ];
 
         // Dados de exemplo realistas
         const sampleAds = [
@@ -783,12 +802,13 @@ router.post('/whatsapp/preview/:accountId', async (req: Request, res: Response) 
         const sampleVars = buildTemplateVars({
             client_name: clientName,
             greeting: 'Bom dia',
-            today:  { metrics: { spend: 1234.56, impressions: 12345, leads: 23, cost_per_lead: 53.67, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 23 } as any, label: '28/06' },
-            last7d: { metrics: { spend: 8500.00, impressions: 85300, leads: 142, cost_per_lead: 59.86, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 142 } as any, label: '22/06 a 28/06' },
-            month:  { metrics: { spend: 24180.00, impressions: 320500, leads: 412, cost_per_lead: 58.69, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 412 } as any, label: '01/06 a 28/06' },
+            today:  { metrics: { spend: 1234.56, impressions: 12345, leads: 23, cost_per_lead: 53.67, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 23, objective_breakdown: sampleBreakdown } as any, label: '28/06' },
+            last7d: { metrics: { spend: 8500.00, impressions: 85300, leads: 142, cost_per_lead: 59.86, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 142, objective_breakdown: sampleBreakdown } as any, label: '22/06 a 28/06' },
+            month:  { metrics: { spend: 24180.00, impressions: 320500, leads: 412, cost_per_lead: 58.69, primary_action_label: 'leads', ctr: 0, cpc: 0, cpm: 0, roas: 0, conversions: 412, objective_breakdown: sampleBreakdown } as any, label: '01/06 a 28/06' },
             activeAds: 8,
             topAdsToday: sampleAds,
             topAds7d: sampleAds,
+            reportLevel,
         });
 
         const rendered = renderTemplate(template, sampleVars);
