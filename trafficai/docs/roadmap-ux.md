@@ -28,10 +28,10 @@ Legenda: `[ ]` não iniciada · `[~]` em andamento · `[x]` concluída
 - [x] **Log de auditoria básico** (quem mudou o quê, quando) — tabela `audit_log` + `recordAudit()` chamado nos pontos de mutação real: pausar/ativar campanha Meta/Google, sugestão do Agente IA aplicada, criar/editar/remover membro do time. Tela `/audit-log` (admin-only) com filtro por ação. *(27/08 — escopo ficou nas ações que já são as mais sensíveis de uma ferramenta multiusuário; não cobre toda mutação do sistema, ex: mudanças de configuração de relatório/financeiro)*
 - [ ] **Suporte a toque no Board (Kanban)** — hoje só funciona com mouse (drag-and-drop HTML5 nativo); adicionar fallback de toque ou pelo menos um menu de "mover pra coluna X" acessível por toque.
 - [ ] **Campo de responsável/dono nos cards do Board** — permitir visão "minhas tarefas".
-- [ ] **Busca com debounce em Clientes** — hoje dispara 3–4 chamadas de API por tecla digitada.
-- [ ] **Carregar as abas do drawer de Clientes sob demanda**, não todas de uma vez ao abrir a linha.
-- [ ] **Padronizar badges de status** (Contas usa cor inline, resto do app usa classes `badge-*`) — inconsistência visual na tela mais usada do produto.
-- [ ] **Busca na lista principal de Contas** (hoje só existe dentro do modal de gerenciamento em massa).
+- [x] **Busca com debounce em Clientes** — 350ms de debounce antes de disparar a busca. *(27/08)*
+- [x] **Carregar as abas do drawer de Clientes sob demanda**, não todas de uma vez ao abrir a linha. *(27/08)*
+- [x] **Padronizar badges de status** (Contas usa cor inline, resto do app usa classes `badge-*`) — inconsistência visual na tela mais usada do produto. *(27/08)*
+- [x] **Busca na lista principal de Contas** (hoje só existe dentro do modal de gerenciamento em massa). *(27/08)*
 - [ ] **Revisar a proposta de CRM editável** (mover lead de etapa / reatribuir vendedor dentro do TrafficAI) vs. manter como camada de relatório sobre o Kommo — decisão de produto, não só de UI.
 
 ## Depois (P2) — melhoria importante
