@@ -4,8 +4,19 @@
 // ==============================
 
 import axios from 'axios';
+import { randomUUID } from 'crypto';
 import { metaRepository } from '../meta/meta.repository';
 import { Response } from 'express';
+
+export interface AgentSuggestion {
+    id: string;
+    campaign_id: string;
+    campaign_name: string;
+    action: 'pause' | 'activate' | 'set_budget';
+    current_value: string | number;
+    suggested_value: string | number;
+    reason: string;
+}
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_ORG_ID = process.env.OPENAI_ORG_ID || '';
@@ -33,6 +44,14 @@ Seu papel é ser o gestor de tráfego digital do usuário, respondendo como um p
 - Quando identificar problemas, explique o diagnóstico E o que fazer
 - Se o usuário pedir para analisar dados, use as ferramentas disponíveis
 - Responda sempre em português do Brasil
+
+## Ações concretas (propor_ajuste)
+Quando sua recomendação for uma ação específica e executável sobre UMA campanha
+(pausar, ativar, ou mudar o orçamento diário), não descreva só em texto — chame a
+ferramenta propor_ajuste pra essa campanha. Isso mostra pro usuário um cartão com
+"Atual → Sugerido" e um botão de aplicar; você NUNCA executa a ação sozinho, só
+propõe. Continue explicando o raciocínio em texto normalmente — a ferramenta é um
+complemento acionável ao diagnóstico, não um substituto da explicação.
 
 ## Avaliação de métricas Meta Ads
 | Métrica | Ruim | Regular | Bom | Excelente |
@@ -127,11 +146,77 @@ const AGENT_TOOLS = [
             },
         },
     },
+    {
+        type: 'function',
+        function: {
+            name: 'propor_ajuste',
+            description: 'Propõe pausar, ativar, ou mudar o orçamento diário de UMA campanha. NUNCA executa a ação — só registra uma sugestão que o usuário vê como um cartão "Atual → Sugerido" com botão de aplicar. Use sempre que a recomendação for uma ação concreta e executável, não só uma observação.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    campaign_id: { type: 'string', description: 'ID interno da campanha (UUID retornado por listar_campanhas)' },
+                    acao: { type: 'string', enum: ['pausar', 'ativar', 'ajustar_orcamento'], description: 'Ação sugerida' },
+                    orcamento_sugerido: { type: 'number', description: 'Novo orçamento diário em reais — obrigatório quando acao=ajustar_orcamento' },
+                    motivo: { type: 'string', description: 'Justificativa curta e concreta baseada nos dados já consultados (não invente número)' },
+                },
+                required: ['campaign_id', 'acao', 'motivo'],
+            },
+        },
+    },
 ];
 
 // ─── Tool Executor ─────────────────────────────────────────────────────────────
-async function executeTool(toolName: string, toolInput: Record<string, any>, userId: string): Promise<string> {
+interface ToolResult { text: string; suggestion?: AgentSuggestion }
+
+async function executeTool(toolName: string, toolInput: Record<string, any>, userId: string): Promise<string | ToolResult> {
     try {
+        if (toolName === 'propor_ajuste') {
+            const campaign = await metaRepository.getCampaignById(toolInput.campaign_id);
+            if (!campaign || (campaign as any).account_id == null) {
+                return { text: 'Campanha não encontrada.' };
+            }
+            // Segurança: a campanha precisa pertencer a uma conta do usuário atual.
+            const owned = await metaRepository.getCampaignsByUser(userId);
+            if (!owned.some((c: any) => c.id === campaign.id)) {
+                return { text: 'Essa campanha não pertence à conta deste usuário — sugestão descartada.' };
+            }
+
+            const acao = toolInput.acao;
+            let action: AgentSuggestion['action'];
+            let current_value: string | number;
+            let suggested_value: string | number;
+
+            if (acao === 'ajustar_orcamento') {
+                if (toolInput.orcamento_sugerido == null) return { text: 'orcamento_sugerido é obrigatório pra ajustar_orcamento.' };
+                action = 'set_budget';
+                current_value = Number((campaign as any).daily_budget) || 0;
+                suggested_value = Number(toolInput.orcamento_sugerido);
+            } else if (acao === 'pausar') {
+                action = 'pause';
+                current_value = (campaign as any).status;
+                suggested_value = 'PAUSED';
+            } else {
+                action = 'activate';
+                current_value = (campaign as any).status;
+                suggested_value = 'ACTIVE';
+            }
+
+            const suggestion: AgentSuggestion = {
+                id: randomUUID(),
+                campaign_id: campaign.id,
+                campaign_name: (campaign as any).name,
+                action,
+                current_value,
+                suggested_value,
+                reason: toolInput.motivo || '',
+            };
+
+            return {
+                text: `Sugestão registrada pro usuário revisar: ${acao} na campanha "${(campaign as any).name}". Ele vai ver um cartão com botão de aplicar — não foi executado automaticamente.`,
+                suggestion,
+            };
+        }
+
         if (toolName === 'listar_campanhas') {
             const campaigns = await metaRepository.getCampaignsByUser(userId);
             if (!campaigns.length) return 'Nenhuma campanha encontrada.';
@@ -336,12 +421,17 @@ export async function streamAgentChat(
                 let input: Record<string, any> = {};
                 try { input = JSON.parse(tc.arguments); } catch { /* uso com args vazios */ }
 
-                const result = await executeTool(tc.name, input, userId);
+                const raw = await executeTool(tc.name, input, userId);
+                const result: ToolResult = typeof raw === 'string' ? { text: raw } : raw;
+
+                if (result.suggestion) {
+                    res.write(`data: ${JSON.stringify({ type: 'suggestion', suggestion: result.suggestion })}\n\n`);
+                }
 
                 apiMessages.push({
                     role: 'tool',
                     tool_call_id: tc.id,
-                    content: result,
+                    content: result.text,
                 });
             }
         }

@@ -173,6 +173,10 @@ class ApiClient {
         return this.request<{ id: string; status: string }>('PATCH', `/meta/campaigns/${campaignId}/status`, { status });
     }
 
+    async applyAgentSuggestion(campaignId: string, action: 'pause' | 'activate' | 'set_budget', value?: number) {
+        return this.request<{ campaign_id: string; action: string }>('POST', '/ai/agent/apply-suggestion', { campaign_id: campaignId, action, value });
+    }
+
     async getInsights(campaignId: string, limit = 10000, since?: string, until?: string) {
         const params = new URLSearchParams({ campaign_id: campaignId, limit: String(limit) });
         if (since) params.set('since', since);

@@ -1,16 +1,41 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, Send, Loader2, Zap, ChevronDown, Trash2, Brain, Paperclip, X, FileSpreadsheet } from 'lucide-react';
+import { Bot, Send, Loader2, Zap, ChevronDown, Trash2, Brain, Paperclip, X, FileSpreadsheet, Check, XCircle } from 'lucide-react';
+import { api } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+interface Suggestion {
+    id: string;
+    campaign_id: string;
+    campaign_name: string;
+    action: 'pause' | 'activate' | 'set_budget';
+    current_value: string | number;
+    suggested_value: string | number;
+    reason: string;
+}
+
 interface Message {
     id: string;
     role: 'user' | 'assistant';
     content: string;
     thinking?: string;
     toolCalls?: string[];
+    suggestions?: Suggestion[];
     streaming?: boolean;
+}
+
+const ACTION_LABEL: Record<Suggestion['action'], string> = {
+    pause: 'Pausar campanha',
+    activate: 'Ativar campanha',
+    set_budget: 'Ajustar orçamento diário',
+};
+
+function fmtSuggestionValue(action: Suggestion['action'], v: string | number): string {
+    if (action === 'set_budget') return `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    if (v === 'ACTIVE') return 'Ativa';
+    if (v === 'PAUSED') return 'Pausada';
+    return String(v);
 }
 
 // ─── Suggested prompts ────────────────────────────────────────────────────────
@@ -45,6 +70,7 @@ export default function AgentPage() {
     const [loading, setLoading] = useState(false);
     const [showThinking, setShowThinking] = useState<Record<string, boolean>>({});
     const [csvFile, setCsvFile] = useState<{ name: string; content: string } | null>(null);
+    const [suggestionState, setSuggestionState] = useState<Record<string, 'pending' | 'applying' | 'applied' | 'dismissed' | 'error'>>({});
     const bottomRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -65,6 +91,25 @@ export default function AgentPage() {
         reader.readAsText(file, 'UTF-8');
         e.target.value = '';
     };
+
+    async function applySuggestion(s: Suggestion) {
+        setSuggestionState(prev => ({ ...prev, [s.id]: 'applying' }));
+        try {
+            await api.applyAgentSuggestion(
+                s.campaign_id,
+                s.action,
+                s.action === 'set_budget' ? Number(s.suggested_value) : undefined,
+            );
+            setSuggestionState(prev => ({ ...prev, [s.id]: 'applied' }));
+        } catch (err: any) {
+            setSuggestionState(prev => ({ ...prev, [s.id]: 'error' }));
+            alert('Erro ao aplicar: ' + err.message);
+        }
+    }
+
+    function dismissSuggestion(s: Suggestion) {
+        setSuggestionState(prev => ({ ...prev, [s.id]: 'dismissed' }));
+    }
 
     const send = useCallback(async (text: string) => {
         if (!text.trim() || loading) return;
@@ -147,6 +192,14 @@ export default function AgentPage() {
                                     ? { ...m, toolCalls: event.tools }
                                     : m
                             ));
+                        } else if (event.type === 'suggestion') {
+                            const s: Suggestion = event.suggestion;
+                            setMessages(prev => prev.map(m =>
+                                m.id === assistantId
+                                    ? { ...m, suggestions: [...(m.suggestions || []), s] }
+                                    : m
+                            ));
+                            setSuggestionState(prev => ({ ...prev, [s.id]: 'pending' }));
                         } else if (event.type === 'done') {
                             setMessages(prev => prev.map(m =>
                                 m.id === assistantId ? { ...m, streaming: false } : m
@@ -229,7 +282,7 @@ export default function AgentPage() {
                             Gestor de Tráfego IA
                         </h1>
                         <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                            Especialista em Meta Ads · Claude Opus 4.6
+                            Especialista em Meta Ads · com IA
                         </p>
                     </div>
                 </div>
@@ -394,6 +447,62 @@ export default function AgentPage() {
                                             </span>
                                         )}
                                     </div>
+
+                                    {/* Sugestões de ajuste (propor_ajuste) */}
+                                    {msg.suggestions && msg.suggestions.length > 0 && (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                            {msg.suggestions.map(s => {
+                                                const state = suggestionState[s.id] || 'pending';
+                                                return (
+                                                    <div key={s.id} style={{
+                                                        padding: '12px 14px', borderRadius: 10,
+                                                        background: 'var(--bg-card)',
+                                                        border: '1px solid var(--border)',
+                                                        borderLeft: `3px solid ${state === 'applied' ? '#22c55e' : state === 'dismissed' ? 'var(--border)' : '#8b5cf6'}`,
+                                                        fontSize: 13,
+                                                    }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                                                            <Zap size={13} color="#8b5cf6" />
+                                                            <span style={{ fontWeight: 600 }}>{ACTION_LABEL[s.action]}</span>
+                                                            <span style={{ color: 'var(--text-muted)' }}>· {s.campaign_name}</span>
+                                                        </div>
+                                                        <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>{s.reason}</div>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12.5 }}>
+                                                            <span style={{ color: 'var(--text-muted)' }}>Atual: <b style={{ color: 'var(--text-primary)' }}>{fmtSuggestionValue(s.action, s.current_value)}</b></span>
+                                                            <span style={{ color: 'var(--text-muted)' }}>→</span>
+                                                            <span style={{ color: 'var(--text-muted)' }}>Sugerido: <b style={{ color: '#8b5cf6' }}>{fmtSuggestionValue(s.action, s.suggested_value)}</b></span>
+                                                        </div>
+                                                        {state === 'applied' ? (
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#22c55e', fontWeight: 600 }}>
+                                                                <Check size={14} /> Aplicado
+                                                            </span>
+                                                        ) : state === 'dismissed' ? (
+                                                            <span style={{ color: 'var(--text-muted)' }}>Descartado</span>
+                                                        ) : (
+                                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                                <button
+                                                                    onClick={() => applySuggestion(s)}
+                                                                    disabled={state === 'applying'}
+                                                                    className="btn btn-sm"
+                                                                    style={{ background: '#8b5cf6', color: '#fff', border: 'none' }}
+                                                                >
+                                                                    {state === 'applying' ? <Loader2 size={13} className="spinning" /> : <Zap size={13} />}
+                                                                    {state === 'applying' ? 'Aplicando...' : 'Aplicar'}
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => dismissSuggestion(s)}
+                                                                    disabled={state === 'applying'}
+                                                                    className="btn btn-sm btn-secondary"
+                                                                >
+                                                                    <XCircle size={13} /> Descartar
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}
@@ -508,6 +617,7 @@ export default function AgentPage() {
             </div>
 
             <style>{`
+                .spinning { animation: spin 1s linear infinite; }
                 @keyframes spin { to { transform: rotate(360deg); } }
                 @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1); } }
             `}</style>

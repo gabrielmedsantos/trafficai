@@ -8,9 +8,12 @@ import { authMiddleware } from '../auth/auth.middleware';
 import { aiService } from './ai.service';
 import { aiRepository } from './ai.repository';
 import { streamAgentChat, ChatMessage } from './agent.service';
-import { ValidationError } from '../shared/errors';
+import { ValidationError, AppError } from '../shared/errors';
 import { consumeAiCredit } from './ai-credits.middleware';
 import { query } from '../database/connection';
+import { metaRepository } from '../meta/meta.repository';
+import { metaService } from '../meta/meta.service';
+import { authRepository } from '../auth/auth.repository';
 
 const router = Router();
 const upload = multer({
@@ -146,6 +149,50 @@ router.post('/chat', async (req: Request, res: Response) => {
     res.flushHeaders();
 
     await streamAgentChat(userId, messages, res);
+});
+
+/**
+ * POST /ai/agent/apply-suggestion — executa de verdade uma sugestão do Agente
+ * (pausar/ativar/mudar orçamento) depois que o usuário clicou em "Aplicar".
+ * Nunca chamado automaticamente pelo agente — só por ação explícita do usuário.
+ */
+router.post('/agent/apply-suggestion', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const userId = req.user!.userId;
+        const { campaign_id, action, value } = req.body as {
+            campaign_id: string;
+            action: 'pause' | 'activate' | 'set_budget';
+            value?: number;
+        };
+
+        if (!campaign_id || !['pause', 'activate', 'set_budget'].includes(action)) {
+            throw new ValidationError('campaign_id e action (pause|activate|set_budget) são obrigatórios');
+        }
+
+        const campaign = await metaRepository.getCampaignById(campaign_id);
+        if (!campaign) throw new AppError('Campanha não encontrada', 404);
+        const owned = await metaRepository.getCampaignsByUser(userId);
+        if (!owned.some((c: any) => c.id === campaign.id)) {
+            throw new AppError('Campanha não pertence a este usuário', 403);
+        }
+
+        const user = await authRepository.findById(userId);
+        if (!user?.access_token) throw new AppError('Conta Meta não conectada', 400);
+
+        if (action === 'set_budget') {
+            if (value == null) throw new ValidationError('value (orçamento em reais) é obrigatório pra set_budget');
+            await metaService.setCampaignDailyBudget(userId, user.access_token, campaign.meta_campaign_id, value);
+            await query('UPDATE campaigns SET daily_budget = $1, updated_at = NOW() WHERE id = $2', [value, campaign_id]);
+        } else {
+            const status = action === 'pause' ? 'PAUSED' : 'ACTIVE';
+            await metaService.setCampaignStatus(userId, user.access_token, campaign.meta_campaign_id, status);
+            await query('UPDATE campaigns SET status = $1, updated_at = NOW() WHERE id = $2', [status, campaign_id]);
+        }
+
+        res.json({ success: true, data: { campaign_id, action, value } });
+    } catch (err) {
+        next(err);
+    }
 });
 
 export const aiController = router;
