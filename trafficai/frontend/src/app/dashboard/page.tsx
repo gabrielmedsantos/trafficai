@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAccount } from '@/app/AccountContext';
 import {
@@ -251,6 +252,97 @@ const EMPTY_STATS: DashStats = {
     messages: 0, costPerMessage: 0,
 };
 
+/** Métricas cujo aumento é RUIM (comparação de período inverte a cor do delta). */
+const LOWER_IS_BETTER = new Set(['costPerConversion', 'costPerMessage', 'cpc', 'cpm']);
+/** Métricas cujo delta não é "bom/ruim" — só informativo (cinza). */
+const NEUTRAL_DELTA = new Set(['spend', 'frequency']);
+
+function pctChange(curr: number, prev: number): number | null {
+    if (!prev) return null; // sem base de comparação (0 ou período anterior sem dado)
+    return ((curr - prev) / prev) * 100;
+}
+
+/**
+ * Soma spend/impressions/reach/clicks/conversions/messages de todas as campanhas
+ * num período — mesma lógica usada pro período atual, reaproveitada pro período
+ * anterior (comparação de delta). Não faz mais requisições que o dashboard já fazia:
+ * dobra a chamada de insights (uma vez por período), não por campanha adicional.
+ */
+async function aggregateForRange(campaignsData: any[], since: string, until: string): Promise<DashStats> {
+    let totalSpend = 0, totalImpressions = 0, totalReach = 0, totalClicks = 0;
+    let totalConversions = 0, totalMessages = 0;
+    let reachWeightedFreqSum = 0;
+    let purchaseValueSum = 0;
+
+    const CONCURRENCY = 8;
+    const allInsights: any[] = [];
+    for (let i = 0; i < campaignsData.length; i += CONCURRENCY) {
+        const batch = campaignsData.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.all(
+            batch.map(async (c: any) => {
+                try { return await api.getInsights(c.id, 1000, since, until); } catch { return []; }
+            })
+        );
+        allInsights.push(...batchResults.flat());
+    }
+
+    for (const insight of allInsights) {
+        const sp = Number(insight.spend) || 0;
+        const imp = Number(insight.impressions) || 0;
+        const rch = Number(insight.reach) || 0;
+        const clk = Number(insight.clicks) || 0;
+        const cnv = Number(insight.conversions) || 0;
+
+        totalSpend += sp;
+        totalImpressions += imp;
+        totalReach += rch;
+        totalClicks += clk;
+        totalConversions += cnv;
+        reachWeightedFreqSum += (Number(insight.frequency) || 0) * rch;
+
+        purchaseValueSum += extractAction(
+            insight.actions || [],
+            'omni_purchase_value',
+            'offsite_conversion.fb_pixel_purchase.value',
+        );
+        totalMessages += extractAction(
+            insight.actions || [],
+            'onsite_conversion.messaging_conversation_started_7d',
+            'onsite_conversion.total_messaging_connection',
+            'onsite_conversion.messaging_first_reply',
+        );
+    }
+
+    const ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+    const cpc = totalClicks > 0 ? totalSpend / totalClicks : 0;
+    const cpm = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+    const freq = totalReach > 0 ? reachWeightedFreqSum / totalReach : 0;
+    const roas = totalSpend > 0 ? purchaseValueSum / totalSpend : 0;
+
+    return {
+        spend: totalSpend,
+        impressions: totalImpressions,
+        reach: totalReach,
+        clicks: totalClicks,
+        conversions: totalConversions,
+        messages: totalMessages,
+        ctr, cpc, cpm, roas,
+        frequency: freq,
+        costPerConversion: totalConversions > 0 ? totalSpend / totalConversions : 0,
+        costPerMessage: totalMessages > 0 ? totalSpend / totalMessages : 0,
+    };
+}
+
+/** Período imediatamente anterior, com a mesma duração do período selecionado. */
+function previousRange(range: DateRange): DateRange {
+    const since = new Date(range.since + 'T00:00:00');
+    const until = new Date(range.until + 'T00:00:00');
+    const days = Math.round((until.getTime() - since.getTime()) / 86400000) + 1;
+    const prevUntil = new Date(since); prevUntil.setDate(prevUntil.getDate() - 1);
+    const prevSince = new Date(prevUntil); prevSince.setDate(prevSince.getDate() - (days - 1));
+    return { since: toISO(prevSince), until: toISO(prevUntil) };
+}
+
 const tooltipStyle = {
     contentStyle: {
         background: '#151a28',
@@ -271,6 +363,7 @@ export default function DashboardPage() {
     const [user, setUser]           = useState<any>(null);
     const [campaigns, setCampaigns] = useState<any[]>([]);
     const [stats, setStats]         = useState<DashStats>(EMPTY_STATS);
+    const [prevStats, setPrevStats] = useState<DashStats | null>(null);
     const [chartData, setChartData] = useState<any[]>([]);
     const [alerts, setAlerts]       = useState<any[]>([]);
     const [loading, setLoading]     = useState(true);
@@ -410,8 +503,17 @@ export default function DashboardPage() {
 
             try {
                 const alertData = await api.getAlerts();
-                setAlerts(alertData.alerts?.slice(0, 5) || []);
+                setAlerts(alertData.alerts || []);
             } catch { /* no alerts */ }
+
+            // Período anterior (mesma duração) — só pra comparação de delta nos KPIs,
+            // não precisa do detalhamento diário (chart), por isso não duplica o
+            // dailyData nem o número de campanhas — é a mesma lista já carregada.
+            try {
+                const prevRange = previousRange(dateRange);
+                const prev = await aggregateForRange(campaignsData, prevRange.since, prevRange.until);
+                setPrevStats(prev);
+            } catch { setPrevStats(null); }
 
         } catch (err: any) {
             console.error('Dashboard load failed:', err);
@@ -488,6 +590,23 @@ export default function DashboardPage() {
 
     const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE');
     const cfg = OBJECTIVES.find(o => o.id === objective) ?? OBJECTIVES[1];
+
+    // Campanhas com alerta não lido — mesmos sinais que já alimentam a página de
+    // Alertas, só resumidos aqui em cima (não duplica lógica, só reagrupa por campanha).
+    const SEVERITY_ORDER: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+    const attentionItems = (() => {
+        const byCampaign = new Map<string, any>();
+        for (const a of alerts) {
+            if (a.is_read || !a.campaign_id) continue;
+            const existing = byCampaign.get(a.campaign_id);
+            if (!existing || SEVERITY_ORDER[a.severity] < SEVERITY_ORDER[existing.severity]) {
+                byCampaign.set(a.campaign_id, a);
+            }
+        }
+        return Array.from(byCampaign.values())
+            .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+            .slice(0, 5);
+    })();
 
     return (
         <div className="fade-in" onClick={() => { setShowObjectivePicker(false); setShowDatePicker(false); }}>
@@ -590,19 +709,65 @@ export default function DashboardPage() {
                 </div>
             </div>
 
+            {/* ── Precisa de atenção ── */}
+            {attentionItems.length > 0 && (
+                <Link href="/alerts" className="card" style={{
+                    display: 'block', textDecoration: 'none', color: 'inherit', marginBottom: 20,
+                    borderLeft: '3px solid #ef4444',
+                }}>
+                    <div className="section-header" style={{ marginBottom: 12 }}>
+                        <span className="section-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <AlertTriangle size={15} color="#ef4444" />
+                            Precisa de atenção
+                        </span>
+                        <span className="section-subtitle">ver todos os alertas →</span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {attentionItems.map(a => (
+                            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13 }}>
+                                <span style={{
+                                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                                    background: a.severity === 'critical' ? '#ef4444' : a.severity === 'warning' ? '#f59e0b' : '#3b82f6',
+                                }} />
+                                <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{a.campaign_name || 'Conta'}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
+                            </div>
+                        ))}
+                    </div>
+                </Link>
+            )}
+
             {/* ── KPI Cards (objective-aware) ── */}
             <div className="stats-grid">
-                {cfg.kpis.map(kpi => (
-                    <div key={kpi.key} className="card stat-card">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <span className="stat-label">{kpi.label}</span>
-                            <div className="stat-icon">{kpi.icon}</div>
+                {cfg.kpis.map(kpi => {
+                    const curr = (stats as any)[kpi.key] ?? 0;
+                    const prev = prevStats ? (prevStats as any)[kpi.key] ?? 0 : null;
+                    const delta = prevStats ? pctChange(curr, prev) : null;
+                    const isNeutral = NEUTRAL_DELTA.has(kpi.key);
+                    const isGood = delta == null ? null : (LOWER_IS_BETTER.has(kpi.key) ? delta < 0 : delta > 0);
+                    return (
+                        <div key={kpi.key} className="card stat-card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                <span className="stat-label">{kpi.label}</span>
+                                <div className="stat-icon">{kpi.icon}</div>
+                            </div>
+                            <span className="stat-value">
+                                {kpi.fmt(curr)}
+                            </span>
+                            {delta != null && (
+                                <span style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 4,
+                                    fontSize: 11.5, fontWeight: 600,
+                                    color: isNeutral ? 'var(--text-muted)' : isGood ? '#22c55e' : '#ef4444',
+                                }}>
+                                    {delta > 0 ? '▲' : delta < 0 ? '▼' : '—'} {Math.abs(delta).toFixed(1)}%
+                                    <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>vs. período anterior</span>
+                                </span>
+                            )}
                         </div>
-                        <span className="stat-value">
-                            {kpi.fmt((stats as any)[kpi.key] ?? 0)}
-                        </span>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {/* ── Charts ── */}
@@ -744,7 +909,7 @@ export default function DashboardPage() {
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {alerts.map(alert => (
+                            {alerts.slice(0, 5).map(alert => (
                                 <div key={alert.id} className={`alert-item ${!alert.is_read ? 'unread' : ''}`}>
                                     <div className={`alert-icon ${alert.severity}`}>
                                         <Activity size={14} />
