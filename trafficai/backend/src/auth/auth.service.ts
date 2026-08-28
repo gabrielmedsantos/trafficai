@@ -188,13 +188,23 @@ export class AuthService {
             });
 
             const { access_token, expires_in } = response.data;
-            if (!access_token || typeof expires_in !== 'number' || !Number.isFinite(expires_in) || expires_in <= 0) {
+            if (!access_token) {
                 throw new AppError(
                     `Meta retornou resposta inválida no refresh: ${JSON.stringify(response.data).slice(0, 200)}`,
                     502,
                 );
             }
-            const tokenExpiration = new Date(Date.now() + expires_in * 1000);
+            // Meta às vezes devolve o exchange sem expires_in (observado em produção em
+            // 26/08 — travava aqui, deixando o token antigo expirar sem nunca ser trocado
+            // pelo novo que a API já tinha aceitado). Nesse caso assume 60 dias, o mesmo
+            // padrão usado no fluxo de token manual.
+            const hasValidExpiresIn = typeof expires_in === 'number' && Number.isFinite(expires_in) && expires_in > 0;
+            const tokenExpiration = hasValidExpiresIn
+                ? new Date(Date.now() + expires_in * 1000)
+                : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
+            if (!hasValidExpiresIn) {
+                logger.warn('Meta refresh sem expires_in — usando fallback de 60 dias', { userId });
+            }
 
             await authRepository.updateMetaToken(userId, user.meta_user_id!, access_token, tokenExpiration);
             logger.info('Meta token refreshed', { userId });
