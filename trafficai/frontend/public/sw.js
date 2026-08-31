@@ -3,7 +3,7 @@
 // Não faz cache agressivo — só o suficiente pra o "Instalar App" funcionar e pra dar
 // uma experiência offline mínima (mostra tela cacheada se o servidor cair).
 
-const CACHE = 'trafficai-v1';
+const CACHE = 'trafficai-v2';
 const ESSENTIAL = [
   '/',
   '/agenda',

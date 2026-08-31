@@ -40,7 +40,6 @@ import { api } from '@/lib/api';
 import { useAccount } from '@/app/AccountContext';
 import { useCurrentUser } from '@/app/UserContext';
 import AccountSelect from '@/components/AccountSelect';
-import PWAInstallButton from '@/components/PWAInstallButton';
 
 // ─── Area definitions ──────────────────────────────────────────────────────
 
@@ -320,22 +319,9 @@ export default function Sidebar() {
                 ))}
             </nav>
 
-            {/* Footer */}
+            {/* Footer — Integrações, Assinatura e Instalar App moraram pra dentro de Configurações
+                pra sobrar só o essencial aqui e o menu caber numa tela só, sem scroll. */}
             <div className="sidebar-footer">
-                <Link
-                    href="/integrations"
-                    className={`sidebar-link ${pathname === '/integrations' ? 'active' : ''}`}
-                >
-                    <Plug className="icon" strokeWidth={1.8} />
-                    <span>Integrações</span>
-                </Link>
-                <Link
-                    href="/billing"
-                    className={`sidebar-link ${pathname === '/billing' ? 'active' : ''}`}
-                >
-                    <Wallet className="icon" strokeWidth={1.8} />
-                    <span>Assinatura</span>
-                </Link>
                 <Link
                     href="/settings"
                     className={`sidebar-link ${pathname === '/settings' ? 'active' : ''}`}
@@ -343,7 +329,6 @@ export default function Sidebar() {
                     <Settings className="icon" strokeWidth={1.8} />
                     <span>Configurações</span>
                 </Link>
-                <PWAInstallButton />
                 <button
                     onClick={handleLogout}
                     className="sidebar-link sidebar-logout"

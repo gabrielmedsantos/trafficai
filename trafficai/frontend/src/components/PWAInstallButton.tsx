@@ -81,18 +81,13 @@ export default function PWAInstallButton() {
         <>
             <button
                 onClick={handleInstall}
-                className="sidebar-link"
+                className="btn btn-secondary btn-sm"
                 type="button"
-                style={{
-                    background: 'linear-gradient(90deg, rgba(255,107,53,0.16), rgba(255,107,53,0.04))',
-                    border: '1px solid rgba(255,107,53,0.28)',
-                    color: 'var(--primary)',
-                    fontWeight: 600,
-                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '7px' }}
                 title="Instalar o TrafficAI como aplicativo no seu computador ou celular"
             >
-                <Download className="icon" strokeWidth={2} />
-                <span>Instalar App</span>
+                <Download size={14} strokeWidth={2} />
+                Instalar App
             </button>
             {showIosHint && (
                 <div

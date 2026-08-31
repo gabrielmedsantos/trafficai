@@ -194,17 +194,17 @@ a:hover { color: var(--primary-hover); }
 }
 
 .sidebar-brand {
-  padding: 18px 16px;
+  padding: 9px 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   border-bottom: 1px solid var(--border);
 }
 
 .sidebar-brand-mark {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
   background: var(--primary);
   display: flex;
   align-items: center;
@@ -220,42 +220,43 @@ a:hover { color: var(--primary-hover); }
   min-width: 0;
 }
 .sidebar-brand-name .brand {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.1px;
   color: var(--text-primary);
 }
 .sidebar-brand-name .product {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   color: var(--text-muted);
   letter-spacing: 0.2px;
 }
 
 .sidebar-section {
-  padding: 12px 10px 8px;
+  padding: 6px 8px 3px;
 }
 
 .sidebar-section-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  padding: 0 8px 6px;
+  letter-spacing: 0.5px;
+  padding: 0 6px 4px;
 }
 
 .sidebar-area {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 3.5px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1.2;
   color: var(--text-secondary);
   cursor: pointer;
   transition: var(--transition);
@@ -270,9 +271,9 @@ a:hover { color: var(--primary-hover); }
   color: var(--primary);
 }
 .sidebar-area .area-icon {
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.04);
   display: flex;
   align-items: center;
@@ -287,38 +288,39 @@ a:hover { color: var(--primary-hover); }
 .sidebar-divider {
   height: 1px;
   background: var(--border);
-  margin: 4px 10px;
+  margin: 2px 8px;
 }
 
 .sidebar-nav {
   flex: 1;
-  padding: 6px 10px 10px;
+  padding: 2px 8px 8px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 .sidebar-nav::-webkit-scrollbar { width: 0; }
 
 .nav-group-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  padding: 14px 8px 6px;
+  letter-spacing: 0.5px;
+  padding: 6px 6px 2px;
 }
-.nav-group-label:first-child { padding-top: 6px; }
+.nav-group-label:first-child { padding-top: 1px; }
 
 .sidebar-link {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
+  gap: 8px;
+  padding: 3px 8px;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1.2;
   text-decoration: none;
   border: 1px solid transparent;
   transition: var(--transition);
@@ -335,18 +337,18 @@ a:hover { color: var(--primary-hover); }
 .sidebar-link.active::before {
   content: '';
   position: absolute;
-  left: -10px;
+  left: -8px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 16px;
+  height: 14px;
   background: var(--primary);
   border-radius: 0 2px 2px 0;
 }
 
 .sidebar-link .icon {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--text-muted);
 }
@@ -357,21 +359,21 @@ a:hover { color: var(--primary-hover); }
   margin-left: auto;
   background: var(--accent-red);
   color: white;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 10px;
-  min-width: 18px;
+  min-width: 16px;
   text-align: center;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .sidebar-footer {
-  padding: 10px;
+  padding: 6px 8px;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .sidebar-logout:hover {
@@ -385,21 +387,22 @@ a:hover { color: var(--primary-hover); }
    ============================================================ */
 .account-select {
   position: relative;
-  padding: 0 10px 10px;
+  padding: 0 8px 5px;
 }
 
 .account-select-trigger {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 7px;
+  padding: 4px 8px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
+  line-height: 1.25;
   transition: var(--transition);
   text-align: left;
 }

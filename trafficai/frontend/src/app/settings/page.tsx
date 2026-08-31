@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Link2, CheckCircle, XCircle, RefreshCw, AlertCircle, Key,
   Bell, Mail, MessageCircle, Save, Send, Moon, ShieldCheck, Info,
-  Zap, AlertTriangle, Smartphone,
+  Zap, AlertTriangle, Smartphone, Wallet, Plug, ChevronRight,
 } from 'lucide-react';
 import { MetaConnectButton } from '@/components/MetaConnectButton';
+import PWAInstallButton from '@/components/PWAInstallButton';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const token = () => typeof window !== 'undefined' ? localStorage.getItem('trafficai_token') || '' : '';
@@ -350,6 +352,25 @@ export default function SettingsPage() {
               <p style={{ fontSize: '14px', color: 'var(--text-primary)', paddingTop: '2px' }}>{user.name}</p>
             </Field>
           )}
+        </div>
+      </Section>
+
+      {/* ── Acesso rápido — Assinatura, Integrações e Instalar App moraram aqui
+           dentro pra sobrar só o essencial na sidebar ── */}
+      <Section icon={<ChevronRight size={16} color="var(--text-muted)" />} title="Acesso Rápido">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <LinkRow href="/billing" icon={<Wallet size={16} color="var(--primary)" />} title="Assinatura" desc="Plano atual, uso e limites da conta" />
+          <LinkRow href="/integrations" icon={<Plug size={16} color="var(--primary)" />} title="Integrações" desc="Meta, Google Ads e Google Calendar" />
+        </div>
+      </Section>
+
+      {/* ── App ── */}
+      <Section icon={<Smartphone size={16} color="var(--text-muted)" />} title="Aplicativo">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+          <p style={{ color: 'var(--text-muted)', fontSize: '13.5px', lineHeight: 1.6, margin: 0, maxWidth: '460px' }}>
+            Instale o TrafficAI como aplicativo no seu computador ou celular pra acesso mais rápido, em tela cheia.
+          </p>
+          <PWAInstallButton />
         </div>
       </Section>
 
@@ -712,6 +733,26 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
       </div>
       {children}
     </div>
+  );
+}
+
+function LinkRow({ href, icon, title, desc }: { href: string; icon: React.ReactNode; title: string; desc: string }) {
+  return (
+    <Link href={href} style={{
+      display: 'flex', alignItems: 'center', gap: '12px',
+      padding: '12px 14px', borderRadius: '10px',
+      border: '1px solid var(--border)', background: 'var(--bg-input)',
+      textDecoration: 'none', transition: 'border-color .15s',
+    }}>
+      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(255, 107, 53,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>{title}</div>
+        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{desc}</div>
+      </div>
+      <ChevronRight size={16} color="var(--text-muted)" />
+    </Link>
   );
 }
 
