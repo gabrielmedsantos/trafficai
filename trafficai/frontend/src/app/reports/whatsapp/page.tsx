@@ -62,6 +62,7 @@ export default function WhatsappReportsPage() {
     const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+    const [onlyActive, setOnlyActive] = useState(true);
     const [openAccount, setOpenAccount] = useState<WhatsAppAccount | null>(null);
     const [variables, setVariables] = useState<Variable[]>([]);
 
@@ -81,16 +82,18 @@ export default function WhatsappReportsPage() {
 
     const filtered = useMemo(() => {
         const term = search.trim().toLowerCase();
-        if (!term) return accounts;
-        return accounts.filter(a =>
-            a.client_name.toLowerCase().includes(term) ||
-            a.account_name.toLowerCase().includes(term) ||
-            (a.client_phone || '').toLowerCase().includes(term)
-        );
-    }, [accounts, search]);
+        return accounts.filter(a => {
+            if (onlyActive && !a.is_client_active) return false;
+            if (!term) return true;
+            return a.client_name.toLowerCase().includes(term) ||
+                a.account_name.toLowerCase().includes(term) ||
+                (a.client_phone || '').toLowerCase().includes(term);
+        });
+    }, [accounts, search, onlyActive]);
 
     const totalEnabled = accounts.filter(a => a.daily_whatsapp_enabled).length;
     const totalNoPhone = accounts.filter(a => a.daily_whatsapp_enabled && !a.client_phone).length;
+    const totalInactive = accounts.filter(a => !a.is_client_active).length;
 
     return (
         <div style={{ padding: '32px', maxWidth: 1400, margin: '0 auto' }}>
@@ -99,7 +102,7 @@ export default function WhatsappReportsPage() {
                 <div>
                     <h1 style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)', margin: 0 }}>Relatórios diários WhatsApp</h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: 14, marginTop: 4 }}>
-                        {accounts.length} conta{accounts.length !== 1 ? 's' : ''} · {totalEnabled} ativo{totalEnabled !== 1 ? 's' : ''}
+                        {filtered.length} de {accounts.length} conta{accounts.length !== 1 ? 's' : ''} · {totalEnabled} com envio ativado
                         {totalNoPhone > 0 && <> · <span style={{ color: 'var(--accent-yellow)' }}>{totalNoPhone} sem telefone</span></>}
                     </p>
                 </div>
@@ -111,20 +114,43 @@ export default function WhatsappReportsPage() {
                 </button>
             </div>
 
-            {/* Search */}
-            <div style={{ marginBottom: 20, position: 'relative', maxWidth: 480 }}>
-                <input
-                    type="search"
-                    placeholder="Buscar por cliente, conta ou telefone…"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
+            {/* Search + filtro */}
+            <div style={{ marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ position: 'relative', flex: '1 1 320px', maxWidth: 480 }}>
+                    <input
+                        type="search"
+                        placeholder="Buscar por cliente, conta ou telefone…"
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        style={{
+                            width: '100%', padding: '10px 14px',
+                            background: 'var(--bg-input)', border: '1px solid var(--border)',
+                            borderRadius: 10, color: 'var(--text)', fontSize: 13.5, outline: 'none',
+                            boxSizing: 'border-box',
+                        }}
+                    />
+                </div>
+                <button
+                    type="button"
+                    onClick={() => setOnlyActive(v => !v)}
+                    title={onlyActive ? 'Mostrando só clientes ativos — clique pra ver todos' : 'Mostrando todos — clique pra filtrar só clientes ativos'}
                     style={{
-                        width: '100%', padding: '10px 14px',
-                        background: 'var(--bg-input)', border: '1px solid var(--border)',
-                        borderRadius: 10, color: 'var(--text)', fontSize: 13.5, outline: 'none',
-                        boxSizing: 'border-box',
+                        display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
+                        padding: '9px 14px', borderRadius: 10, cursor: 'pointer',
+                        fontSize: 13, fontWeight: 600,
+                        color: onlyActive ? '#10b981' : 'var(--text-muted)',
+                        background: onlyActive ? 'rgba(16,185,129,.12)' : 'var(--bg-input)',
+                        border: `1px solid ${onlyActive ? 'rgba(16,185,129,.3)' : 'var(--border)'}`,
                     }}
-                />
+                >
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: onlyActive ? '#10b981' : 'var(--text-muted)' }} />
+                    Só clientes ativos
+                    {totalInactive > 0 && (
+                        <span style={{ fontSize: 11, opacity: .8 }}>
+                            {onlyActive ? `(${totalInactive} ocultos)` : `(${totalInactive} inativos)`}
+                        </span>
+                    )}
+                </button>
             </div>
 
             {/* Lista de contas */}
