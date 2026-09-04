@@ -194,17 +194,17 @@ a:hover { color: var(--primary-hover); }
 }
 
 .sidebar-brand {
-  padding: 9px 14px;
+  padding: 11px 15px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   border-bottom: 1px solid var(--border);
 }
 
 .sidebar-brand-mark {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
   background: var(--primary);
   display: flex;
   align-items: center;
@@ -220,43 +220,43 @@ a:hover { color: var(--primary-hover); }
   min-width: 0;
 }
 .sidebar-brand-name .brand {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.1px;
   color: var(--text-primary);
 }
 .sidebar-brand-name .product {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 500;
   color: var(--text-muted);
   letter-spacing: 0.2px;
 }
 
 .sidebar-section {
-  padding: 6px 8px 3px;
+  padding: 8px 9px 4px;
 }
 
 .sidebar-section-label {
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 0 6px 4px;
+  padding: 0 7px 5px;
 }
 
 .sidebar-area {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
-  padding: 3.5px 8px;
+  padding: 5px 9px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.25;
   color: var(--text-secondary);
   cursor: pointer;
   transition: var(--transition);
@@ -271,9 +271,9 @@ a:hover { color: var(--primary-hover); }
   color: var(--primary);
 }
 .sidebar-area .area-icon {
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
   background: rgba(255, 255, 255, 0.04);
   display: flex;
   align-items: center;
@@ -288,12 +288,12 @@ a:hover { color: var(--primary-hover); }
 .sidebar-divider {
   height: 1px;
   background: var(--border);
-  margin: 2px 8px;
+  margin: 3px 9px;
 }
 
 .sidebar-nav {
   flex: 1;
-  padding: 2px 8px 8px;
+  padding: 3px 9px 9px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -302,25 +302,25 @@ a:hover { color: var(--primary-hover); }
 .sidebar-nav::-webkit-scrollbar { width: 0; }
 
 .nav-group-label {
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 6px 6px 2px;
+  padding: 9px 7px 3px;
 }
-.nav-group-label:first-child { padding-top: 1px; }
+.nav-group-label:first-child { padding-top: 2px; }
 
 .sidebar-link {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px 8px;
+  gap: 8.5px;
+  padding: 4.5px 9px;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.25;
   text-decoration: none;
   border: 1px solid transparent;
   transition: var(--transition);
@@ -337,18 +337,18 @@ a:hover { color: var(--primary-hover); }
 .sidebar-link.active::before {
   content: '';
   position: absolute;
-  left: -8px;
+  left: -10px;
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 14px;
+  height: 16px;
   background: var(--primary);
   border-radius: 0 2px 2px 0;
 }
 
 .sidebar-link .icon {
-  width: 14px;
-  height: 14px;
+  width: 14.5px;
+  height: 14.5px;
   flex-shrink: 0;
   color: var(--text-muted);
 }
@@ -359,21 +359,21 @@ a:hover { color: var(--primary-hover); }
   margin-left: auto;
   background: var(--accent-red);
   color: white;
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 600;
-  padding: 1px 5px;
+  padding: 1.5px 6px;
   border-radius: 10px;
-  min-width: 16px;
+  min-width: 17px;
   text-align: center;
   line-height: 1.5;
 }
 
 .sidebar-footer {
-  padding: 6px 8px;
+  padding: 8px 9px;
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
 }
 
 .sidebar-logout:hover {
@@ -387,22 +387,22 @@ a:hover { color: var(--primary-hover); }
    ============================================================ */
 .account-select {
   position: relative;
-  padding: 0 8px 5px;
+  padding: 0 9px 7px;
 }
 
 .account-select-trigger {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 8px;
+  gap: 8px;
+  padding: 6px 9px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
-  line-height: 1.25;
+  line-height: 1.3;
   transition: var(--transition);
   text-align: left;
 }
