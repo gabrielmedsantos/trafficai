@@ -460,9 +460,12 @@ a:hover { color: var(--primary-hover); }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 20px;
-  transition: border-color var(--duration) var(--ease);
+  box-shadow: var(--shadow-xs);
+  transition: border-color var(--duration) var(--ease), box-shadow var(--duration) var(--ease), transform var(--duration) var(--ease);
 }
-.card:hover { border-color: var(--border-strong); }
+.card:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+
+.stat-card:hover { transform: translateY(-1px); }
 
 .card-glass {
   background: var(--bg-surface);
@@ -499,9 +502,9 @@ a:hover { color: var(--primary-hover); }
 }
 
 .stat-card .stat-value {
-  font-size: 24px;
-  font-weight: 600;
-  letter-spacing: -0.5px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
   line-height: 1.1;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;

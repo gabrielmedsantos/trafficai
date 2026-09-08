@@ -750,7 +750,7 @@ export default function DashboardPage() {
                         <div key={kpi.key} className="card stat-card">
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <span className="stat-label">{kpi.label}</span>
-                                <div className="stat-icon">{kpi.icon}</div>
+                                <div className="stat-icon" style={{ background: kpi.bg, color: kpi.color }}>{kpi.icon}</div>
                             </div>
                             <span className="stat-value">
                                 {kpi.fmt(curr)}
@@ -778,20 +778,30 @@ export default function DashboardPage() {
                         <span className="section-title">Gasto diário</span>
                         <span className="section-subtitle">{labelForRange(dateRange.since, dateRange.until, presetId)}</span>
                     </div>
-                    <div style={{ height: 240 }}>
+                    <div style={{ height: 264 }}>
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
+                            <AreaChart data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: -10 }}>
                                 <defs>
                                     <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%"   stopColor="#ff6b35" stopOpacity={0.28} />
+                                        <stop offset="0%"   stopColor="#ff6b35" stopOpacity={0.38} />
+                                        <stop offset="55%"  stopColor="#ff6b35" stopOpacity={0.12} />
                                         <stop offset="100%" stopColor="#ff6b35" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                                 <XAxis dataKey="date" stroke="#6b7388" fontSize={11} tickFormatter={v => v?.substring(5)} axisLine={false} tickLine={false} />
                                 <YAxis stroke="#6b7388" fontSize={11} axisLine={false} tickLine={false} width={38} />
-                                <Tooltip {...tooltipStyle} cursor={{ stroke: 'rgba(255, 107, 53,0.18)', strokeWidth: 24 }} />
-                                <Area type="monotone" dataKey="spend" name="Gasto (R$)" stroke="#ff6b35" fill="url(#spendGrad)" strokeWidth={2} dot={false} activeDot={{ r: 3, fill: '#ff6b35', strokeWidth: 0 }} />
+                                <Tooltip {...tooltipStyle} cursor={{ stroke: 'rgba(255, 107, 53,0.25)', strokeWidth: 1 }} />
+                                <Area
+                                    type="natural"
+                                    dataKey="spend"
+                                    name="Gasto (R$)"
+                                    stroke="#ff6b35"
+                                    fill="url(#spendGrad)"
+                                    strokeWidth={2.5}
+                                    dot={false}
+                                    activeDot={{ r: 5, fill: '#ff6b35', stroke: 'var(--bg-surface)', strokeWidth: 2 }}
+                                />
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
@@ -810,15 +820,15 @@ export default function DashboardPage() {
                             ))}
                         </div>
                     </div>
-                    <div style={{ height: 240 }}>
+                    <div style={{ height: 264 }}>
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
+                            <BarChart data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: -10 }} barGap={3} barCategoryGap="28%">
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                                 <XAxis dataKey="date" stroke="#6b7388" fontSize={11} tickFormatter={v => v?.substring(5)} axisLine={false} tickLine={false} />
                                 <YAxis stroke="#6b7388" fontSize={11} axisLine={false} tickLine={false} width={38} />
-                                <Tooltip {...tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
-                                <Bar dataKey={cfg.chartA.key} name={cfg.chartA.label} fill={cfg.chartA.color} radius={[2, 2, 0, 0]} maxBarSize={22} />
-                                <Bar dataKey={cfg.chartB.key} name={cfg.chartB.label} fill={cfg.chartB.color} radius={[2, 2, 0, 0]} maxBarSize={22} />
+                                <Tooltip {...tooltipStyle} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+                                <Bar dataKey={cfg.chartA.key} name={cfg.chartA.label} fill={cfg.chartA.color} radius={[3, 3, 0, 0]} maxBarSize={20} />
+                                <Bar dataKey={cfg.chartB.key} name={cfg.chartB.label} fill={cfg.chartB.color} radius={[3, 3, 0, 0]} maxBarSize={20} />
                             </BarChart>
                         </ResponsiveContainer>
                     </div>
