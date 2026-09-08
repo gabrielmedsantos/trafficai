@@ -246,7 +246,9 @@ export class MetaService {
                 const creativesResp = await client.get('/', {
                     params: {
                         ids: ids.join(','),
-                        fields: 'id,name,creative{id,name,object_type,thumbnail_url,image_url,video_id,instagram_permalink_url}',
+                        // thumbnail_width/height evita o thumbnail_url minúsculo (~64px) que
+                        // ficava borrado esticado nos cards grandes de "Top Criativos".
+                        fields: 'id,name,creative.thumbnail_width(640).thumbnail_height(640){id,name,object_type,thumbnail_url,image_url,video_id,instagram_permalink_url}',
                     },
                 });
                 const byId: Record<string, any> = creativesResp.data || {};
@@ -537,9 +539,13 @@ export class MetaService {
                 const slice = adIds.slice(i, i + BATCH);
                 try {
                     // Pega múltiplas fontes de imagem — a maioria delas retorna resoluções maiores
-                    // que thumbnail_url (~64px). Prioridade: full_picture > object_story > asset_feed > image_url > thumbnail.
+                    // que thumbnail_url (~64px por padrão). thumbnail_width/height força o Meta a
+                    // gerar o thumbnail numa resolução maior, em vez do default minúsculo — isso
+                    // evita o preview esticado/borrado quando cai no fallback pra thumbnail_url
+                    // (ex: anúncios dinâmicos/carrossel sem image_url direto).
+                    // Prioridade: image_url > thumbnail_url > object_story > asset_feed.
                     const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
-                        fields: 'id,creative{thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url}},image_hash,effective_object_story_id}',
+                        fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url}},image_hash,effective_object_story_id}',
                         filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
                     });
                     for (const ad of ads) {
