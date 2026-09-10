@@ -8,6 +8,8 @@ import { authMiddleware } from '../auth/auth.middleware';
 import { reportService, ReportType, ReportService } from './report.service';
 import { dailyWhatsAppService, TEMPLATE_VARIABLES, getDefaultTemplate, renderTemplate, buildTemplateVars } from './daily-whatsapp.service';
 import { logger } from '../shared/logger';
+import { metaService } from '../meta/meta.service';
+import { authRepository } from '../auth/auth.repository';
 
 const router = Router();
 
@@ -45,6 +47,40 @@ router.get('/public/:token', async (req: Request, res: Response) => {
         res.json({ success: true, data: report });
     } catch (error: any) {
         logger.error('Erro ao buscar relatório público', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /reports/public/:token/ad-video/:adId — URL de vídeo (source) do anúncio, buscada
+// on-demand pra tocar direto dentro do relatório sem sair pro Facebook/Instagram.
+// A URL da Meta é assinada e expira — por isso nunca é cacheada, só buscada na hora do clique.
+router.get('/public/:token/ad-video/:adId', async (req: Request, res: Response) => {
+    try {
+        const { token, adId } = req.params;
+
+        const rows = await query<any>(
+            `SELECT r.metrics, a.user_id
+             FROM client_reports r
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
+             WHERE r.public_token = $1`,
+            [token]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Relatório não encontrado' } });
+
+        const { metrics, user_id } = rows[0];
+        const topAds: any[] = metrics?.top_ads || [];
+        const ad = topAds.find((a: any) => a.ad_id === adId);
+        if (!ad?.video_id) return res.status(404).json({ success: false, error: { message: 'Vídeo não disponível' } });
+
+        const user = await authRepository.findById(user_id);
+        if (!user?.access_token) return res.status(404).json({ success: false, error: { message: 'Conta desconectada' } });
+
+        const url = await metaService.getVideoSourceUrl(user_id, user.access_token, ad.video_id);
+        if (!url) return res.status(404).json({ success: false, error: { message: 'Vídeo indisponível no momento' } });
+
+        res.json({ success: true, data: { url } });
+    } catch (error: any) {
+        logger.error('Erro ao buscar vídeo do anúncio', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

@@ -69,6 +69,9 @@ interface ReportMetrics {
         cpa: number;
         hook_rate: number | null; // 3s video plays / impressions (%)
         thumbnail_url?: string;
+        is_video?: boolean;
+        video_id?: string;
+        watch_url?: string;
     }>;
     daily_breakdown: Array<{
         date: string;
@@ -926,6 +929,7 @@ Responda EXCLUSIVAMENTE em JSON com este formato:
                     hook_rate: hookRate,
                     thumbnail_url: thumbnails.get(a.ad_id) || undefined,
                     is_video: video?.object_type === 'VIDEO' || !!video?.video_id,
+                    video_id: video?.video_id || undefined,
                     watch_url: video?.permalink_url || undefined,
                 };
             })

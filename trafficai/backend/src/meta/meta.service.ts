@@ -643,6 +643,28 @@ export class MetaService {
     }
 
     /**
+     * Busca a URL de origem (mp4) de um vídeo do Meta pra embutir direto no player.
+     * Essa URL vem assinada pela Meta e expira depois de um tempo — por isso é buscada
+     * on-demand a cada vez que o relatório público pede pra assistir, nunca cacheada.
+     */
+    async getVideoSourceUrl(
+        userId: string,
+        accessToken: string,
+        videoId: string
+    ): Promise<string | undefined> {
+        return metaRateLimiter.executeWithRetry(userId, async () => {
+            const client = this.createClient(accessToken);
+            try {
+                const resp = await client.get(`/${videoId}`, { params: { fields: 'source' } });
+                return resp.data?.source || undefined;
+            } catch (err: any) {
+                logger.warn('Failed to fetch video source', { error: err.message, videoId });
+                return undefined;
+            }
+        });
+    }
+
+    /**
      * Fetch insights for a campaign with specified date range (paginado).
      * Preferir time_range quando possível — date_preset é relativo ao momento da chamada.
      */

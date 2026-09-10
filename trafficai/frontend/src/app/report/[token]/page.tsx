@@ -48,6 +48,7 @@ interface AdData {
   hook_rate: number | null;
   thumbnail_url?: string;
   is_video?: boolean;
+  video_id?: string;
   watch_url?: string;
 }
 
@@ -133,6 +134,7 @@ function PublicReportPageInner() {
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [lightboxAd, setLightboxAd] = useState<AdData | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -550,8 +552,13 @@ function PublicReportPageInner() {
               {topAds.map((ad, i) => {
                 const isVid = isVideoAd(ad);
                 const color = isVid ? C.purple : C.primary;
-                const canOpen = !!ad.watch_url;
+                const canInline = isVid ? !!ad.video_id : !!ad.thumbnail_url;
+                const canOpen = canInline || !!ad.watch_url;
                 const canWatch = isVid && canOpen;
+                const openAd = () => {
+                  if (canInline) setLightboxAd(ad);
+                  else if (ad.watch_url) window.open(ad.watch_url, '_blank', 'noopener,noreferrer');
+                };
                 const thumbBox = (
                   <>
                     {ad.thumbnail_url ? (
@@ -606,9 +613,9 @@ function PublicReportPageInner() {
                   <div key={ad.ad_id || i} className="card" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', position: 'relative' }}>
                     <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 2, background: color, color: '#0a0e1a', fontSize: 12, fontWeight: 900, padding: '5px 12px', borderRadius: 10, boxShadow: `0 4px 12px ${color}55` }}>#{i + 1}</div>
                     {canOpen ? (
-                      <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" title={isVid ? 'Assistir anúncio' : 'Ver anúncio original'} style={{ display: 'block', position: 'relative', cursor: 'pointer' }}>
+                      <button type="button" onClick={openAd} title={isVid ? 'Assistir anúncio' : 'Ver anúncio'} style={{ display: 'block', position: 'relative', cursor: 'pointer', width: '100%', padding: 0, border: 'none', background: 'none', textAlign: 'left', font: 'inherit' }}>
                         {thumbBox}
-                      </a>
+                      </button>
                     ) : (
                       <div style={{ position: 'relative' }}>{thumbBox}</div>
                     )}
@@ -629,13 +636,14 @@ function PublicReportPageInner() {
                         )}
                       </div>
                       {canOpen && (
-                        <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" style={{
+                        <button type="button" onClick={openAd} style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                           marginTop: 12, padding: '8px', borderRadius: 8, fontSize: 11.5, fontWeight: 700,
-                          color: isVid ? C.purple : C.primary, border: `1px solid ${(isVid ? C.purple : C.primary)}55`, textDecoration: 'none',
+                          color: isVid ? C.purple : C.primary, border: `1px solid ${(isVid ? C.purple : C.primary)}55`,
+                          background: 'none', width: '100%', cursor: 'pointer', font: 'inherit',
                         }}>
                           {isVid ? '▶ Assistir anúncio' : '🔍 Ver anúncio'}
-                        </a>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -821,11 +829,82 @@ function PublicReportPageInner() {
           <p style={{ fontSize: 11.5, color: C.textDim }}>Powered by TrafficAI · Gerado em {new Date(report.created_at).toLocaleDateString('pt-BR')}</p>
         </div>
       </div>
+
+      {lightboxAd && (
+        <AdLightbox ad={lightboxAd} token={token} onClose={() => setLightboxAd(null)} />
+      )}
     </div>
   );
 }
 
 // ─── Components ───────────────────────────────────────────────────────
+
+function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose: () => void }) {
+  const isVid = !!ad.is_video || !!ad.video_id;
+  const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
+  const [videoLoading, setVideoLoading] = React.useState(isVid && !!ad.video_id);
+  const [videoError, setVideoError] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isVid || !ad.video_id) return;
+    let cancelled = false;
+    fetch(`${API}/reports/public/${token}/ad-video/${ad.ad_id}`)
+      .then(r => r.json())
+      .then(json => {
+        if (cancelled) return;
+        if (json.success && json.data?.url) setVideoUrl(json.data.url);
+        else setVideoError(true);
+      })
+      .catch(() => { if (!cancelled) setVideoError(true); })
+      .finally(() => { if (!cancelled) setVideoLoading(false); });
+    return () => { cancelled = true; };
+  }, [ad.ad_id, ad.video_id, isVid, token]);
+
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,8,14,.92)', display: 'grid', placeItems: 'center', padding: 24, backdropFilter: 'blur(4px)' }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 640, maxHeight: '88vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ad.name}</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            style={{ flexShrink: 0, background: 'rgba(255,255,255,.08)', border: 'none', color: '#fff', width: 32, height: 32, borderRadius: 8, cursor: 'pointer', fontSize: 15, display: 'grid', placeItems: 'center' }}
+          >✕</button>
+        </div>
+        <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', display: 'grid', placeItems: 'center', minHeight: 200 }}>
+          {isVid ? (
+            videoLoading ? (
+              <div style={{ padding: 60, color: C.textMuted, fontSize: 13 }}>Carregando vídeo…</div>
+            ) : videoUrl ? (
+              <video src={videoUrl} controls autoPlay style={{ maxWidth: '100%', maxHeight: '78vh', display: 'block' }} />
+            ) : (
+              <div style={{ padding: 60, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>
+                Não foi possível carregar o vídeo aqui.
+                {ad.watch_url && (
+                  <><br /><a href={ad.watch_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 700 }}>Abrir no Facebook/Instagram</a></>
+                )}
+              </div>
+            )
+          ) : ad.thumbnail_url ? (
+            <img src={ad.thumbnail_url} alt={ad.name} style={{ maxWidth: '100%', maxHeight: '78vh', display: 'block', objectFit: 'contain' }} />
+          ) : (
+            <div style={{ padding: 60, color: C.textMuted, fontSize: 13 }}>Sem preview disponível</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function SectionHeader({ title, subtitle, icon }: { title: string; subtitle?: string; icon?: string }) {
   return (
