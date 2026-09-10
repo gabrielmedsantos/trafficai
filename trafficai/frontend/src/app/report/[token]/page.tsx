@@ -353,21 +353,6 @@ function PublicReportPageInner() {
             {visibleCampaigns.length} campanhas
           </p>
 
-          {/* Quick stats row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 20, marginTop: 32, paddingTop: 28, borderTop: '1px solid rgba(255,255,255,.08)' }}>
-            {[
-              { label: 'Investimento', value: fmt(m.total_spend) },
-              { label: actionLabel, value: fmtNum(m.total_conversions) },
-              { label: cpaLabel, value: m.cost_per_conversion > 0 ? fmt(m.cost_per_conversion) : '—' },
-              { label: 'Impressões', value: fmtNum(m.total_impressions) },
-            ].map((s, i) => (
-              <div key={i}>
-                <div style={{ fontSize: 10.5, color: C.textDim, letterSpacing: '.08em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>{s.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: '-0.02em' }}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-
           {report.custom_note && (
             <div style={{ marginTop: 28, background: C.primaryGlow, border: `1px solid ${C.primary}40`, borderLeft: `3px solid ${C.primary}`, borderRadius: '0 10px 10px 0', padding: '16px 20px' }}>
               <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7, color: C.text }}>{report.custom_note}</p>
