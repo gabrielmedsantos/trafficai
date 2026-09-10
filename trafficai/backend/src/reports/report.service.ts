@@ -388,6 +388,52 @@ export class ReportService {
     }
 
     /**
+     * Re-busca só os thumbnails/vídeos dos criativos de um relatório já gerado —
+     * útil pra relatórios antigos, gerados antes de alguma melhoria na busca de
+     * imagem (ex: full_picture em alta resolução), sem precisar regenerar o
+     * relatório inteiro (o que re-sincronizaria métricas e re-geraria a análise IA).
+     */
+    async refreshCreativeThumbnails(userId: string, reportId: string): Promise<void> {
+        const rows = await query<any>(
+            `SELECT r.metrics, a.meta_account_id
+             FROM client_reports r
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
+             WHERE r.id = $1 AND r.user_id = $2`,
+            [reportId, userId]
+        );
+        if (!rows.length) throw new Error('Relatório não encontrado');
+
+        const { metrics, meta_account_id } = rows[0];
+        const topAds: any[] = metrics?.top_ads || [];
+        if (!topAds.length || !meta_account_id) return;
+
+        const user = await authRepository.findById(userId);
+        if (!user?.access_token) throw new Error('Conta Meta desconectada');
+
+        const adIds = topAds.map(a => a.ad_id).filter(Boolean);
+        const [thumbnails, videoInfo] = await Promise.all([
+            metaService.getAdThumbnails(userId, user.access_token, meta_account_id, adIds),
+            metaService.getAdVideoInfo(userId, user.access_token, meta_account_id, adIds),
+        ]);
+
+        metrics.top_ads = topAds.map(ad => {
+            const video = videoInfo.get(ad.ad_id);
+            return {
+                ...ad,
+                thumbnail_url: thumbnails.get(ad.ad_id) || ad.thumbnail_url,
+                is_video: video?.object_type === 'VIDEO' || !!video?.video_id || ad.is_video,
+                video_id: video?.video_id || ad.video_id,
+                watch_url: video?.permalink_url || ad.watch_url,
+            };
+        });
+
+        await query(
+            `UPDATE client_reports SET metrics = $2, updated_at = NOW() WHERE id = $1`,
+            [reportId, JSON.stringify(metrics)]
+        );
+    }
+
+    /**
      * Envia relatório por email para o cliente
      */
     async sendReportByEmail(reportId: string, toEmail?: string): Promise<void> {

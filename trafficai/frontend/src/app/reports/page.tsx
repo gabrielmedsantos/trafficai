@@ -71,6 +71,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [waLoadingId, setWaLoadingId] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [showGenModal, setShowGenModal] = useState(false);
@@ -293,6 +294,19 @@ export default function ReportsPage() {
       } else alert('Erro ao enviar: ' + result.error?.message);
     } catch (e: any) { alert('Erro: ' + e.message); }
     finally { setSendingId(null); }
+  };
+
+  const refreshCreatives = async (reportId: string) => {
+    try {
+      setRefreshingId(reportId);
+      const res = await fetch(`${API}/reports/${reportId}/refresh-creatives`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token()}` },
+      });
+      const result = await res.json();
+      if (!result.success) alert('Erro ao atualizar imagens: ' + result.error?.message);
+    } catch (e: any) { alert('Erro: ' + e.message); }
+    finally { setRefreshingId(null); }
   };
 
   const openWaModal = (report: Report) => {
@@ -544,6 +558,13 @@ export default function ReportsPage() {
                       <button onClick={() => copyLink(report.public_token)} title="Copiar link"
                         style={iconBtnStyle(copiedToken === report.public_token ? { color: '#34d399', borderColor: 'rgba(52,211,153,.3)', background: 'rgba(52,211,153,.08)' } : {})}>
                         {copiedToken === report.public_token ? <Check size={15} /> : <Copy size={15} />}
+                      </button>
+                      <button onClick={() => refreshCreatives(report.id)}
+                        disabled={refreshingId === report.id} title="Atualizar imagens dos criativos"
+                        style={iconBtnStyle()}>
+                        {refreshingId === report.id
+                          ? <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
+                          : <RefreshCw size={15} />}
                       </button>
                       <button onClick={() => sendReport(report.id, report.client_email || undefined)}
                         disabled={sendingId === report.id} title="Enviar por email"

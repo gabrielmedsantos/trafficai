@@ -238,6 +238,29 @@ router.post('/generate', async (req: Request, res: Response) => {
     }
 });
 
+// POST /reports/:id/refresh-creatives — re-busca thumbnails/vídeos dos anúncios do
+// relatório sem regenerar métricas/análise. Útil pra relatórios antigos gerados antes
+// de melhorias na busca de imagem (resolução maior, etc).
+router.post('/:id/refresh-creatives', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+
+        await reportService.refreshCreativeThumbnails(userId, id);
+
+        const updated = await query(
+            `SELECT r.*, a.account_name FROM client_reports r LEFT JOIN ad_accounts a ON r.account_id = a.id WHERE r.id = $1`,
+            [id]
+        );
+        if (!updated.length) return res.status(404).json({ success: false, error: { message: 'Relatório não encontrado' } });
+
+        res.json({ success: true, data: updated[0] });
+    } catch (error: any) {
+        logger.error('Erro ao atualizar criativos do relatório', { error: error.message });
+        res.status(400).json({ success: false, error: { message: error.message || 'Erro interno' } });
+    }
+});
+
 // POST /reports/:id/send — envia relatório por email
 router.post('/:id/send', async (req: Request, res: Response) => {
     try {
