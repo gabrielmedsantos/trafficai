@@ -871,7 +871,7 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
       onClick={onClose}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,8,14,.92)', display: 'grid', placeItems: 'center', padding: 24, backdropFilter: 'blur(4px)' }}
     >
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 640, maxHeight: '88vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <span style={{ color: '#fff', fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ad.name}</span>
           <button
@@ -881,12 +881,12 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
             style={{ flexShrink: 0, background: 'rgba(255,255,255,.08)', border: 'none', color: '#fff', width: 32, height: 32, borderRadius: 8, cursor: 'pointer', fontSize: 15, display: 'grid', placeItems: 'center' }}
           >✕</button>
         </div>
-        <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', display: 'grid', placeItems: 'center', minHeight: 200 }}>
-          {isVid ? (
-            videoLoading ? (
+        {isVid ? (
+          <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', display: 'grid', placeItems: 'center', minHeight: 200, maxHeight: '80vh' }}>
+            {videoLoading ? (
               <div style={{ padding: 60, color: C.textMuted, fontSize: 13 }}>Carregando vídeo…</div>
             ) : videoUrl ? (
-              <video src={videoUrl} controls autoPlay style={{ maxWidth: '100%', maxHeight: '78vh', display: 'block' }} />
+              <video src={videoUrl} controls autoPlay style={{ maxWidth: '100%', maxHeight: '80vh', display: 'block' }} />
             ) : (
               <div style={{ padding: 60, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>
                 Não foi possível carregar o vídeo aqui.
@@ -894,13 +894,18 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
                   <><br /><a href={ad.watch_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 700 }}>Abrir no Facebook/Instagram</a></>
                 )}
               </div>
-            )
-          ) : ad.thumbnail_url ? (
-            <img src={ad.thumbnail_url} alt={ad.name} style={{ maxWidth: '100%', maxHeight: '78vh', display: 'block', objectFit: 'contain' }} />
-          ) : (
-            <div style={{ padding: 60, color: C.textMuted, fontSize: 13 }}>Sem preview disponível</div>
-          )}
-        </div>
+            )}
+          </div>
+        ) : ad.thumbnail_url ? (
+          <div style={{ width: '100%', aspectRatio: '1/1', maxHeight: '80vh', position: 'relative', overflow: 'hidden', borderRadius: 12, background: '#000' }}>
+            <img src={ad.thumbnail_url} alt="" aria-hidden="true"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) brightness(.5)', transform: 'scale(1.2)' }} />
+            <img src={ad.thumbnail_url} alt={ad.name}
+              style={{ position: 'relative', width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          </div>
+        ) : (
+          <div style={{ borderRadius: 12, background: '#000', padding: 60, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Sem preview disponível</div>
+        )}
       </div>
     </div>
   );
