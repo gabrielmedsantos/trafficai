@@ -66,7 +66,7 @@ const statusCfg = {
 } as const;
 
 export default function ReportsPage() {
-  const { accounts, selectedAccountId, loading: accountsLoading } = useAccount();
+  const { accounts, selectedAccountId, setSelectedAccountId, loading: accountsLoading } = useAccount();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -400,6 +400,15 @@ export default function ReportsPage() {
           <p>Relatórios automáticos por cliente com análise IA</p>
         </div>
         <div className="page-header-actions">
+          <div style={{ width: 220 }}>
+            <AccountSelect
+              accounts={accounts}
+              value={selectedAccountId || ''}
+              onChange={id => setSelectedAccountId(id || null)}
+              allowAll={true}
+              allLabel="Todas as contas"
+            />
+          </div>
           <button className="btn btn-secondary btn-sm"
             onClick={() => { setShowSettingsModal(true); if (selectedAccountId) loadSettings(selectedAccountId); }}>
             <Settings2 size={14} /> Configurar

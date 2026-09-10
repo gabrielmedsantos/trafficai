@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAccount } from '@/app/AccountContext';
+import AccountSelect from '@/components/AccountSelect';
 import {
     DollarSign, Eye, MousePointerClick, Target, TrendingUp, RefreshCw,
     Link as LinkIcon, Activity, BarChart3, AlertTriangle, ChevronDown,
@@ -379,7 +380,7 @@ export default function DashboardPage() {
     const [customSince, setCustomSince] = useState(dateRange.since);
     const [customUntil, setCustomUntil] = useState(dateRange.until);
 
-    const { selectedAccountId } = useAccount();
+    const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
 
     useEffect(() => { loadDashboard(); }, [selectedAccountId, dateRange]);
 
@@ -623,6 +624,17 @@ export default function DashboardPage() {
                     </p>
                 </div>
                 <div className="page-header-actions">
+                    {/* Conta */}
+                    <div style={{ width: 220 }} onClick={e => e.stopPropagation()}>
+                        <AccountSelect
+                            accounts={accounts}
+                            value={selectedAccountId || ''}
+                            onChange={id => setSelectedAccountId(id || null)}
+                            allowAll={true}
+                            allLabel="Todas as contas"
+                        />
+                    </div>
+
                     {/* Objective picker */}
                     <div style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
                         <button

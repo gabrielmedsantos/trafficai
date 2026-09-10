@@ -36,9 +36,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { useAccount } from '@/app/AccountContext';
 import { useCurrentUser } from '@/app/UserContext';
-import AccountSelect from '@/components/AccountSelect';
 
 // ─── Area definitions ──────────────────────────────────────────────────────
 
@@ -171,7 +169,6 @@ export default function Sidebar() {
     const [onboardingActive, setOnboardingActive] = useState(0);
     const [activeArea, setActiveArea] = useState<AreaId>(() => detectArea(pathname || ''));
     const [mobileOpen, setMobileOpen] = useState(false);
-    const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
     const { can, user } = useCurrentUser();
 
     useEffect(() => {
@@ -262,17 +259,6 @@ export default function Sidebar() {
                     <span className="product">TrafficAI</span>
                 </div>
             </div>
-
-            {/* Account selector (só na área tráfego) */}
-            {activeArea === 'traffic' && (
-                <AccountSelect
-                    accounts={accounts}
-                    value={selectedAccountId || ''}
-                    onChange={id => setSelectedAccountId(id || null)}
-                    allowAll={true}
-                    allLabel="Todas as contas"
-                />
-            )}
 
             {/* Área */}
             <div className="sidebar-section">

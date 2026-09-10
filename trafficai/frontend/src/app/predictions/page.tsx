@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { TrendingUp, TrendingDown, Minus, ArrowRight } from 'lucide-react';
 import { useAccount } from '@/app/AccountContext';
+import AccountSelect from '@/components/AccountSelect';
 
 function PredictionsContent() {
     const searchParams = useSearchParams();
@@ -14,7 +15,7 @@ function PredictionsContent() {
     const [prediction, setPrediction] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [loadingCampaigns, setLoadingCampaigns] = useState(true);
-    const { selectedAccountId } = useAccount();
+    const { accounts, selectedAccountId, setSelectedAccountId } = useAccount();
 
     useEffect(() => {
         setLoadingCampaigns(true);
@@ -71,6 +72,17 @@ function PredictionsContent() {
                         Previsões
                     </h1>
                     <p>Estimativas de performance para os próximos 7 dias</p>
+                </div>
+                <div className="page-header-actions">
+                    <div style={{ width: 220 }}>
+                        <AccountSelect
+                            accounts={accounts}
+                            value={selectedAccountId || ''}
+                            onChange={id => setSelectedAccountId(id || null)}
+                            allowAll={true}
+                            allLabel="Todas as contas"
+                        />
+                    </div>
                 </div>
             </div>
 
