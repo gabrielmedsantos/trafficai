@@ -61,6 +61,11 @@ router.get('/public/:token', async (req: Request, res: Response) => {
 // são assinadas e expiram — um relatório salvo com a URL de quando foi gerado quebra
 // ("sem preview") depois de alguns dias. Buscando na hora da visualização, nunca expira.
 router.get('/public/:token/ad-thumbnail/:adId', async (req: Request, res: Response) => {
+    // Helmet seta Cross-Origin-Resource-Policy: same-origin por padrão, o que bloqueia
+    // silenciosamente o <img> do frontend (app.alfamaxdigital.com.br) de carregar essa
+    // rota (api.alfamaxdigital.com.br) — precisa liberar explicitamente pra essa rota
+    // que é feita pra ser embutida como imagem de outra origem.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     try {
         const { token, adId } = req.params;
         const fallback = typeof req.query.fallback === 'string' ? req.query.fallback : undefined;
