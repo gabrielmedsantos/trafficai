@@ -42,45 +42,59 @@ import AccountSelect from '@/components/AccountSelect';
 
 // ─── Area definitions ──────────────────────────────────────────────────────
 
+// Cores por categoria pro selo do ícone de cada item — mesma linguagem visual
+// já usada nos cards de KPI do dashboard.
+const C = {
+    blue:     { color: '#38bdf8', bg: 'rgba(56,189,248,.14)' },
+    green:    { color: '#00d27a', bg: 'rgba(0,210,122,.14)' },
+    purple:   { color: '#b794f4', bg: 'rgba(183,148,244,.16)' },
+    cyan:     { color: '#22d3ee', bg: 'rgba(34,211,238,.16)' },
+    orange:   { color: '#ff8b3d', bg: 'rgba(255,139,63,.16)' },
+    red:      { color: '#ef4444', bg: 'rgba(239,68,68,.16)' },
+    whatsapp: { color: '#25d366', bg: 'rgba(37,211,102,.16)' },
+    neutral:  { color: 'var(--text-secondary)', bg: 'rgba(255,255,255,.06)' },
+};
+
 const AREAS = [
     {
         id: 'traffic',
         label: 'Tráfego Pago',
+        shortLabel: 'Tráfego',
         icon: Radio,
         routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar', '/automation'],
         groups: [
             {
                 label: 'Meu dia',
                 items: [
-                    { href: '/agenda',       label: 'Agenda',          icon: CalendarDays },
-                    { href: '/otimizacoes',  label: 'Fluxo Semanal',     icon: ClipboardList },
-                    { href: '/onboarding',   label: 'Onboarding',      icon: ClipboardCheck, showOnboardingBadge: true },
+                    { href: '/agenda',       label: 'Agenda',          icon: CalendarDays, color: C.blue },
+                    { href: '/otimizacoes',  label: 'Fluxo Semanal',     icon: ClipboardList, color: C.blue },
+                    { href: '/onboarding',   label: 'Onboarding',      icon: ClipboardCheck, showOnboardingBadge: true, color: C.green },
                 ],
             },
             {
                 label: 'Inteligência',
                 items: [
-                    { href: '/dashboard',   label: 'Dashboard',    icon: LayoutDashboard },
-                    { href: '/agent',       label: 'Gestor IA',    icon: Bot, capability: 'ai_agent' },
+                    { href: '/dashboard',   label: 'Dashboard',    icon: LayoutDashboard, color: C.cyan },
+                    { href: '/agent',       label: 'Gestor IA',    icon: Bot, capability: 'ai_agent', color: C.purple },
                 ],
             },
             {
                 label: 'Campanhas',
                 items: [
-                    { href: '/campaigns',    label: 'Campanhas',    icon: Megaphone },
-                    { href: '/google-ads',   label: 'Google Ads',   icon: Radio },
-                    { href: '/predictions',  label: 'Previsões',    icon: TrendingUp },
-                    { href: '/alerts',       label: 'Alertas',      icon: Bell, showBadge: true },
+                    { href: '/campaigns',    label: 'Campanhas',    icon: Megaphone, color: C.orange },
+                    { href: '/google-ads',   label: 'Google Ads',   icon: Radio, color: C.orange },
+                    { href: '/predictions',  label: 'Previsões',    icon: TrendingUp, color: C.green },
+                    { href: '/alerts',       label: 'Alertas',      icon: Bell, showBadge: true, color: C.red },
                 ],
             },
             {
                 label: 'Resultados',
                 items: [
-                    { href: '/reports',           label: 'Relatórios',       icon: FileText },
-                    { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle },
-                    { href: '/creative',          label: 'Criativos',        icon: Palette, capability: 'creatives' },
-                    { href: '/tracking',          label: 'Tracking',         icon: Activity },
-                    { href: '/accounts',          label: 'Contas',           icon: Users },
+                    { href: '/reports',           label: 'Relatórios',       icon: FileText, color: C.blue },
+                    { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle, color: C.whatsapp },
+                    { href: '/creative',          label: 'Criativos',        icon: Palette, capability: 'creatives', color: C.purple },
+                    { href: '/tracking',          label: 'Tracking',         icon: Activity, color: C.cyan },
+                    { href: '/accounts',          label: 'Contas',           icon: Users, color: C.neutral },
                 ],
             },
         ],
@@ -94,16 +108,16 @@ const AREAS = [
             {
                 label: 'CRM & Financeiro',
                 items: [
-                    { href: '/clientes',    label: 'Clientes',     icon: Building2 },
-                    { href: '/financeiro',  label: 'Financeiro',   icon: Wallet },
+                    { href: '/clientes',    label: 'Clientes',     icon: Building2, color: C.blue },
+                    { href: '/financeiro',  label: 'Financeiro',   icon: Wallet, color: C.green },
                 ],
             },
             {
                 label: 'Time',
                 items: [
-                    { href: '/team',        label: 'Time',         icon: Users },
-                    { href: '/board',       label: 'Demandas',     icon: KanbanSquare },
-                    { href: '/audit-log',   label: 'Auditoria',    icon: History, adminOnly: true },
+                    { href: '/team',        label: 'Time',         icon: Users, color: C.purple },
+                    { href: '/board',       label: 'Demandas',     icon: KanbanSquare, color: C.orange },
+                    { href: '/audit-log',   label: 'Auditoria',    icon: History, adminOnly: true, color: C.neutral },
                 ],
             },
         ],
@@ -117,23 +131,23 @@ const AREAS = [
             {
                 label: 'Visão Geral',
                 items: [
-                    { href: '/comercial',                label: 'Dashboard',     icon: BarChart3 },
-                    { href: '/comercial/conversations',  label: 'Conversas',     icon: MessageSquare },
-                    { href: '/comercial/leads',          label: 'Leads',         icon: Target },
+                    { href: '/comercial',                label: 'Dashboard',     icon: BarChart3, color: C.cyan },
+                    { href: '/comercial/conversations',  label: 'Conversas',     icon: MessageSquare, color: C.whatsapp },
+                    { href: '/comercial/leads',          label: 'Leads',         icon: Target, color: C.orange },
                 ],
             },
             {
                 label: 'Operação',
                 items: [
-                    { href: '/comercial/team',           label: 'Vendedores',    icon: Users },
-                    { href: '/comercial/tasks',          label: 'Tarefas',       icon: CheckSquare },
+                    { href: '/comercial/team',           label: 'Vendedores',    icon: Users, color: C.purple },
+                    { href: '/comercial/tasks',          label: 'Tarefas',       icon: CheckSquare, color: C.blue },
                 ],
             },
             {
                 label: 'Configuração',
                 items: [
-                    { href: '/comercial/integrations',   label: 'Integrações',   icon: Plug },
-                    { href: '/comercial/share-links',    label: 'Compartilhar',  icon: Share2 },
+                    { href: '/comercial/integrations',   label: 'Integrações',   icon: Plug, color: C.neutral },
+                    { href: '/comercial/share-links',    label: 'Compartilhar',  icon: Share2, color: C.neutral },
                 ],
             },
         ],
@@ -263,23 +277,23 @@ export default function Sidebar() {
             {/* Área */}
             <div className="sidebar-section">
                 <div className="sidebar-section-label">Área</div>
-                {AREAS.map(area => {
-                    const Icon = area.icon;
-                    const isActive = activeArea === area.id;
-                    return (
-                        <button
-                            key={area.id}
-                            onClick={() => setActiveArea(area.id as AreaId)}
-                            className={`sidebar-area ${isActive ? 'active' : ''}`}
-                            type="button"
-                        >
-                            <span className="area-icon">
-                                <Icon size={13} strokeWidth={2} />
-                            </span>
-                            <span>{area.label}</span>
-                        </button>
-                    );
-                })}
+                <div className="sidebar-segs">
+                    {AREAS.map(area => {
+                        const Icon = area.icon;
+                        const isActive = activeArea === area.id;
+                        return (
+                            <button
+                                key={area.id}
+                                onClick={() => setActiveArea(area.id as AreaId)}
+                                className={`sidebar-seg ${isActive ? 'active' : ''}`}
+                                type="button"
+                            >
+                                <Icon size={16} strokeWidth={2} />
+                                <span className="seg-label">{(area as any).shortLabel || area.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
             <div className="sidebar-divider" />
@@ -287,7 +301,7 @@ export default function Sidebar() {
             {/* Navegação */}
             <nav className="sidebar-nav">
                 {currentArea.groups.map((group: any) => (
-                    <div key={group.label}>
+                    <div key={group.label} className="sidebar-group-panel">
                         <div className="nav-group-label">{group.label}</div>
                         {group.items.filter((item: any) => (!item.capability || can(item.capability)) && (!item.adminOnly || user?.role === 'admin')).map((item: any) => {
                             const Icon = item.icon;
@@ -298,7 +312,9 @@ export default function Sidebar() {
                                     href={item.href}
                                     className={`sidebar-link ${isActive ? 'active' : ''}`}
                                 >
-                                    <Icon className="icon" strokeWidth={1.8} />
+                                    <span className="sidebar-link-badge" style={{ background: item.color?.bg, color: item.color?.color }}>
+                                        <Icon strokeWidth={1.8} />
+                                    </span>
                                     <span>{item.label}</span>
                                     {item.showBadge && unreadAlerts > 0 && (
                                         <span className="sidebar-badge">{unreadAlerts}</span>
