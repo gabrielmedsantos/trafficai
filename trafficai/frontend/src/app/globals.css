@@ -237,7 +237,7 @@ a:hover { color: var(--primary-hover); }
 }
 
 .sidebar-section-label {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -254,7 +254,7 @@ a:hover { color: var(--primary-hover); }
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.25;
   color: var(--text-secondary);
@@ -302,7 +302,7 @@ a:hover { color: var(--primary-hover); }
 .sidebar-nav::-webkit-scrollbar { width: 0; }
 
 .nav-group-label {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -318,7 +318,7 @@ a:hover { color: var(--primary-hover); }
   padding: 4.5px 9px;
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.25;
   text-decoration: none;
@@ -347,8 +347,8 @@ a:hover { color: var(--primary-hover); }
 }
 
 .sidebar-link .icon {
-  width: 14.5px;
-  height: 14.5px;
+  width: 15.5px;
+  height: 15.5px;
   flex-shrink: 0;
   color: var(--text-muted);
 }
