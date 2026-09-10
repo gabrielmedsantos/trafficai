@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { api } from '@/lib/api';
-import { Brain, Loader, ChevronRight, Search, Filter, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Brain, Loader, ChevronRight, Search, Filter, ArrowUpDown, ArrowUp, ArrowDown, Zap } from 'lucide-react';
 import Link from 'next/link';
 import { useAccount } from '@/app/AccountContext';
 import { useCurrentUser } from '@/app/UserContext';
+import AutomationPanel from '@/components/panels/AutomationPanel';
 
 interface Campaign {
     id: string;
@@ -83,6 +84,7 @@ const fmtNum = (v: number) => Number(v || 0).toLocaleString('pt-BR');
 const PAGE_SIZE = 25;
 
 export default function CampaignsPage() {
+    const [tab, setTab] = useState<'campaigns' | 'automation'>('campaigns');
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [loading, setLoading] = useState(true);
     const [analyzing, setAnalyzing] = useState<string | null>(null);
@@ -215,7 +217,7 @@ export default function CampaignsPage() {
 
     return (
         <div className="fade-in">
-            <div className="page-header" style={{ marginBottom: '24px' }}>
+            <div className="page-header" style={{ marginBottom: '16px' }}>
                 <div>
                     <h1>Campanhas</h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>
@@ -225,6 +227,38 @@ export default function CampaignsPage() {
                 </div>
             </div>
 
+            <div style={{ display: 'flex', gap: 4, marginBottom: '20px', borderBottom: '1px solid var(--border)' }}>
+                <button
+                    onClick={() => setTab('campaigns')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '10px 4px', marginRight: 20,
+                        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: 13.5, fontWeight: 600,
+                        color: tab === 'campaigns' ? 'var(--text-primary)' : 'var(--text-muted)',
+                        borderBottom: `2px solid ${tab === 'campaigns' ? 'var(--primary)' : 'transparent'}`,
+                        marginBottom: -1,
+                    }}
+                >
+                    <Search size={14} /> Campanhas
+                </button>
+                <button
+                    onClick={() => setTab('automation')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '10px 4px', marginRight: 20,
+                        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: 13.5, fontWeight: 600,
+                        color: tab === 'automation' ? 'var(--text-primary)' : 'var(--text-muted)',
+                        borderBottom: `2px solid ${tab === 'automation' ? 'var(--primary)' : 'transparent'}`,
+                        marginBottom: -1,
+                    }}
+                >
+                    <Zap size={14} /> Automações
+                </button>
+            </div>
+
+            {tab === 'automation' && <AutomationPanel />}
+
+            {tab === 'campaigns' && <>
             {/* Filters */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
                 {/* Account filter */}
@@ -438,6 +472,7 @@ export default function CampaignsPage() {
                 )}
                 </>
             )}
+            </>}
 
             <style jsx>{`
                 .spinning { animation: spin 1s linear infinite; }

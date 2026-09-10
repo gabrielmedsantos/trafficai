@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation';
 import {
     LayoutDashboard,
     Megaphone,
-    Brain,
     Bell,
     TrendingUp,
     Palette,
@@ -48,16 +47,14 @@ const AREAS = [
         id: 'traffic',
         label: 'Tráfego Pago',
         icon: Radio,
-        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar'],
+        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar', '/automation'],
         groups: [
             {
                 label: 'Meu dia',
                 items: [
                     { href: '/agenda',       label: 'Agenda',          icon: CalendarDays },
-                    { href: '/rotina',       label: 'Rotina',          icon: CalendarDays },
                     { href: '/otimizacoes',  label: 'Fluxo Semanal',     icon: ClipboardList },
                     { href: '/onboarding',   label: 'Onboarding',      icon: ClipboardCheck, showOnboardingBadge: true },
-                    { href: '/calendar',     label: 'Google Calendar', icon: CalendarDays },
                 ],
             },
             {
@@ -65,7 +62,6 @@ const AREAS = [
                 items: [
                     { href: '/dashboard',   label: 'Dashboard',    icon: LayoutDashboard },
                     { href: '/agent',       label: 'Gestor IA',    icon: Bot, capability: 'ai_agent' },
-                    { href: '/insights',    label: 'Insights IA',  icon: Brain },
                 ],
             },
             {
@@ -75,7 +71,6 @@ const AREAS = [
                     { href: '/google-ads',   label: 'Google Ads',   icon: Radio },
                     { href: '/predictions',  label: 'Previsões',    icon: TrendingUp },
                     { href: '/alerts',       label: 'Alertas',      icon: Bell, showBadge: true },
-                    { href: '/automation',   label: 'Automações',   icon: Zap },
                 ],
             },
             {
@@ -84,7 +79,6 @@ const AREAS = [
                     { href: '/reports',           label: 'Relatórios',       icon: FileText },
                     { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle },
                     { href: '/creative',          label: 'Criativos',        icon: Palette, capability: 'creatives' },
-                    { href: '/templates',         label: 'Templates',        icon: FileText },
                     { href: '/tracking',          label: 'Tracking',         icon: Activity },
                     { href: '/accounts',          label: 'Contas',           icon: Users },
                 ],

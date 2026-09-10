@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     MessageCircle, Phone, Clock, CheckCircle2, AlertCircle, X,
-    RefreshCw, Send, RotateCcw, Sparkles, Copy, Check, ChevronRight,
+    RefreshCw, Send, RotateCcw, Sparkles, Copy, Check, ChevronRight, FileText,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import TemplatesPanel from '@/components/panels/TemplatesPanel';
 
 interface WhatsAppAccount {
     account_id: string;
@@ -59,6 +60,7 @@ function fmtRelative(iso?: string | null) {
 }
 
 export default function WhatsappReportsPage() {
+    const [tab, setTab] = useState<'reports' | 'templates'>('reports');
     const [accounts, setAccounts] = useState<WhatsAppAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -114,6 +116,36 @@ export default function WhatsappReportsPage() {
                 </button>
             </div>
 
+            <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
+                <button
+                    onClick={() => setTab('reports')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '10px 4px', marginRight: 20, marginBottom: -1,
+                        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: 13.5, fontWeight: 600,
+                        color: tab === 'reports' ? 'var(--text)' : 'var(--text-muted)',
+                        borderBottom: `2px solid ${tab === 'reports' ? 'var(--primary)' : 'transparent'}`,
+                    }}
+                >
+                    <MessageCircle size={14} /> Diário WhatsApp
+                </button>
+                <button
+                    onClick={() => setTab('templates')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '10px 4px', marginRight: 20, marginBottom: -1,
+                        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: 13.5, fontWeight: 600,
+                        color: tab === 'templates' ? 'var(--text)' : 'var(--text-muted)',
+                        borderBottom: `2px solid ${tab === 'templates' ? 'var(--primary)' : 'transparent'}`,
+                    }}
+                >
+                    <FileText size={14} /> Templates
+                </button>
+            </div>
+
+            {tab === 'templates' && <TemplatesPanel />}
+
+            {tab === 'reports' && <>
             {/* Search + filtro */}
             <div style={{ marginBottom: 20, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ position: 'relative', flex: '1 1 320px', maxWidth: 480 }}>
@@ -258,6 +290,7 @@ export default function WhatsappReportsPage() {
                     ))}
                 </div>
             )}
+            </>}
 
             {/* Drawer de edição */}
             {openAccount && (

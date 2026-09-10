@@ -90,7 +90,10 @@ export default function IntegrationsPage() {
                     desc={googleEmail ? `Conectado: ${googleEmail} — sync de PDFs pro Drive + eventos no Calendar` : 'Upload de PDFs no Drive + eventos e Meet no Calendar'}
                     status={googleStatus}
                     action={googleStatus === 'connected'
-                        ? <button className="btn" onClick={disconnectGoogle}>Desconectar</button>
+                        ? <div style={{ display: 'flex', gap: 8 }}>
+                            <a href="/calendar" className="btn btn-primary" style={{ textDecoration: 'none' }}>Abrir agenda</a>
+                            <button className="btn" onClick={disconnectGoogle}>Desconectar</button>
+                          </div>
                         : <button className="btn btn-primary" onClick={connectGoogle}>Conectar Google</button>}
                 />
 

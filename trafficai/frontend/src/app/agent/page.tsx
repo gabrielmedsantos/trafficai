@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Bot, Send, Loader2, Zap, ChevronDown, Trash2, Brain, Paperclip, X, FileSpreadsheet, Check, XCircle, Lock } from 'lucide-react';
+import { Bot, Send, Loader2, Zap, ChevronDown, Trash2, Brain, Paperclip, X, FileSpreadsheet, Check, XCircle, Lock, MessageSquare } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useCurrentUser } from '@/app/UserContext';
+import InsightsPanel from '@/components/panels/InsightsPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Suggestion {
@@ -67,6 +68,7 @@ function parseCSV(text: string): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function AgentPage() {
     const { can, loading: userLoading } = useCurrentUser();
+    const [tab, setTab] = useState<'chat' | 'insights'>('chat');
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -324,6 +326,41 @@ export default function AgentPage() {
                 )}
             </div>
 
+            {/* Tabs */}
+            <div style={{ display: 'flex', gap: 4, padding: '0 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg-card)', flexShrink: 0 }}>
+                <button
+                    onClick={() => setTab('chat')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '10px 4px', marginRight: 20, marginBottom: -1,
+                        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: '13px', fontWeight: 600,
+                        color: tab === 'chat' ? 'var(--text-primary)' : 'var(--text-muted)',
+                        borderBottom: `2px solid ${tab === 'chat' ? 'var(--primary)' : 'transparent'}`,
+                    }}
+                >
+                    <MessageSquare size={14} /> Chat
+                </button>
+                <button
+                    onClick={() => setTab('insights')}
+                    style={{
+                        display: 'flex', alignItems: 'center', gap: 7, padding: '10px 4px', marginRight: 20, marginBottom: -1,
+                        background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: '13px', fontWeight: 600,
+                        color: tab === 'insights' ? 'var(--text-primary)' : 'var(--text-muted)',
+                        borderBottom: `2px solid ${tab === 'insights' ? 'var(--primary)' : 'transparent'}`,
+                    }}
+                >
+                    <Brain size={14} /> Insights IA
+                </button>
+            </div>
+
+            {tab === 'insights' && (
+                <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
+                    <InsightsPanel />
+                </div>
+            )}
+
+            {tab === 'chat' && <>
             {/* Messages */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
                 {messages.length === 0 ? (
@@ -638,6 +675,7 @@ export default function AgentPage() {
                     </p>
                 </div>
             </div>
+            </>}
 
             <style>{`
                 .spinning { animation: spin 1s linear infinite; }
