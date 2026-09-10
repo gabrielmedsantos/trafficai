@@ -9,6 +9,15 @@ import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
+// A thumbnail_url salva no relatório é uma URL assinada da Meta que expira depois de
+// um tempo — relatórios vistos dias/semanas depois quebravam ("sem preview"). Esse
+// endpoint busca uma URL sempre fresca na hora da visualização, com o valor salvo como
+// fallback caso a busca falhe.
+function liveThumbSrc(token: string, adId: string, fallback?: string) {
+  const q = fallback ? `?fallback=${encodeURIComponent(fallback)}` : '';
+  return `${API}/reports/public/${token}/ad-thumbnail/${adId}${q}`;
+}
+
 // ─── Paleta lime (nova) ────────────────────────────────────────────────
 const C = {
   bg: '#0a0e1a',
@@ -564,10 +573,10 @@ function PublicReportPageInner() {
                     {ad.thumbnail_url ? (
                       <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', overflow: 'hidden', background: '#000' }}>
                         {/* Fundo blurred da mesma imagem pra preencher moldura sem cortar */}
-                        <img src={ad.thumbnail_url} alt="" aria-hidden="true" loading="eager" decoding="async"
+                        <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt="" aria-hidden="true" loading="eager" decoding="async"
                           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) brightness(.5)', transform: 'scale(1.2)' }} />
                         {/* Imagem principal — contain, imageRendering pra melhor upscale */}
-                        <img src={ad.thumbnail_url} alt={ad.name} loading="eager" decoding="async"
+                        <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt={ad.name} loading="eager" decoding="async"
                           style={{ position: 'relative', width: '100%', height: '100%', objectFit: 'contain', display: 'block', imageRendering: 'auto' as any }}
                           onError={e => { (e.currentTarget.parentElement!.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;color:${C.textDim};font-size:12px">sem preview</div>`); }} />
                       </div>
@@ -898,9 +907,9 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
           </div>
         ) : ad.thumbnail_url ? (
           <div style={{ width: '100%', aspectRatio: '1/1', maxHeight: '80vh', position: 'relative', overflow: 'hidden', borderRadius: 12, background: '#000' }}>
-            <img src={ad.thumbnail_url} alt="" aria-hidden="true"
+            <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt="" aria-hidden="true"
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) brightness(.5)', transform: 'scale(1.2)' }} />
-            <img src={ad.thumbnail_url} alt={ad.name}
+            <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt={ad.name}
               style={{ position: 'relative', width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
           </div>
         ) : (

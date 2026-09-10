@@ -13,6 +13,11 @@ import { authRepository } from '../auth/auth.repository';
 
 const router = Router();
 
+// Cache curto de thumbnail_url fresco por ad_id — evita rebuscar na Meta a cada
+// visualização do relatório público (imagens de anúncio ficam paradas por horas/dias).
+const thumbCache = new Map<string, { url: string; expiresAt: number }>();
+const THUMB_CACHE_TTL_MS = 30 * 60 * 1000; // 30min
+
 // ─── ROTAS PÚBLICAS (sem auth) ─────────────────────────────────────────────
 
 // GET /reports/public/:token — página pública do cliente
@@ -48,6 +53,56 @@ router.get('/public/:token', async (req: Request, res: Response) => {
     } catch (error: any) {
         logger.error('Erro ao buscar relatório público', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /reports/public/:token/ad-thumbnail/:adId — redireciona pra uma thumbnail_url
+// SEMPRE fresca, buscada na hora (com cache curto de 30min). As URLs de imagem da Meta
+// são assinadas e expiram — um relatório salvo com a URL de quando foi gerado quebra
+// ("sem preview") depois de alguns dias. Buscando na hora da visualização, nunca expira.
+router.get('/public/:token/ad-thumbnail/:adId', async (req: Request, res: Response) => {
+    try {
+        const { token, adId } = req.params;
+        const fallback = typeof req.query.fallback === 'string' ? req.query.fallback : undefined;
+
+        const cached = thumbCache.get(adId);
+        if (cached && cached.expiresAt > Date.now()) {
+            return res.redirect(302, cached.url);
+        }
+
+        const rows = await query<any>(
+            `SELECT a.user_id, a.meta_account_id
+             FROM client_reports r
+             LEFT JOIN ad_accounts a ON r.account_id = a.id
+             WHERE r.public_token = $1`,
+            [token]
+        );
+        if (!rows.length) {
+            if (fallback) return res.redirect(302, fallback);
+            return res.status(404).end();
+        }
+
+        const { user_id, meta_account_id } = rows[0];
+        const user = await authRepository.findById(user_id);
+        if (!user?.access_token || !meta_account_id) {
+            if (fallback) return res.redirect(302, fallback);
+            return res.status(404).end();
+        }
+
+        const thumbnails = await metaService.getAdThumbnails(user_id, user.access_token, meta_account_id, [adId]);
+        const url = thumbnails.get(adId);
+        if (!url) {
+            if (fallback) return res.redirect(302, fallback);
+            return res.status(404).end();
+        }
+
+        thumbCache.set(adId, { url, expiresAt: Date.now() + THUMB_CACHE_TTL_MS });
+        res.redirect(302, url);
+    } catch (error: any) {
+        logger.error('Erro ao buscar thumbnail do anúncio', { error: error.message });
+        const fallback = typeof req.query.fallback === 'string' ? req.query.fallback : undefined;
+        if (fallback) return res.redirect(302, fallback);
+        res.status(500).end();
     }
 });
 
