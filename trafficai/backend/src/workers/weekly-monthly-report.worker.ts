@@ -12,52 +12,59 @@ import { logger } from '../shared/logger';
 
 /**
  * Roda toda manhã 09:00 UTC e checa quais contas devem receber weekly/monthly hoje.
+ * Dia fixo pra todo mundo — semanal sempre segunda-feira, mensal sempre dia 1 (as
+ * colunas por-conta weekly_report_day/monthly_report_day não são mais consultadas
+ * aqui). Quando o dia 1 cai numa segunda, só o mensal é enviado (prioridade sobre
+ * o semanal) pra evitar duplicidade.
  */
 async function checkAndSendPeriodicReports() {
     const now = new Date();
     const brt = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-    const brtDayOfWeek = brt.getUTCDay();   // 0=domingo
+    const brtDayOfWeek = brt.getUTCDay();   // 0=domingo, 1=segunda
     const brtDayOfMonth = brt.getUTCDate();
     const todayStr = brt.toISOString().slice(0, 10);
+    const isMonday = brtDayOfWeek === 1;
+    const isFirstOfMonth = brtDayOfMonth === 1;
 
-    // Semanal
-    const weeklyRows = await query<any>(`
-        SELECT rs.*, a.account_name, a.user_id
-        FROM report_settings rs
-        JOIN ad_accounts a ON rs.account_id = a.id
-        WHERE rs.weekly_report_enabled = TRUE
-          AND rs.weekly_report_day = $1
-          AND rs.client_phone IS NOT NULL AND rs.client_phone <> ''
-          AND (rs.weekly_report_last_sent IS NULL OR rs.weekly_report_last_sent < $2::date)
-    `, [brtDayOfWeek, todayStr]);
+    if (isFirstOfMonth) {
+        const monthlyRows = await query<any>(`
+            SELECT rs.*, a.account_name, a.user_id
+            FROM report_settings rs
+            JOIN ad_accounts a ON rs.account_id = a.id
+            WHERE rs.monthly_report_enabled = TRUE
+              AND rs.client_phone IS NOT NULL AND rs.client_phone <> ''
+              AND (rs.monthly_report_last_sent IS NULL OR rs.monthly_report_last_sent < $1::date)
+        `, [todayStr]);
 
-    for (const r of weeklyRows) {
-        try { await generateAndSend(r, 'weekly', 7); } catch (e: any) {
-            logger.warn(`weekly report falhou: ${r.account_name}`, { error: e.message });
+        for (const r of monthlyRows) {
+            try { await generateAndSend(r, 'monthly', 30); } catch (e: any) {
+                logger.warn(`monthly report falhou: ${r.account_name}`, { error: e.message });
+            }
         }
-    }
-    if (weeklyRows.length > 0) {
-        logger.info(`📅 Weekly reports: ${weeklyRows.length} enviado(s)`);
-    }
-
-    // Mensal
-    const monthlyRows = await query<any>(`
-        SELECT rs.*, a.account_name, a.user_id
-        FROM report_settings rs
-        JOIN ad_accounts a ON rs.account_id = a.id
-        WHERE rs.monthly_report_enabled = TRUE
-          AND rs.monthly_report_day = $1
-          AND rs.client_phone IS NOT NULL AND rs.client_phone <> ''
-          AND (rs.monthly_report_last_sent IS NULL OR rs.monthly_report_last_sent < $2::date)
-    `, [brtDayOfMonth, todayStr]);
-
-    for (const r of monthlyRows) {
-        try { await generateAndSend(r, 'monthly', 30); } catch (e: any) {
-            logger.warn(`monthly report falhou: ${r.account_name}`, { error: e.message });
+        if (monthlyRows.length > 0) {
+            logger.info(`📅 Monthly reports: ${monthlyRows.length} enviado(s)`);
         }
+        return;
     }
-    if (monthlyRows.length > 0) {
-        logger.info(`📅 Monthly reports: ${monthlyRows.length} enviado(s)`);
+
+    if (isMonday) {
+        const weeklyRows = await query<any>(`
+            SELECT rs.*, a.account_name, a.user_id
+            FROM report_settings rs
+            JOIN ad_accounts a ON rs.account_id = a.id
+            WHERE rs.weekly_report_enabled = TRUE
+              AND rs.client_phone IS NOT NULL AND rs.client_phone <> ''
+              AND (rs.weekly_report_last_sent IS NULL OR rs.weekly_report_last_sent < $1::date)
+        `, [todayStr]);
+
+        for (const r of weeklyRows) {
+            try { await generateAndSend(r, 'weekly', 7); } catch (e: any) {
+                logger.warn(`weekly report falhou: ${r.account_name}`, { error: e.message });
+            }
+        }
+        if (weeklyRows.length > 0) {
+            logger.info(`📅 Weekly reports: ${weeklyRows.length} enviado(s)`);
+        }
     }
 }
 
@@ -90,7 +97,9 @@ async function generateAndSend(settings: any, kind: 'weekly' | 'monthly', daysBa
         `🎯 ${data.counts.campaigns} campanhas ativas\n\n` +
         `📄 Relatório visual completo:\n${snapshot.url}`;
 
-    await sendWhatsAppMessage(settings.user_id, settings.client_phone, msg);
+    // @todos só faz sentido (e só tem efeito na Evolution API) quando o destino é um grupo
+    const isGroup = String(settings.client_phone).includes('@g.us');
+    await sendWhatsAppMessage(settings.user_id, settings.client_phone, msg, isGroup);
 
     const col = kind === 'weekly' ? 'weekly_report_last_sent' : 'monthly_report_last_sent';
     await query(`UPDATE report_settings SET ${col} = CURRENT_DATE WHERE account_id = $1`, [settings.account_id]);

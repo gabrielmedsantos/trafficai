@@ -52,6 +52,8 @@ interface ReportSettings {
   auto_send_whatsapp: boolean;
   daily_whatsapp_enabled: boolean;
   daily_whatsapp_time: string;
+  weekly_report_enabled: boolean;
+  monthly_report_enabled: boolean;
   agency_name: string;
   custom_message: string;
 }
@@ -112,6 +114,7 @@ export default function ReportsPage() {
     daily_enabled: false, weekly_enabled: true, monthly_enabled: true,
     auto_send_email: false, auto_send_whatsapp: false, daily_whatsapp_enabled: false,
     daily_whatsapp_time: '08:15',
+    weekly_report_enabled: false, monthly_report_enabled: false,
     agency_name: 'Alfamax Digital', custom_message: '',
   });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -1193,8 +1196,39 @@ export default function ReportsPage() {
                       <MessageCircle size={12} />
                       {sendingDailyWa ? 'Enviando…' : 'Enviar agora (teste)'}
                     </button>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', paddingTop: 6, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                      Nas segundas-feiras e no dia 1 do mês, o diário não é enviado pra quem tiver o semanal/mensal abaixo habilitado — só um dos três vai.
+                    </div>
                   </div>
                 )}
+              </div>
+
+              <div style={{ padding: '12px 14px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid rgba(37,211,102,.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <MessageCircle size={14} color="#25d366" />
+                    <div>
+                      <p style={{ fontSize: '13.5px', fontWeight: 600, margin: 0 }}>Relatório semanal por WhatsApp</p>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>Toda segunda-feira, no lugar do diário</p>
+                    </div>
+                  </div>
+                  <Toggle value={settingsForm.weekly_report_enabled}
+                    onChange={v => setSettingsForm(f => ({ ...f, weekly_report_enabled: v }))} />
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 14px', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid rgba(37,211,102,.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <MessageCircle size={14} color="#25d366" />
+                    <div>
+                      <p style={{ fontSize: '13.5px', fontWeight: 600, margin: 0 }}>Relatório mensal por WhatsApp</p>
+                      <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '2px 0 0' }}>Todo dia 1, no lugar do diário/semanal</p>
+                    </div>
+                  </div>
+                  <Toggle value={settingsForm.monthly_report_enabled}
+                    onChange={v => setSettingsForm(f => ({ ...f, monthly_report_enabled: v }))} />
+                </div>
               </div>
             </div>
 

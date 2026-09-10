@@ -18,8 +18,10 @@ function normalizePhone(phone: string): string {
 /**
  * Envia msg pra WhatsApp usando a instância Evolution conectada do user.
  * Fallback: usa ENV global se instance específica não existir.
+ * mentionsEveryOne: só tem efeito quando o destinatário é um grupo (JID @g.us) —
+ * a Evolution API ignora o campo pra conversas individuais.
  */
-export async function sendWhatsAppMessage(userId: string, phone: string, text: string): Promise<void> {
+export async function sendWhatsAppMessage(userId: string, phone: string, text: string, mentionsEveryOne = false): Promise<void> {
     if (!phone) throw new Error('phone vazio');
     if (!EV_BASE) throw new Error('EVOLUTION_API_BASE_URL não configurada');
 
@@ -44,8 +46,9 @@ export async function sendWhatsAppMessage(userId: string, phone: string, text: s
 
     const url = `${baseUrl.replace(/\/$/, '')}/message/sendText/${instance}`;
     const number = normalizePhone(phone);
+    const isGroup = number.includes('@g.us');
     try {
-        await axios.post(url, { number, text }, {
+        await axios.post(url, { number, text, ...(mentionsEveryOne && isGroup ? { mentionsEveryOne: true } : {}) }, {
             headers: { apikey: apiKey, 'Content-Type': 'application/json' },
             timeout: 15000,
         });

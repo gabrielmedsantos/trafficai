@@ -358,6 +358,13 @@ export class DailyWhatsAppService {
         const slot = `${hh}:${mm}`;
         const todayStr = now.toISOString().slice(0, 10);
 
+        // Segunda-feira e dia 1 são substituídos pelo relatório semanal/mensal
+        // (weekly-monthly-report.worker.ts) — não manda o diário nesses dias pra
+        // quem tem esse relatório habilitado, senão o cliente recebe os dois.
+        const brtNow = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+        const isMondayBRT = brtNow.getUTCDay() === 1;
+        const isFirstOfMonthBRT = brtNow.getUTCDate() === 1;
+
         let accounts: AccountWithSettings[];
         try {
             accounts = await query<AccountWithSettings>(`
@@ -379,7 +386,9 @@ export class DailyWhatsAppService {
                   AND rs.client_phone IS NOT NULL AND rs.client_phone <> ''
                   AND COALESCE(rs.daily_whatsapp_time, '11:15') = $1
                   AND (rs.daily_whatsapp_last_sent_date IS NULL OR rs.daily_whatsapp_last_sent_date < $2::DATE)
-            `, [slot, todayStr]);
+                  AND NOT ($3 AND rs.weekly_report_enabled = TRUE)
+                  AND NOT ($4 AND rs.monthly_report_enabled = TRUE)
+            `, [slot, todayStr, isMondayBRT, isFirstOfMonthBRT]);
         } catch (err: any) {
             // tabela/coluna não criada ainda — silencia
             return;
