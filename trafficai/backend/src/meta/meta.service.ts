@@ -545,9 +545,32 @@ export class MetaService {
                     // (ex: anúncios dinâmicos/carrossel sem image_url direto).
                     // Prioridade: adimages por hash (asset original) > image_url > full_picture (post) > thumbnail_url > object_story > asset_feed.
                     const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
-                        fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url,hash}},image_hash,effective_object_story_id}',
+                        fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url,video_id,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url,hash}},image_hash,effective_object_story_id}',
                         filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
                     });
+
+                    // Anúncios de vídeo: creative.thumbnail_url vem sempre num crop minúsculo
+                    // (~64-160px) independente do width/height pedido. O objeto do vídeo em si
+                    // tem vários frames extraídos em resolução real via thumbnails{uri} — usa
+                    // o marcado is_preferred (ou o primeiro) como poster de alta resolução.
+                    const videoIds = Array.from(new Set(
+                        ads.map((ad: any) => ad.creative?.video_id).filter(Boolean)
+                    ));
+                    const videoThumbs = new Map<string, string>();
+                    for (let v = 0; v < videoIds.length; v += 50) {
+                        const vSlice = videoIds.slice(v, v + 50);
+                        try {
+                            const resp = await client.get('/', { params: { ids: vSlice.join(','), fields: 'thumbnails.limit(10){uri,is_preferred}' } });
+                            const byId: Record<string, any> = resp.data || {};
+                            for (const vid of vSlice) {
+                                const list: any[] = byId[vid]?.thumbnails?.data || [];
+                                const pick = list.find(t => t.is_preferred) || list[0];
+                                if (pick?.uri) videoThumbs.set(vid, pick.uri);
+                            }
+                        } catch (err: any) {
+                            logger.warn('Failed to fetch video thumbnails batch', { error: err.message });
+                        }
+                    }
 
                     // Anúncios dinâmicos/catálogo não trazem image_url/thumbnail_url em boa
                     // resolução — mas todo hash de imagem aponta pro asset ORIGINAL enviado
@@ -606,12 +629,14 @@ export class MetaService {
                             || (oss.link_data?.image_hash && hashUrls.get(oss.link_data.image_hash))
                             || (Array.isArray(afs.images) && afs.images[0]?.hash ? hashUrls.get(afs.images[0].hash) : undefined);
                         const fullPic = cre.effective_object_story_id ? fullPictures.get(cre.effective_object_story_id) : undefined;
+                        const videoThumb = cre.video_id ? videoThumbs.get(cre.video_id) : undefined;
                         // Prioridade: PRIMEIRO CDN público (scontent.fbcdn.net), depois fallbacks.
                         // asset_feed_spec + object_story link_data retornam facebook.com/ads/image/?d=... que exige LOGIN,
                         // então só usa se não tiver melhor.
                         const candidates: string[] = [
                             hashImg,                                                     // asset original enviado (máxima resolução)
                             cre.image_url,                                               // scontent CDN público
+                            videoThumb,                                                  // frame do vídeo em alta resolução
                             fullPic,                                                     // render final do post (alta res)
                             cre.thumbnail_url,                                           // scontent CDN público (menor res)
                             oss.video_data?.image_url,                                   // video thumbnail
