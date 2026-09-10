@@ -543,16 +543,44 @@ export class MetaService {
                     // gerar o thumbnail numa resolução maior, em vez do default minúsculo — isso
                     // evita o preview esticado/borrado quando cai no fallback pra thumbnail_url
                     // (ex: anúncios dinâmicos/carrossel sem image_url direto).
-                    // Prioridade: image_url > full_picture (post) > thumbnail_url > object_story > asset_feed.
+                    // Prioridade: adimages por hash (asset original) > image_url > full_picture (post) > thumbnail_url > object_story > asset_feed.
                     const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
-                        fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url}},image_hash,effective_object_story_id}',
+                        fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url,hash}},image_hash,effective_object_story_id}',
                         filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
                     });
 
                     // Anúncios dinâmicos/catálogo não trazem image_url/thumbnail_url em boa
-                    // resolução — mas o post publicado (effective_object_story_id) tem
-                    // full_picture, que é o render final do anúncio em alta resolução.
-                    // Busca full_picture em batch pra esses casos.
+                    // resolução — mas todo hash de imagem aponta pro asset ORIGINAL enviado
+                    // (sem downscale), disponível via /act_{id}/adimages?hashes=[...]. Essa é
+                    // a fonte mais confiável de alta resolução pra qualquer tipo de anúncio.
+                    const hashSet = new Set<string>();
+                    for (const ad of ads) {
+                        const cre = ad.creative || {};
+                        const oss = cre.object_story_spec || {};
+                        const afs = cre.asset_feed_spec || {};
+                        if (cre.image_hash) hashSet.add(cre.image_hash);
+                        if (oss.link_data?.image_hash) hashSet.add(oss.link_data.image_hash);
+                        if (Array.isArray(afs.images)) {
+                            for (const im of afs.images) { if (im?.hash) hashSet.add(im.hash); }
+                        }
+                    }
+                    const hashUrls = new Map<string, string>();
+                    const hashList = Array.from(hashSet);
+                    for (let h = 0; h < hashList.length; h += 50) {
+                        const hSlice = hashList.slice(h, h + 50);
+                        try {
+                            const resp = await client.get(`/${acctPath}/adimages`, {
+                                params: { hashes: JSON.stringify(hSlice), fields: 'hash,url' },
+                            });
+                            const data: any[] = resp.data?.data || [];
+                            for (const img of data) { if (img.hash && img.url) hashUrls.set(img.hash, img.url); }
+                        } catch (err: any) {
+                            logger.warn('Failed to fetch adimages by hash', { error: err.message });
+                        }
+                    }
+
+                    // Fallback pra quando não há hash disponível — busca full_picture do post
+                    // publicado (effective_object_story_id), que é o render final do anúncio.
                     const storyIds = Array.from(new Set(
                         ads.map((ad: any) => ad.creative?.effective_object_story_id).filter(Boolean)
                     ));
@@ -574,11 +602,15 @@ export class MetaService {
                         const cre = ad.creative || {};
                         const oss = cre.object_story_spec || {};
                         const afs = cre.asset_feed_spec || {};
+                        const hashImg = (cre.image_hash && hashUrls.get(cre.image_hash))
+                            || (oss.link_data?.image_hash && hashUrls.get(oss.link_data.image_hash))
+                            || (Array.isArray(afs.images) && afs.images[0]?.hash ? hashUrls.get(afs.images[0].hash) : undefined);
                         const fullPic = cre.effective_object_story_id ? fullPictures.get(cre.effective_object_story_id) : undefined;
                         // Prioridade: PRIMEIRO CDN público (scontent.fbcdn.net), depois fallbacks.
                         // asset_feed_spec + object_story link_data retornam facebook.com/ads/image/?d=... que exige LOGIN,
                         // então só usa se não tiver melhor.
                         const candidates: string[] = [
+                            hashImg,                                                     // asset original enviado (máxima resolução)
                             cre.image_url,                                               // scontent CDN público
                             fullPic,                                                     // render final do post (alta res)
                             cre.thumbnail_url,                                           // scontent CDN público (menor res)
