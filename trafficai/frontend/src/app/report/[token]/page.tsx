@@ -550,7 +550,8 @@ function PublicReportPageInner() {
               {topAds.map((ad, i) => {
                 const isVid = isVideoAd(ad);
                 const color = isVid ? C.purple : C.primary;
-                const canWatch = isVid && !!ad.watch_url;
+                const canOpen = !!ad.watch_url;
+                const canWatch = isVid && canOpen;
                 const thumbBox = (
                   <>
                     {ad.thumbnail_url ? (
@@ -582,13 +583,30 @@ function PublicReportPageInner() {
                         </div>
                       </div>
                     )}
+                    {canOpen && !isVid && (
+                      <div style={{
+                        position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
+                        background: 'rgba(10,14,26,0)', transition: 'background .15s',
+                      }}
+                        className="ad-thumb-hover">
+                        <div style={{
+                          opacity: 0, transition: 'opacity .15s',
+                          width: 40, height: 40, borderRadius: '50%', background: 'rgba(10,14,26,.6)',
+                          border: `1.5px solid ${C.primary}`, display: 'grid', placeItems: 'center',
+                          backdropFilter: 'blur(4px)',
+                        }}
+                          className="ad-thumb-hover-icon">
+                          <span style={{ color: '#fff', fontSize: 15 }}>🔍</span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 );
                 return (
                   <div key={ad.ad_id || i} className="card" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', position: 'relative' }}>
                     <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 2, background: color, color: '#0a0e1a', fontSize: 12, fontWeight: 900, padding: '5px 12px', borderRadius: 10, boxShadow: `0 4px 12px ${color}55` }}>#{i + 1}</div>
-                    {canWatch ? (
-                      <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" title="Assistir anúncio" style={{ display: 'block', position: 'relative', cursor: 'pointer' }}>
+                    {canOpen ? (
+                      <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" title={isVid ? 'Assistir anúncio' : 'Ver anúncio original'} style={{ display: 'block', position: 'relative', cursor: 'pointer' }}>
                         {thumbBox}
                       </a>
                     ) : (
@@ -610,13 +628,13 @@ function PublicReportPageInner() {
                           <div><div style={{ color: C.textDim, marginBottom: 2 }}>ROI</div><b style={{ color: C.green }}>{ad.roas.toFixed(2)}×</b></div>
                         )}
                       </div>
-                      {canWatch && (
+                      {canOpen && (
                         <a href={ad.watch_url} target="_blank" rel="noopener noreferrer" style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                           marginTop: 12, padding: '8px', borderRadius: 8, fontSize: 11.5, fontWeight: 700,
-                          color: C.purple, border: `1px solid ${C.purple}55`, textDecoration: 'none',
+                          color: isVid ? C.purple : C.primary, border: `1px solid ${(isVid ? C.purple : C.primary)}55`, textDecoration: 'none',
                         }}>
-                          ▶ Assistir anúncio
+                          {isVid ? '▶ Assistir anúncio' : '🔍 Ver anúncio'}
                         </a>
                       )}
                     </div>

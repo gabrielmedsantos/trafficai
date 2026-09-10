@@ -543,20 +543,44 @@ export class MetaService {
                     // gerar o thumbnail numa resolução maior, em vez do default minúsculo — isso
                     // evita o preview esticado/borrado quando cai no fallback pra thumbnail_url
                     // (ex: anúncios dinâmicos/carrossel sem image_url direto).
-                    // Prioridade: image_url > thumbnail_url > object_story > asset_feed.
+                    // Prioridade: image_url > full_picture (post) > thumbnail_url > object_story > asset_feed.
                     const ads = await this.fetchAllPages(client, `/${acctPath}/ads`, {
                         fields: 'id,creative.thumbnail_width(640).thumbnail_height(640){thumbnail_url,image_url,object_story_spec{link_data{picture,image_hash},video_data{image_url}},asset_feed_spec{images{url}},image_hash,effective_object_story_id}',
                         filtering: JSON.stringify([{ field: 'ad.id', operator: 'IN', value: slice }]),
                     });
+
+                    // Anúncios dinâmicos/catálogo não trazem image_url/thumbnail_url em boa
+                    // resolução — mas o post publicado (effective_object_story_id) tem
+                    // full_picture, que é o render final do anúncio em alta resolução.
+                    // Busca full_picture em batch pra esses casos.
+                    const storyIds = Array.from(new Set(
+                        ads.map((ad: any) => ad.creative?.effective_object_story_id).filter(Boolean)
+                    ));
+                    const fullPictures = new Map<string, string>();
+                    for (let j = 0; j < storyIds.length; j += 50) {
+                        const idsSlice = storyIds.slice(j, j + 50);
+                        try {
+                            const resp = await client.get('/', { params: { ids: idsSlice.join(','), fields: 'full_picture' } });
+                            const byId: Record<string, any> = resp.data || {};
+                            for (const sid of idsSlice) {
+                                if (byId[sid]?.full_picture) fullPictures.set(sid, byId[sid].full_picture);
+                            }
+                        } catch (err: any) {
+                            logger.warn('Failed to fetch full_picture batch', { error: err.message });
+                        }
+                    }
+
                     for (const ad of ads) {
                         const cre = ad.creative || {};
                         const oss = cre.object_story_spec || {};
                         const afs = cre.asset_feed_spec || {};
+                        const fullPic = cre.effective_object_story_id ? fullPictures.get(cre.effective_object_story_id) : undefined;
                         // Prioridade: PRIMEIRO CDN público (scontent.fbcdn.net), depois fallbacks.
                         // asset_feed_spec + object_story link_data retornam facebook.com/ads/image/?d=... que exige LOGIN,
                         // então só usa se não tiver melhor.
                         const candidates: string[] = [
                             cre.image_url,                                               // scontent CDN público
+                            fullPic,                                                     // render final do post (alta res)
                             cre.thumbnail_url,                                           // scontent CDN público (menor res)
                             oss.video_data?.image_url,                                   // video thumbnail
                             Array.isArray(afs.images) ? afs.images[0]?.url : null,       // fallback (auth-required)
