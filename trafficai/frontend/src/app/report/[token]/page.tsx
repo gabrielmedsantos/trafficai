@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import { AreaChart, Area, ResponsiveContainer, Tooltip } from 'recharts';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
@@ -421,35 +422,54 @@ function PublicReportPageInner() {
 
         {/* Evolução diária */}
         {m.daily_breakdown && m.daily_breakdown.length > 1 && (() => {
-          const maxSpend = Math.max(...m.daily_breakdown.map(d => d.spend), 1);
           const maxConv = Math.max(...m.daily_breakdown.map(d => d.conversions), 1);
+          const chartTooltip = (label: string, color: string, formatter: (v: number) => string) => ({
+            contentStyle: { background: C.cardHover, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, padding: '8px 10px' },
+            labelStyle: { color: C.textMuted, fontSize: 11, marginBottom: 2 },
+            itemStyle: { color: C.text },
+            cursor: { stroke: color, strokeOpacity: 0.25, strokeWidth: 1 },
+            formatter: (v: number | undefined) => [formatter(v ?? 0), label],
+            labelFormatter: (v: React.ReactNode) => typeof v === 'string' ? v.substring(5) : v,
+          });
           return (
             <section style={{ marginBottom: 40 }}>
               <SectionHeader title="Evolução Diária" icon="📈" />
               <div style={{ background: C.card, borderRadius: 12, padding: 24, border: `1px solid ${C.border}` }}>
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>Investimento diário</div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 80 }}>
-                    {m.daily_breakdown.map((d, i) => (
-                      <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end' }}>
-                        <div title={`${d.date?.substring(5)}: ${fmt(d.spend)}`}
-                          style={{ width: '100%', height: `${Math.max(4, (d.spend / maxSpend) * 80)}px`, borderRadius: '3px 3px 0 0', background: `linear-gradient(to top, ${C.primaryDark}, ${C.primary})`, opacity: 0.9 }}
-                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '0.9'; }} />
-                      </div>
-                    ))}
+                  <div style={{ height: 90 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={m.daily_breakdown} margin={{ top: 6, right: 2, bottom: 0, left: 2 }}>
+                        <defs>
+                          <linearGradient id="repSpendGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={C.primary} stopOpacity={0.4} />
+                            <stop offset="60%" stopColor={C.primary} stopOpacity={0.1} />
+                            <stop offset="100%" stopColor={C.primary} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <Tooltip {...chartTooltip('Investimento', C.primary, fmt)} />
+                        <Area type="natural" dataKey="spend" stroke={C.primary} fill="url(#repSpendGrad)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: C.primary, stroke: C.card, strokeWidth: 2 }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
                 {maxConv > 0 && (
                   <div>
                     <div style={{ fontSize: 11, color: C.textDim, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.06em' }}>{actionLabel} diário</div>
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 52 }}>
-                      {m.daily_breakdown.map((d, i) => (
-                        <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end' }}>
-                          <div title={`${d.date?.substring(5)}: ${d.conversions}`}
-                            style={{ width: '100%', height: `${Math.max(d.conversions > 0 ? 4 : 0, (d.conversions / maxConv) * 52)}px`, borderRadius: '3px 3px 0 0', background: `linear-gradient(to top, #16a34a, ${C.green})`, opacity: 0.85 }} />
-                        </div>
-                      ))}
+                    <div style={{ height: 60 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={m.daily_breakdown} margin={{ top: 6, right: 2, bottom: 0, left: 2 }}>
+                          <defs>
+                            <linearGradient id="repConvGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={C.green} stopOpacity={0.4} />
+                              <stop offset="60%" stopColor={C.green} stopOpacity={0.1} />
+                              <stop offset="100%" stopColor={C.green} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <Tooltip {...chartTooltip(actionLabel, C.green, v => fmtNum(v))} />
+                          <Area type="natural" dataKey="conversions" stroke={C.green} fill="url(#repConvGrad)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, fill: C.green, stroke: C.card, strokeWidth: 2 }} />
+                        </AreaChart>
+                      </ResponsiveContainer>
                     </div>
                   </div>
                 )}
