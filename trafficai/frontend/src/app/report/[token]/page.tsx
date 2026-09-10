@@ -561,7 +561,7 @@ function PublicReportPageInner() {
               {topAds.map((ad, i) => {
                 const isVid = isVideoAd(ad);
                 const color = isVid ? C.purple : C.primary;
-                const canInline = isVid ? !!ad.video_id : !!ad.thumbnail_url;
+                const canInline = isVid ? (!!ad.video_id || isInstagramPermalink(ad.watch_url)) : !!ad.thumbnail_url;
                 const canOpen = canInline || !!ad.watch_url;
                 const canWatch = isVid && canOpen;
                 const openAd = () => {
@@ -848,14 +848,48 @@ function PublicReportPageInner() {
 
 // ─── Components ───────────────────────────────────────────────────────
 
+// Reels/posts de anúncio geralmente não expõem o arquivo de vídeo bruto via API
+// (a Meta bloqueia isso pra anúncios "dark post"), mas o post do Instagram em si
+// é público — o widget oficial de embed do Instagram consegue tocar o vídeo
+// direto, sem precisar de nenhuma permissão especial da Graph API.
+const isInstagramPermalink = (url?: string) => !!url && /instagram\.com\/(p|reel)\//i.test(url);
+
+function InstagramEmbed({ url }: { url: string }) {
+  React.useEffect(() => {
+    const w = window as any;
+    if (w.instgrm?.Embeds?.process) {
+      w.instgrm.Embeds.process();
+      return;
+    }
+    if (document.getElementById('ig-embed-script')) return;
+    const script = document.createElement('script');
+    script.id = 'ig-embed-script';
+    script.src = 'https://www.instagram.com/embed.js';
+    script.async = true;
+    document.body.appendChild(script);
+  }, [url]);
+
+  return (
+    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', background: '#fff', borderRadius: 12, overflow: 'hidden', maxHeight: '80vh', overflowY: 'auto' }}>
+      <blockquote
+        className="instagram-media"
+        data-instgrm-permalink={url}
+        data-instgrm-version="14"
+        style={{ margin: 0, width: '100%', maxWidth: 400 }}
+      />
+    </div>
+  );
+}
+
 function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose: () => void }) {
   const isVid = !!ad.is_video || !!ad.video_id;
+  const igUrl = isInstagramPermalink(ad.watch_url) ? ad.watch_url! : null;
   const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
-  const [videoLoading, setVideoLoading] = React.useState(isVid && !!ad.video_id);
+  const [videoLoading, setVideoLoading] = React.useState(isVid && !igUrl && !!ad.video_id);
   const [videoError, setVideoError] = React.useState(false);
 
   React.useEffect(() => {
-    if (!isVid || !ad.video_id) return;
+    if (!isVid || igUrl || !ad.video_id) return;
     let cancelled = false;
     fetch(`${API}/reports/public/${token}/ad-video/${ad.ad_id}`)
       .then(r => r.json())
@@ -867,7 +901,7 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
       .catch(() => { if (!cancelled) setVideoError(true); })
       .finally(() => { if (!cancelled) setVideoLoading(false); });
     return () => { cancelled = true; };
-  }, [ad.ad_id, ad.video_id, isVid, token]);
+  }, [ad.ad_id, ad.video_id, isVid, igUrl, token]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -890,7 +924,9 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
             style={{ flexShrink: 0, background: 'rgba(255,255,255,.08)', border: 'none', color: '#fff', width: 32, height: 32, borderRadius: 8, cursor: 'pointer', fontSize: 15, display: 'grid', placeItems: 'center' }}
           >✕</button>
         </div>
-        {isVid ? (
+        {isVid && igUrl ? (
+          <InstagramEmbed url={igUrl} />
+        ) : isVid ? (
           <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', display: 'grid', placeItems: 'center', minHeight: 200, maxHeight: '80vh' }}>
             {videoLoading ? (
               <div style={{ padding: 60, color: C.textMuted, fontSize: 13 }}>Carregando vídeo…</div>
