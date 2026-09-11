@@ -47,21 +47,21 @@ export const TEMPLATE_VARIABLES = [
     { key: 'today_leads',          label: 'Leads/conversões ontem',          example: '23' },
     { key: 'today_cpl',            label: 'Custo por lead ontem',            example: 'R$ 53,67' },
     { key: 'today_action_label',   label: 'Label da ação (lead/compra)',     example: 'lead' },
-    { key: 'today_breakdown_block', label: 'Detalhamento por objetivo (ontem) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 103 · R$ 2,90/conversa\n• Visitas ao perfil: 45 · R$ 1,10/visita' },
+    { key: 'today_breakdown_block', label: 'Detalhamento por objetivo (ontem) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 103 · R$ 298,70 investido · R$ 2,90/conversa\n• Visitas ao perfil: 45 · R$ 49,50 investido · R$ 1,10/visita' },
     { key: 'last7_label',          label: 'Período últimos 7 dias',          example: '22/06 a 28/06' },
     { key: 'last7_spend',          label: 'Investimento últimos 7d',         example: 'R$ 8.500,00' },
     { key: 'last7_impressions',    label: 'Impressões últimos 7d',           example: '85.300' },
     { key: 'last7_leads',          label: 'Leads últimos 7d',                example: '142' },
     { key: 'last7_cpl',            label: 'CPL últimos 7d',                  example: 'R$ 59,86' },
     { key: 'last7_action_label',   label: 'Label da ação (últimos 7d)',      example: 'lead' },
-    { key: 'last7_breakdown_block', label: 'Detalhamento por objetivo (7d) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 428 · R$ 3,42/conversa\n• Visitas ao perfil: 180 · R$ 1,05/visita' },
+    { key: 'last7_breakdown_block', label: 'Detalhamento por objetivo (7d) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 428 · R$ 1.463,76 investido · R$ 3,42/conversa\n• Visitas ao perfil: 180 · R$ 189,00 investido · R$ 1,05/visita' },
     { key: 'month_label',          label: 'Período do mês',                  example: '01/06 a 28/06' },
     { key: 'month_spend',          label: 'Investimento do mês',             example: 'R$ 24.180,00' },
     { key: 'month_impressions',    label: 'Impressões do mês',               example: '320.500' },
     { key: 'month_leads',          label: 'Leads do mês',                    example: '412' },
     { key: 'month_cpl',            label: 'CPL do mês',                      example: 'R$ 58,69' },
     { key: 'month_action_label',   label: 'Label da ação (mês)',             example: 'lead' },
-    { key: 'month_breakdown_block', label: 'Detalhamento por objetivo (mês) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 1.017 · R$ 4,05/conversa\n• Visitas ao perfil: 320 · R$ 0,95/visita' },
+    { key: 'month_breakdown_block', label: 'Detalhamento por objetivo (mês) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 1.017 · R$ 4.118,85 investido · R$ 4,05/conversa\n• Visitas ao perfil: 320 · R$ 304,00 investido · R$ 0,95/visita' },
     { key: 'active_ads',           label: 'Anúncios ativos / em análise',    example: '8' },
     { key: 'top_ads_block',        label: 'Bloco top criativos (ontem)',    example: '🥇 ADS-GERAL IA\n   💰 R$ 141,66 · 57 conv. · R$ 2,46/conv\n\n🥈 ADS-NIUVS\n   💰 R$ 136,00 · 34 conv. · R$ 4,00/conv' },
     { key: 'top_ads_block_7d',     label: 'Bloco top criativos (7 dias)',   example: '🥇 ADS-GERAL IA · R$ 990/7d · 380 conv\n🥈 ADS-NIUVS · R$ 950/7d · 240 conv' },
@@ -235,7 +235,7 @@ function formatBreakdownBlock(groups: TemplateMetrics['objective_breakdown'], le
     const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const lines = groups.map(g => {
         const singular = g.label.replace(/s$/, '').toLowerCase();
-        return `• ${g.label}: ${g.count.toLocaleString('pt-BR')} · ${fmtBRL(g.cost_per)}/${singular}`;
+        return `• ${g.label}: ${g.count.toLocaleString('pt-BR')} · ${fmtBRL(g.spend)} investido · ${fmtBRL(g.cost_per)}/${singular}`;
     });
     // \n\n na frente pra colar no final da linha de CPL sem deixar espaço extra
     // quando vazio (conta com um objetivo só — maioria dos casos).
