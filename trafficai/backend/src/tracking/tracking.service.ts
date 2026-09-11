@@ -25,15 +25,15 @@ export const STANDARD_EVENTS = [
 
 // ─── Normalização + Hash ────────────────────────────────────────────────────
 
-function sha256(value: string): string {
+export function sha256(value: string): string {
     return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-function normEmail(email: string): string {
+export function normEmail(email: string): string {
     return email.trim().toLowerCase();
 }
 
-function normPhone(phone: string): string {
+export function normPhone(phone: string): string {
     // Remove tudo que não é dígito. Se não tem código do país, assume 55 (Brasil).
     let digits = phone.replace(/\D/g, '');
     if (digits.length >= 10 && digits.length <= 11) digits = '55' + digits;

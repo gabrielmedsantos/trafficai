@@ -544,7 +544,7 @@ router.get('/sources/:id/events', async (req: Request, res: Response) => {
             SELECT id, event_name, event_id, event_time, action_source, external_id,
                    event_source_url, value, currency, emq_score, meta_status,
                    meta_error, meta_fbtrace_id, retry_count, created_at,
-                   city, state, country
+                   city, state, country, attribution_confidence, attribution_reason
             FROM tracking_events
             WHERE ${whereSql}
             ORDER BY created_at DESC

@@ -18,6 +18,7 @@ import {
 } from './tracking.service';
 import { clampEventTime } from './crm-sync.service';
 import { processWhatsAppMessage, findWhatsAppLeadByPhone, recordPurchaseForWhatsAppLead } from './whatsapp-lead.service';
+import { resolveClickAttribution, enrichClickWithContact } from './attribution-resolver';
 import { KommoAdapter } from './crm-adapters/kommo.adapter';
 
 const router = Router();
@@ -162,6 +163,14 @@ router.post('/event/:token', eventLimiter, async (req: Request, res: Response) =
             return res.status(400).json({ success: false, error: { message: 'event_name obrigatório' } });
         }
 
+        // Se esse evento identificou o visitante (email/phone), marca o clique
+        // da mesma sessão com o hash de contato — permite resolver leads futuros
+        // que cheguem sem click ID explícito (ver attribution-resolver.ts).
+        if (event.session_id && (userData.email || userData.phone)) {
+            enrichClickWithContact(source.id, event.session_id, { email: userData.email, phone: userData.phone })
+                .catch(() => { /* não bloqueia — já loga internamente */ });
+        }
+
         const r = await trackEvent(source, event);
         res.json({ success: true, data: r });
     } catch (err: any) {
@@ -244,6 +253,11 @@ router.post('/whatsapp/:token', whatsappLimiter, async (req: Request, res: Respo
 //       user: { email, phone, first_name, last_name, city, state, zip, country },
 //       custom_data?: {...},
 //       action_source?: 'system_generated' (default)
+//       session_id?: string,   // opcional — se o seu site/form repassar o
+//                               // session_id do pixel, a atribuição ao clique
+//                               // de origem fica muito mais confiável (ver
+//                               // attribution-resolver.ts). Sem isso, cai pra
+//                               // hash de telefone/email ou IP+tempo.
 //     }
 router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Response) => {
     try {
@@ -400,6 +414,7 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 gclid: b.user?.gclid,
                 page_id: b.user?.page_id,
             },
+            session_id: b.session_id,
         };
 
         if (!event.event_name) {
@@ -424,7 +439,61 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             }
         }
 
+        // Resolução de atribuição: só roda se o CRM NÃO ecoou um click ID
+        // explícito (fbc/fbp/gclid/ctwa_clid) — tenta achar o clique de origem
+        // via session_id, hash de contato ou IP+tempo (ver attribution-resolver.ts).
+        // Nunca bloqueia o envio pra Meta, só enriquece quando encontra algo.
+        let attribution: { confidence: string; reason: string; clickId: string | null } | null = null;
+        const hasExplicitClickId = !!(event.user_data?.fbc || event.user_data?.fbp || event.user_data?.gclid || event.user_data?.ctwa_clid);
+        if (!hasExplicitClickId) {
+            try {
+                const result = await resolveClickAttribution(source.id, {
+                    session_id: event.session_id,
+                    phone: event.user_data?.phone,
+                    email: event.user_data?.email,
+                    client_ip: event.user_data?.client_ip,
+                    eventTimeSec: event.event_time || Math.floor(Date.now() / 1000),
+                });
+                attribution = { confidence: result.confidence, reason: result.reason, clickId: result.click?.id || null };
+                if (result.click) {
+                    // Formato oficial de reconstrução do fbc a partir de um fbclid
+                    // armazenado (documentado pela Meta): fb.1.<creation_time_ms>.<fbclid>.
+                    // Usa o horário REAL do clique (created_at), nunca "agora".
+                    if (result.click.fbclid) {
+                        const clickMs = new Date(result.click.created_at).getTime();
+                        event.user_data!.fbc = `fb.1.${clickMs}.${result.click.fbclid}`;
+                    }
+                    if (result.click.gclid) event.user_data!.gclid = result.click.gclid;
+                    event.custom_data = {
+                        ...(event.custom_data || {}),
+                        ...(result.click.gbraid ? { gbraid: result.click.gbraid } : {}),
+                        ...(result.click.wbraid ? { wbraid: result.click.wbraid } : {}),
+                        ...(result.click.utm_source ? { utm_source: result.click.utm_source } : {}),
+                        ...(result.click.utm_campaign ? { utm_campaign: result.click.utm_campaign } : {}),
+                    };
+                }
+            } catch (e: any) {
+                logger.warn('attribution resolver falhou', { error: e.message });
+            }
+        }
+
         const r = await trackEvent(source, event);
+
+        // Stampa o resultado da atribuição no evento já persistido — feito à
+        // parte pra não mexer no INSERT principal de trackEvent(). Nunca falha
+        // o request se der erro aqui, é só metadado de auditoria.
+        if (attribution) {
+            try {
+                await query(
+                    `UPDATE tracking_events
+                     SET attribution_confidence = $1, attribution_reason = $2, attribution_click_id = $3
+                     WHERE source_id = $4 AND event_id = $5`,
+                    [attribution.confidence, attribution.reason, attribution.clickId, source.id, r.event_id]
+                );
+            } catch (e: any) {
+                logger.warn('attribution: falha ao stampar evento', { error: e.message });
+            }
+        }
 
         // Se for Purchase pra lead WhatsApp, registra no whatsapp_lead
         if (event.event_name === 'Purchase' && event.user_data?.phone && event.value) {

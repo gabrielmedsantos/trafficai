@@ -1460,6 +1460,18 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                 <td className="num">{e.emq_score || 0}</td>
                                                 <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                                                     {e.action_source}
+                                                    {e.attribution_confidence && e.attribution_confidence !== 'none' && (
+                                                        <span
+                                                            title={e.attribution_reason || ''}
+                                                            style={{
+                                                                marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 8,
+                                                                background: e.attribution_confidence === 'high' ? 'rgba(34,197,94,.15)' : e.attribution_confidence === 'medium' ? 'rgba(234,179,8,.15)' : 'rgba(239,68,68,.15)',
+                                                                color: e.attribution_confidence === 'high' ? 'var(--accent-green)' : e.attribution_confidence === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-red)',
+                                                            }}
+                                                        >
+                                                            {e.attribution_confidence}
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="num" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                                                     {fmtRelative(e.created_at)}
@@ -1641,6 +1653,22 @@ function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () =
                         {data.external_id && <AuditField label="external_id" value={data.external_id} mono />}
                         {data.event_source_url && <AuditField label="event_source_url" value={data.event_source_url} />}
                         {data.value != null && <AuditField label="valor" value={`${data.currency || 'R$'} ${Number(data.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`} />}
+                        {data.attribution_confidence && data.attribution_confidence !== 'none' && (
+                            <AuditField
+                                label="atribuição ao clique"
+                                value={
+                                    <span>
+                                        <span style={{
+                                            fontWeight: 700,
+                                            color: data.attribution_confidence === 'high' ? 'var(--accent-green)' : data.attribution_confidence === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-red)',
+                                        }}>
+                                            {data.attribution_confidence === 'high' ? 'alta confiança' : data.attribution_confidence === 'medium' ? 'confiança média' : 'confiança baixa'}
+                                        </span>
+                                        {data.attribution_reason && <span style={{ color: 'var(--text-muted)' }}> — {data.attribution_reason}</span>}
+                                    </span>
+                                }
+                            />
+                        )}
 
                         {/* PII hashada */}
                         {data.user_data_hashed && Object.keys(data.user_data_hashed).length > 0 && (
