@@ -6,7 +6,7 @@ import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
     Zap, ShieldCheck, CircleAlert, Sparkles, Globe, ChevronDown,
     TrendingUp, TrendingDown, Users, UserCheck, Calendar, ShoppingCart, DollarSign, Target,
-    Download, MessageCircle,
+    Download, MessageCircle, Search, ExternalLink,
 } from 'lucide-react';
 import {
     ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -455,26 +455,34 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [dashUntil, setDashUntil] = useState('');
     const [dash, setDash] = useState<any>(null);
     const [dashLoading, setDashLoading] = useState(false);
+    const [campaignSearch, setCampaignSearch] = useState('');
+    const [syncingMeta, setSyncingMeta] = useState(false);
+    const [recentEvents, setRecentEvents] = useState<any[]>([]);
+
+    const resolveDashRange = useCallback((): { since: string; until: string } => {
+        if (dashRange === 'custom') return { since: dashSince, until: dashUntil };
+        const days = dashRange === '7d' ? 7 : dashRange === '14d' ? 14 : 30;
+        const end = new Date();
+        const start = new Date(end.getTime() - days * 86400000);
+        return { since: start.toISOString().slice(0, 10), until: end.toISOString().slice(0, 10) };
+    }, [dashRange, dashSince, dashUntil]);
 
     const loadDash = useCallback(async () => {
         setDashLoading(true);
         try {
-            let since = dashSince, until = dashUntil;
-            if (dashRange !== 'custom') {
-                const days = dashRange === '7d' ? 7 : dashRange === '14d' ? 14 : 30;
-                const end = new Date();
-                const start = new Date(end.getTime() - days * 86400000);
-                since = start.toISOString().slice(0, 10);
-                until = end.toISOString().slice(0, 10);
-            }
-            const d = await api.getTrackingDashboard(source.id, since, until);
+            const { since, until } = resolveDashRange();
+            const [d, ev] = await Promise.all([
+                api.getTrackingDashboard(source.id, since, until),
+                api.getTrackingEvents(source.id, { limit: 8, from: since ? new Date(since + 'T00:00:00').toISOString() : undefined, to: until ? new Date(until + 'T23:59:59').toISOString() : undefined }).catch(() => ({ data: [] })),
+            ]);
             setDash(d);
+            setRecentEvents(ev.data || []);
         } catch {
             setDash(null);
         } finally {
             setDashLoading(false);
         }
-    }, [source.id, dashRange, dashSince, dashUntil]);
+    }, [source.id, resolveDashRange]);
 
     useEffect(() => { loadDash(); }, [loadDash]);
 
@@ -482,14 +490,7 @@ function SourceDetail({ source, onClose, onEdit }: {
     async function exportCsv() {
         setExportingCsv(true);
         try {
-            let since = dashSince, until = dashUntil;
-            if (dashRange !== 'custom') {
-                const days = dashRange === '7d' ? 7 : dashRange === '14d' ? 14 : 30;
-                const end = new Date();
-                const start = new Date(end.getTime() - days * 86400000);
-                since = start.toISOString().slice(0, 10);
-                until = end.toISOString().slice(0, 10);
-            }
+            const { since, until } = resolveDashRange();
             const q = new URLSearchParams();
             if (since) q.set('since', since);
             if (until) q.set('until', until);
@@ -511,6 +512,20 @@ function SourceDetail({ source, onClose, onEdit }: {
             alert('Erro ao exportar CSV: ' + e.message);
         } finally {
             setExportingCsv(false);
+        }
+    }
+
+    async function syncMeta() {
+        if (!source.account_id) { alert('Vincule uma conta Meta em "Editar credenciais" antes de sincronizar.'); return; }
+        setSyncingMeta(true);
+        try {
+            const { since, until } = resolveDashRange();
+            await api.syncAccount(source.account_id, since, until);
+            await loadDash();
+        } catch (e: any) {
+            alert('Erro ao sincronizar: ' + e.message);
+        } finally {
+            setSyncingMeta(false);
         }
     }
 
@@ -667,10 +682,19 @@ function SourceDetail({ source, onClose, onEdit }: {
                     </div>
                 )}
 
-                {/* Performance do cliente */}
-                <Section title="Performance do cliente">
+                {/* Performance por campanha */}
+                <div style={{ marginBottom: 22 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                        Relatórios
+                    </div>
+                    <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Performance por campanha</h2>
+                    <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+                        Métricas Meta Ads combinadas com leads reais e eventos de conversão.
+                    </p>
+
+                    {/* Período + ações */}
                     <div style={{
-                        display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center',
+                        display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center',
                     }}>
                         {(['7d', '14d', '30d', 'custom'] as const).map(r => (
                             <button
@@ -710,12 +734,47 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </button>
                             </>
                         )}
-                        <button type="button" className="btn btn-sm btn-ghost" onClick={exportCsv} disabled={exportingCsv} style={{ marginLeft: 'auto' }}>
-                            <Download size={12} /> {exportingCsv ? 'Exportando…' : 'Exportar CSV'}
-                        </button>
-                        <button type="button" className="btn btn-sm btn-ghost" onClick={loadDash}>
-                            <RefreshCw size={12} /> Atualizar
-                        </button>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <button
+                                type="button" className="btn btn-sm btn-secondary" onClick={syncMeta}
+                                disabled={syncingMeta || !source.account_id}
+                                title={!source.account_id ? 'Vincule uma conta Meta em "Editar credenciais"' : undefined}
+                            >
+                                <RefreshCw size={12} className={syncingMeta ? 'spinning' : ''} /> {syncingMeta ? 'Sincronizando…' : 'Sincronizar Meta'}
+                            </button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={exportCsv} disabled={exportingCsv}>
+                                <Download size={12} /> {exportingCsv ? 'Exportando…' : 'Exportar CSV'}
+                            </button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={loadDash}>
+                                <RefreshCw size={12} /> Atualizar
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Escopo */}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 4, padding: 4, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                            <span style={{ padding: '6px 12px', borderRadius: 7, background: 'var(--primary-soft)', color: 'var(--primary)', fontSize: 12.5, fontWeight: 600 }}>
+                                Campanhas
+                            </span>
+                            <span style={{ padding: '6px 12px', borderRadius: 7, color: 'var(--text-subtle)', fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed' }}
+                                title="Ainda não sincronizamos conjuntos de anúncios individualmente — só no nível de campanha.">
+                                Conjuntos
+                            </span>
+                            <span style={{ padding: '6px 12px', borderRadius: 7, color: 'var(--text-subtle)', fontSize: 12.5, fontWeight: 600, cursor: 'not-allowed' }}
+                                title="Ainda não sincronizamos anúncios individualmente — só no nível de campanha.">
+                                Anúncios
+                            </span>
+                        </div>
+                        <span className="badge badge-gray">{(dash?.by_campaign?.length || 0)} campanha(s) com dados</span>
+                        <div style={{ position: 'relative', marginLeft: 'auto', minWidth: 220 }}>
+                            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                            <input
+                                type="text" placeholder="Buscar por nome…"
+                                value={campaignSearch} onChange={e => setCampaignSearch(e.target.value)}
+                                className="form-input" style={{ paddingLeft: 28, fontSize: 12.5, height: 32 }}
+                            />
+                        </div>
                     </div>
 
                     {dashLoading && !dash && (
@@ -737,15 +796,15 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </div>
                             )}
 
-                            {/* KPIs principais */}
+                            {/* KPIs principais — mesma ordem do RastrackDash: Investimento, Conversas Meta, Conversas reais, ROAS */}
                             <div style={{
-                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10,
+                                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10,
                             }}>
                                 <BigKpi
-                                    icon={<Users size={14} />}
-                                    label="Leads"
-                                    value={dash.kpis.leads.toLocaleString('pt-BR')}
-                                    hint={`${dash.kpis.qualified_rate.toFixed(0)}% qualificados`}
+                                    icon={<DollarSign size={14} />}
+                                    label="Investimento"
+                                    value={dash.source?.has_account_link ? `R$ ${Number(dash.kpis.ad_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—'}
+                                    hint="Período filtrado"
                                 />
                                 <BigKpi
                                     icon={<MessageCircle size={14} />}
@@ -760,6 +819,25 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     value={dash.kpis.conversations_real.toLocaleString('pt-BR')}
                                     hint="Identificadas no WhatsApp"
                                     color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={dash.kpis.roi_pct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                                    label="ROAS"
+                                    value={dash.source?.has_account_link && dash.kpis.ad_spend > 0 ? `${dash.kpis.roas.toFixed(2)}x` : '—'}
+                                    hint="Retorno de aquisição"
+                                    color={dash.kpis.roi_pct >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+                                />
+                            </div>
+
+                            {/* KPIs secundários */}
+                            <div style={{
+                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10,
+                            }}>
+                                <BigKpi
+                                    icon={<Users size={14} />}
+                                    label="Leads"
+                                    value={dash.kpis.leads.toLocaleString('pt-BR')}
+                                    hint={`${dash.kpis.qualified_rate.toFixed(0)}% qualificados`}
                                 />
                                 <BigKpi
                                     icon={<UserCheck size={14} />}
@@ -863,7 +941,19 @@ function SourceDetail({ source, onClose, onEdit }: {
                             </div>
 
                             {/* Performance por campanha — "Origem da venda" */}
-                            {dash.by_campaign && dash.by_campaign.length > 0 && (
+                            {dash.by_campaign && dash.by_campaign.length > 0 && (() => {
+                                const rows = dash.by_campaign.filter((c: any) =>
+                                    !campaignSearch.trim() || (c.campaign_name || '').toLowerCase().includes(campaignSearch.trim().toLowerCase())
+                                );
+                                const totals = rows.reduce((acc: any, c: any) => ({
+                                    spend: acc.spend + (c.spend || 0),
+                                    conversations_meta: acc.conversations_meta + (c.conversations_meta || 0),
+                                    conversations_real: acc.conversations_real + (c.conversations_real || 0),
+                                    qualified: acc.qualified + (c.qualified || 0),
+                                    sales_count: acc.sales_count + (c.sales_count || 0),
+                                    sales_value: acc.sales_value + (c.sales_value || 0),
+                                }), { spend: 0, conversations_meta: 0, conversations_real: 0, qualified: 0, sales_count: 0, sales_value: 0 });
+                                return (
                                 <div style={{ marginTop: 20 }}>
                                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
                                         Performance por campanha
@@ -883,7 +973,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {dash.by_campaign.map((c: any) => (
+                                                {rows.map((c: any) => (
                                                     <tr key={c.campaign_id}>
                                                         <td>{c.campaign_name || <span className="mono">{c.campaign_id}</span>}</td>
                                                         <td className="num">{c.spend > 0 ? `R$ ${Number(c.spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—'}</td>
@@ -908,6 +998,18 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                     </tr>
                                                 )}
                                             </tbody>
+                                            <tfoot>
+                                                <tr style={{ fontWeight: 700 }}>
+                                                    <td>Total do filtro</td>
+                                                    <td className="num">R$ {totals.spend.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
+                                                    <td className="num">{totals.conversations_meta}</td>
+                                                    <td className="num">{totals.conversations_real}</td>
+                                                    <td className="num">{totals.qualified}</td>
+                                                    <td className="num">{totals.sales_count}</td>
+                                                    <td className="num">R$ {totals.sales_value.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
+                                                    <td className="num">{totals.spend > 0 ? `${(totals.sales_value / totals.spend).toFixed(2)}x` : '—'}</td>
+                                                </tr>
+                                            </tfoot>
                                         </table>
                                     </div>
                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
@@ -916,10 +1018,61 @@ function SourceDetail({ source, onClose, onEdit }: {
                                         tráfego web/CRM sem clique de anúncio identificável cai em "Não atribuído".
                                     </div>
                                 </div>
+                                );
+                            })()}
+
+                            {/* Histórico de entrega — Eventos do período */}
+                            {recentEvents.length > 0 && (
+                                <div style={{ marginTop: 24 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 2 }}>
+                                        Histórico de entrega
+                                    </div>
+                                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Eventos do período</div>
+                                    <div className="table-container">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Evento / Origem</th>
+                                                    <th>Lead e campanha</th>
+                                                    <th>Entrega</th>
+                                                    <th>Ocorrido / Enviado</th>
+                                                    <th>Auditoria</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {recentEvents.map((e: any) => (
+                                                    <tr key={e.id}>
+                                                        <td>
+                                                            <div style={{ fontWeight: 600 }}>{e.event_name}</div>
+                                                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{e.action_source}</div>
+                                                        </td>
+                                                        <td style={{ fontSize: 12 }}>
+                                                            <div className="mono" style={{ color: 'var(--text-muted)' }}>{e.external_id || '—'}</div>
+                                                            <div style={{ color: 'var(--text-secondary)' }}>{e.meta_campaign_name || (e.campaign_id ? 'Campanha vinculada' : 'Não atribuído')}</div>
+                                                        </td>
+                                                        <td>
+                                                            <span className={`badge ${e.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`}>
+                                                                {e.meta_status === 'sent' ? 'Enviado' : e.meta_status || '—'}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                            {fmtRelative(e.created_at)}
+                                                        </td>
+                                                        <td>
+                                                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => setInspectEventId(e.id)}>
+                                                                Inspecionar
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             )}
                         </>
                     )}
-                </Section>
+                </div>
 
                 </div>
                 )}
