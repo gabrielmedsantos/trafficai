@@ -9,7 +9,7 @@
 import axios from 'axios';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
-import { trackEvent, TrackingEventInput } from './tracking.service';
+import { trackEvent, TrackingEventInput, resolveCampaignByMetaId } from './tracking.service';
 
 const META_VERSION = 'v20.0';
 
@@ -40,13 +40,31 @@ function findDatasetAndPage(obj: any): { dataset: string[]; page: string[] } {
     return result;
 }
 
-/** Busca pixel_id + page_id no Meta a partir do ID do anúncio. */
-async function resolveAdPixelPage(adId: string, accessToken: string): Promise<{ pixel: string | null; page: string | null }> {
+export interface ResolvedAdMetadata {
+    pixel: string | null;
+    page: string | null;
+    ad_name: string | null;
+    campaign_id: string | null;
+    campaign_name: string | null;
+    adset_id: string | null;
+    adset_name: string | null;
+}
+
+/**
+ * Busca pixel_id, page_id e a hierarquia campanha/conjunto/anúncio no Meta a
+ * partir do ID do anúncio ("Origem da venda") — na MESMA chamada que já
+ * fazíamos só pra pixel/page, já que a Graph API devolve tudo junto via
+ * field-expansion. Nunca inventa: campos ausentes ficam null.
+ */
+async function resolveAdMetadata(adId: string, accessToken: string): Promise<ResolvedAdMetadata> {
     try {
         const r = await axios.get(
             `https://graph.facebook.com/${META_VERSION}/${adId}`,
             {
-                params: { access_token: accessToken, fields: 'tracking_specs' },
+                params: {
+                    access_token: accessToken,
+                    fields: 'name,tracking_specs,campaign{id,name},adset{id,name}',
+                },
                 timeout: 10000,
             }
         );
@@ -54,14 +72,19 @@ async function resolveAdPixelPage(adId: string, accessToken: string): Promise<{ 
         return {
             pixel: found.dataset[0] || null,
             page: found.page[0] || null,
+            ad_name: r.data?.name || null,
+            campaign_id: r.data?.campaign?.id || null,
+            campaign_name: r.data?.campaign?.name || null,
+            adset_id: r.data?.adset?.id || null,
+            adset_name: r.data?.adset?.name || null,
         };
     } catch (err: any) {
-        logger.warn('whatsapp: falha ao buscar pixel/page do ad', {
+        logger.warn('whatsapp: falha ao buscar metadados do ad', {
             ad: adId,
             status: err.response?.status,
             msg: err.response?.data?.error?.message || err.message,
         });
-        return { pixel: null, page: null };
+        return { pixel: null, page: null, ad_name: null, campaign_id: null, campaign_name: null, adset_id: null, adset_name: null };
     }
 }
 
@@ -111,13 +134,27 @@ export async function processWhatsAppMessage(
         || null;
     const instanceName = evolutionPayload?.instance || null;
 
-    // Resolve pixel + page via Meta API (se tivermos access_token da fonte)
+    // Resolve pixel + page + campanha/conjunto/anúncio via Meta API (se tivermos access_token da fonte)
     let pixelId: string | null = null;
     let pageId: string | null = null;
+    let adName: string | null = null;
+    let metaCampaignId: string | null = null;
+    let metaCampaignName: string | null = null;
+    let metaAdsetId: string | null = null;
+    let metaAdsetName: string | null = null;
+    let campaignId: string | null = null;
     if (adSourceId && source.access_token) {
-        const resolved = await resolveAdPixelPage(adSourceId, source.access_token);
+        const resolved = await resolveAdMetadata(adSourceId, source.access_token);
         pixelId = resolved.pixel;
         pageId = resolved.page;
+        adName = resolved.ad_name;
+        metaCampaignId = resolved.campaign_id;
+        metaCampaignName = resolved.campaign_name;
+        metaAdsetId = resolved.adset_id;
+        metaAdsetName = resolved.adset_name;
+        if (metaCampaignId) {
+            campaignId = await resolveCampaignByMetaId(source.account_id, metaCampaignId);
+        }
     }
 
     // event_id estável (sem Date.now()) — se 2 webhooks disparam pro mesmo
@@ -131,14 +168,16 @@ export async function processWhatsAppMessage(
         `INSERT INTO tracking_whatsapp_leads (
             source_id, phone, name, ctwa_clid, ad_source_id, ad_source_url,
             ad_title, ad_thumbnail_url, message_text, pixel_id, page_id,
-            instance_name, raw_payload, lead_event_id, lead_meta_status
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending')
+            instance_name, raw_payload, lead_event_id, lead_meta_status,
+            campaign_id, meta_campaign_id, meta_campaign_name, meta_adset_id, meta_adset_name, ad_name
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'pending',$15,$16,$17,$18,$19,$20)
          ON CONFLICT (source_id, phone) DO NOTHING
          RETURNING id`,
         [
             source.id, phone, name, ctwaClid, adSourceId, adSourceUrl,
             adTitle, adThumbUrl, messageText, pixelId, pageId,
             instanceName, JSON.stringify(evolutionPayload), leadEventId,
+            campaignId, metaCampaignId, metaCampaignName, metaAdsetId, metaAdsetName, adName,
         ]
     );
     // Se ON CONFLICT bloqueou (race), outro processo já criou o lead e disparou
@@ -176,6 +215,14 @@ export async function processWhatsAppMessage(
                 ad_title: adTitle || undefined,
                 message_preview: messageText ? messageText.slice(0, 200) : undefined,
             },
+            campaign: metaCampaignId ? {
+                meta_campaign_id: metaCampaignId,
+                meta_campaign_name: metaCampaignName || undefined,
+                meta_adset_id: metaAdsetId || undefined,
+                meta_adset_name: metaAdsetName || undefined,
+                meta_ad_id: adSourceId || undefined,
+                meta_ad_name: adName || undefined,
+            } : undefined,
         };
 
         // Se o pixel resolvido do anúncio for diferente do pixel da fonte, usamos o do anúncio.
@@ -216,7 +263,11 @@ export async function processWhatsAppMessage(
  */
 export async function findWhatsAppLeadByPhone(
     sourceId: string, phone: string
-): Promise<{ ctwa_clid: string | null; pixel_id: string | null; page_id: string | null } | null> {
+): Promise<{
+    ctwa_clid: string | null; pixel_id: string | null; page_id: string | null;
+    campaign_id: string | null; meta_campaign_id: string | null; meta_campaign_name: string | null;
+    meta_adset_id: string | null; meta_adset_name: string | null; ad_source_id: string | null; ad_name: string | null;
+} | null> {
     const digitsOnly = String(phone).replace(/\D/g, '');
     // Tenta match exato primeiro, depois match com/sem DDI 55
     const candidates = [digitsOnly];
@@ -226,7 +277,9 @@ export async function findWhatsAppLeadByPhone(
     }
 
     const rows = await query<any>(
-        `SELECT ctwa_clid, pixel_id, page_id
+        `SELECT ctwa_clid, pixel_id, page_id,
+                campaign_id, meta_campaign_id, meta_campaign_name,
+                meta_adset_id, meta_adset_name, ad_source_id, ad_name
          FROM tracking_whatsapp_leads
          WHERE source_id = $1 AND phone = ANY($2)
          ORDER BY created_at DESC LIMIT 1`,
@@ -237,6 +290,13 @@ export async function findWhatsAppLeadByPhone(
         ctwa_clid: rows[0].ctwa_clid,
         pixel_id: rows[0].pixel_id,
         page_id: rows[0].page_id,
+        campaign_id: rows[0].campaign_id,
+        meta_campaign_id: rows[0].meta_campaign_id,
+        meta_campaign_name: rows[0].meta_campaign_name,
+        meta_adset_id: rows[0].meta_adset_id,
+        meta_adset_name: rows[0].meta_adset_name,
+        ad_source_id: rows[0].ad_source_id,
+        ad_name: rows[0].ad_name,
     };
 }
 

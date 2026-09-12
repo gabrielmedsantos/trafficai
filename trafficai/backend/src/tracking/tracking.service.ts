@@ -90,6 +90,21 @@ export interface TrackingUserInput {
     page_id?: string;       // Facebook page associada
 }
 
+/**
+ * Atribuição de campanha/conjunto/anúncio pra esse evento específico —
+ * "Origem da venda". Campos meta_* são sempre preservados como veio da Meta
+ * (raw, nunca inventados); campaign_id (FK pra campaigns) só é resolvido
+ * quando a campanha já foi sincronizada nessa conta.
+ */
+export interface CampaignAttributionInput {
+    meta_campaign_id?: string;
+    meta_campaign_name?: string;
+    meta_adset_id?: string;
+    meta_adset_name?: string;
+    meta_ad_id?: string;
+    meta_ad_name?: string;
+}
+
 export interface TrackingEventInput {
     event_name: string;
     event_id?: string;
@@ -102,6 +117,25 @@ export interface TrackingEventInput {
     custom_data?: Record<string, any>;
     user_data?: TrackingUserInput;
     session_id?: string;   // sessão do visitante (gerado pelo pixel)
+    campaign?: CampaignAttributionInput;
+}
+
+/**
+ * Resolve o UUID interno da campanha a partir do ID nativo da Meta, se essa
+ * campanha já foi sincronizada nessa conta (campaign-sync). Sem isso, o
+ * evento ainda guarda os campos meta_* raw — só o rollup por campaign_id
+ * (JOIN com insights_history pra ROAS real) fica indisponível.
+ */
+export async function resolveCampaignByMetaId(
+    accountId: string | null | undefined,
+    metaCampaignId: string | null | undefined
+): Promise<string | null> {
+    if (!accountId || !metaCampaignId) return null;
+    const rows = await query<{ id: string }>(
+        `SELECT id FROM campaigns WHERE account_id = $1 AND meta_campaign_id = $2 LIMIT 1`,
+        [accountId, metaCampaignId]
+    );
+    return rows[0]?.id || null;
 }
 
 /**
@@ -244,6 +278,7 @@ export interface TrackingSource {
     test_event_code: string | null;
     is_active: boolean;
     google_ads_account_id?: string | null;
+    account_id?: string | null;
 }
 
 export async function trackEvent(
@@ -344,6 +379,19 @@ export async function trackEvent(
         }
     }
 
+    // Atribuição de campanha ("Origem da venda") — best-effort, nunca bloqueia
+    // o envio já feito acima. Sem meta_campaign_id no evento (caller não
+    // resolveu), ou sem essa campanha ainda sincronizada nessa conta, fica
+    // apenas com os campos raw (se houver) e campaign_id null.
+    let campaignId: string | null = null;
+    if (event.campaign?.meta_campaign_id) {
+        try {
+            campaignId = await resolveCampaignByMetaId(source.account_id, event.campaign.meta_campaign_id);
+        } catch (e: any) {
+            logger.warn('tracking: resolução de campanha falhou', { error: e.message, source: source.id });
+        }
+    }
+
     // Persiste — JSONB recebe objeto diretamente
     try {
         await query(
@@ -354,7 +402,8 @@ export async function trackEvent(
                 client_ip, client_user_agent, city, state, country, zip, fbp, fbc, ctwa_clid,
                 gclid, session_id,
                 emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id,
-                gbraid, wbraid, google_status, google_response, google_error, google_conversion_action_id
+                gbraid, wbraid, google_status, google_response, google_error, google_conversion_action_id,
+                campaign_id, meta_campaign_id, meta_campaign_name, meta_adset_id, meta_adset_name, meta_ad_id, meta_ad_name
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,
                 $7,$8,$9,$10,
@@ -362,7 +411,8 @@ export async function trackEvent(
                 $13,$14,$15,$16,$17,$18,$19,$20,$21,
                 $22,$23,
                 $24,$25,$26,$27,$28,
-                $29,$30,$31,$32,$33,$34
+                $29,$30,$31,$32,$33,$34,
+                $35,$36,$37,$38,$39,$40,$41
             )`,
             [
                 source.id,
@@ -399,6 +449,13 @@ export async function trackEvent(
                 googleResult?.response ? JSON.stringify(googleResult.response) : null,
                 googleResult?.error || null,
                 googleConversionActionId,
+                campaignId,
+                event.campaign?.meta_campaign_id || null,
+                event.campaign?.meta_campaign_name || null,
+                event.campaign?.meta_adset_id || null,
+                event.campaign?.meta_adset_name || null,
+                event.campaign?.meta_ad_id || null,
+                event.campaign?.meta_ad_name || null,
             ]
         );
     } catch (dbErr: any) {

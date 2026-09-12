@@ -807,6 +807,58 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Funil de conversão</div>
                                 <Funnel kpis={dash.kpis} />
                             </div>
+
+                            {/* Origem da venda — por campanha */}
+                            {dash.by_campaign && dash.by_campaign.length > 0 && (
+                                <div style={{ marginTop: 20 }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                                        Origem da venda — por campanha
+                                    </div>
+                                    <div className="table-container">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Campanha</th>
+                                                    <th>Leads</th>
+                                                    <th>Vendas</th>
+                                                    <th>Receita</th>
+                                                    <th>Investido</th>
+                                                    <th>CPL</th>
+                                                    <th>ROAS</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {dash.by_campaign.map((c: any) => (
+                                                    <tr key={c.campaign_id}>
+                                                        <td>{c.campaign_name || <span className="mono">{c.campaign_id}</span>}</td>
+                                                        <td className="num">{c.leads}</td>
+                                                        <td className="num">{c.sales_count}</td>
+                                                        <td className="num">R$ {Number(c.sales_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
+                                                        <td className="num">{c.spend > 0 ? `R$ ${Number(c.spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—'}</td>
+                                                        <td className="num">{c.cpl > 0 ? `R$ ${Number(c.cpl).toFixed(2)}` : '—'}</td>
+                                                        <td className="num">{c.roas > 0 ? `${c.roas.toFixed(2)}x` : '—'}</td>
+                                                    </tr>
+                                                ))}
+                                                {dash.unattributed && (dash.unattributed.leads > 0 || dash.unattributed.sales_count > 0) && (
+                                                    <tr>
+                                                        <td style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Não atribuído (sem campanha resolvida)</td>
+                                                        <td className="num">{dash.unattributed.leads}</td>
+                                                        <td className="num">{dash.unattributed.sales_count}</td>
+                                                        <td className="num">R$ {Number(dash.unattributed.sales_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
+                                                        <td className="num">—</td>
+                                                        <td className="num">—</td>
+                                                        <td className="num">—</td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                                        Hoje só resolve campanha pra leads vindos de anúncio do WhatsApp (Click-to-WhatsApp).
+                                        Tráfego web/CRM sem clique de anúncio identificável cai em "Não atribuído".
+                                    </div>
+                                </div>
+                            )}
                         </>
                     )}
                 </Section>

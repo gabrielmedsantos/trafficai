@@ -200,6 +200,7 @@ router.get('/sources/:id/whatsapp-leads', async (req: Request, res: Response) =>
             `SELECT id, phone, name, ctwa_clid, ad_source_id, ad_source_url,
                     ad_title, pixel_id, page_id, lead_meta_status, lead_meta_error,
                     purchase_event_id, purchase_value, purchase_at, kommo_lead_id,
+                    meta_campaign_name, meta_adset_name, ad_name,
                     created_at
              FROM tracking_whatsapp_leads
              WHERE source_id = $1
@@ -1147,6 +1148,58 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         }
         const daily = Object.values(byDate).sort((a: any, b: any) => a.date.localeCompare(b.date));
 
+        // "Origem da venda" — leads/vendas por campanha real (só eventos com
+        // campaign_id resolvido; ver migration 061). Spend vem de
+        // insights_history (já sincronizado por campanha via Meta Insights),
+        // então o ROAS aqui é por campanha de verdade, não a média da conta.
+        const byCampaign = await query<any>(
+            `SELECT e.campaign_id,
+                    COALESCE(c.name, MAX(e.meta_campaign_name)) AS campaign_name,
+                    COUNT(*) FILTER (WHERE e.event_name = 'Lead') AS leads,
+                    COUNT(*) FILTER (WHERE e.event_name = 'Purchase') AS sales_count,
+                    COALESCE(SUM(e.value) FILTER (WHERE e.event_name = 'Purchase'), 0) AS sales_value
+             FROM tracking_events e
+             LEFT JOIN campaigns c ON c.id = e.campaign_id
+             WHERE e.source_id = $1 AND e.created_at BETWEEN $2 AND $3 AND e.campaign_id IS NOT NULL
+             GROUP BY e.campaign_id, c.name`,
+            [id, startDate.toISOString(), endDate.toISOString()]
+        );
+        const campaignIds = byCampaign.map((r: any) => r.campaign_id);
+        const campaignSpend = campaignIds.length
+            ? await query<any>(
+                `SELECT campaign_id, COALESCE(SUM(spend), 0) AS spend
+                 FROM insights_history
+                 WHERE campaign_id = ANY($1) AND date BETWEEN $2 AND $3
+                 GROUP BY campaign_id`,
+                [campaignIds, sinceStr, untilStr]
+            )
+            : [];
+        const spendByCampaign = new Map(campaignSpend.map((r: any) => [r.campaign_id, Number(r.spend) || 0]));
+        const byCampaignOut = byCampaign.map((r: any) => {
+            const spend = spendByCampaign.get(r.campaign_id) || 0;
+            const leads = Number(r.leads) || 0;
+            const salesN = Number(r.sales_count) || 0;
+            const salesVal = Number(r.sales_value) || 0;
+            return {
+                campaign_id: r.campaign_id,
+                campaign_name: r.campaign_name,
+                leads, sales_count: salesN, sales_value: salesVal,
+                spend,
+                cpl: leads > 0 ? spend / leads : 0,
+                roas: spend > 0 ? salesVal / spend : 0,
+            };
+        }).sort((a, b) => b.sales_value - a.sales_value);
+        // Eventos sem campanha resolvida — mantém o total explicável (não
+        // "some" nenhum lead/venda da soma da conta).
+        const unattributed = await query<any>(
+            `SELECT COUNT(*) FILTER (WHERE event_name = 'Lead') AS leads,
+                    COUNT(*) FILTER (WHERE event_name = 'Purchase') AS sales_count,
+                    COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase'), 0) AS sales_value
+             FROM tracking_events
+             WHERE source_id = $1 AND created_at BETWEEN $2 AND $3 AND campaign_id IS NULL`,
+            [id, startDate.toISOString(), endDate.toISOString()]
+        );
+
         res.json({
             success: true,
             data: {
@@ -1177,6 +1230,12 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                     avg_emq: t.avg_emq || 0,
                 },
                 daily,
+                by_campaign: byCampaignOut,
+                unattributed: {
+                    leads: Number(unattributed[0]?.leads) || 0,
+                    sales_count: Number(unattributed[0]?.sales_count) || 0,
+                    sales_value: Number(unattributed[0]?.sales_value) || 0,
+                },
             },
         });
     } catch (err: any) {

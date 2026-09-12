@@ -90,7 +90,7 @@ async function findSource(token: string): Promise<(TrackingSource & {
         `SELECT id, user_id, pixel_id, access_token, test_event_code, is_active,
                 webhook_secret, domain,
                 crm_type, crm_subdomain, crm_access_token,
-                google_ads_account_id
+                google_ads_account_id, account_id
          FROM tracking_sources
          WHERE public_token = $1`,
         [token]
@@ -438,6 +438,19 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                     if (wa.page_id) event.user_data.page_id = wa.page_id;
                     event.action_source = 'business_messaging';
                     event.messaging_channel = 'whatsapp';
+                }
+                // "Origem da venda": se o lead original veio de um anúncio com
+                // campanha/conjunto resolvidos, propaga pra esse evento também
+                // (ex: a venda herda a mesma campanha do lead que a originou).
+                if (wa?.meta_campaign_id) {
+                    event.campaign = {
+                        meta_campaign_id: wa.meta_campaign_id,
+                        meta_campaign_name: wa.meta_campaign_name || undefined,
+                        meta_adset_id: wa.meta_adset_id || undefined,
+                        meta_adset_name: wa.meta_adset_name || undefined,
+                        meta_ad_id: wa.ad_source_id || undefined,
+                        meta_ad_name: wa.ad_name || undefined,
+                    };
                 }
             } catch (e: any) {
                 logger.warn('enrich whatsapp falhou', { error: e.message });
