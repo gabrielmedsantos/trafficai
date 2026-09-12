@@ -11,6 +11,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
+import { getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 
 const META_VERSION = 'v19.0';
 const META_BASE = `https://graph.facebook.com/${META_VERSION}`;
@@ -80,6 +81,8 @@ export interface TrackingUserInput {
     fbp?: string;
     fbc?: string;
     gclid?: string;         // Google Ads Click ID (vai como custom_data + persistido)
+    gbraid?: string;        // Google Ads click id (app→web, iOS 14.5+)
+    wbraid?: string;        // Google Ads click id (web→app, privacidade)
     client_ip?: string;
     client_user_agent?: string;
     // WhatsApp Click-to-Message attribution
@@ -240,6 +243,7 @@ export interface TrackingSource {
     access_token: string | null;
     test_event_code: string | null;
     is_active: boolean;
+    google_ads_account_id?: string | null;
 }
 
 export async function trackEvent(
@@ -311,6 +315,35 @@ export async function trackEvent(
         );
     }
 
+    // Google Ads — best-effort, sempre DEPOIS do Meta e nunca afeta o
+    // resultado já computado acima. Sai cedo (custo zero) se a fonte não tem
+    // conta Google Ads linkada, sem mapeamento pro nome do evento, ou sem
+    // nenhum click id (gclid/gbraid/wbraid) — upload de clique exige um deles.
+    let googleResult: { status: 'sent' | 'failed' | 'not_applicable'; response?: any; error?: string } | null = null;
+    let googleConversionActionId: string | null = null;
+    const clickId = event.user_data?.gclid || event.user_data?.gbraid || event.user_data?.wbraid;
+    if (source.google_ads_account_id && clickId) {
+        try {
+            const mapping = await getConversionActionMapping(source.id, event.event_name);
+            const customerId = mapping ? await getLinkedGoogleAdsCustomerId(source.google_ads_account_id) : null;
+            if (mapping && customerId) {
+                googleConversionActionId = mapping.id;
+                googleResult = await sendGoogleConversion(source.user_id, customerId, {
+                    gclid: event.user_data?.gclid,
+                    gbraid: event.user_data?.gbraid,
+                    wbraid: event.user_data?.wbraid,
+                    conversionActionResourceName: mapping.conversion_action_resource_name,
+                    conversionDateTimeUnixSec: eventTime,
+                    value: event.value,
+                    currency: event.currency,
+                    orderId: event.user_data?.external_id,
+                });
+            }
+        } catch (e: any) {
+            logger.warn('tracking: envio Google Ads falhou', { error: e.message, source: source.id });
+        }
+    }
+
     // Persiste — JSONB recebe objeto diretamente
     try {
         await query(
@@ -320,14 +353,16 @@ export async function trackEvent(
                 custom_data, user_data_hashed,
                 client_ip, client_user_agent, city, state, country, zip, fbp, fbc, ctwa_clid,
                 gclid, session_id,
-                emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id
+                emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id,
+                gbraid, wbraid, google_status, google_response, google_error, google_conversion_action_id
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,
                 $7,$8,$9,$10,
                 $11,$12,
                 $13,$14,$15,$16,$17,$18,$19,$20,$21,
                 $22,$23,
-                $24,$25,$26,$27,$28
+                $24,$25,$26,$27,$28,
+                $29,$30,$31,$32,$33,$34
             )`,
             [
                 source.id,
@@ -358,6 +393,12 @@ export async function trackEvent(
                 metaResult.response ? JSON.stringify(metaResult.response) : null,
                 metaResult.error || null,
                 metaResult.fbtrace_id || null,
+                event.user_data?.gbraid || null,
+                event.user_data?.wbraid || null,
+                googleResult?.status || null,
+                googleResult?.response ? JSON.stringify(googleResult.response) : null,
+                googleResult?.error || null,
+                googleConversionActionId,
             ]
         );
     } catch (dbErr: any) {
@@ -519,6 +560,8 @@ export async function retryFailedBatch(opts: {
 export interface ClickRecordInput {
     fbclid?: string;
     gclid?: string;
+    gbraid?: string;
+    wbraid?: string;
     utm_source?: string;
     utm_medium?: string;
     utm_campaign?: string;
@@ -535,14 +578,15 @@ export interface ClickRecordInput {
 
 export async function recordClick(sourceId: string, c: ClickRecordInput): Promise<void> {
     // Só grava se tiver ao menos 1 identificador de tráfego.
-    if (!c.fbclid && !c.gclid && !c.utm_source && !c.utm_campaign) return;
+    if (!c.fbclid && !c.gclid && !c.gbraid && !c.wbraid && !c.utm_source && !c.utm_campaign) return;
     try {
         await query(
             `INSERT INTO tracking_clicks (
                 source_id, fbclid, gclid, utm_source, utm_medium, utm_campaign,
                 utm_content, utm_term, landing_page, referrer,
-                client_ip, client_user_agent, country, city, session_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+                client_ip, client_user_agent, country, city, session_id,
+                gbraid, wbraid
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
             [
                 sourceId,
                 c.fbclid || null, c.gclid || null,
@@ -552,6 +596,7 @@ export async function recordClick(sourceId: string, c: ClickRecordInput): Promis
                 c.client_ip || null, c.client_user_agent || null,
                 c.country || null, c.city || null,
                 c.session_id || null,
+                c.gbraid || null, c.wbraid || null,
             ]
         );
     } catch (err: any) {

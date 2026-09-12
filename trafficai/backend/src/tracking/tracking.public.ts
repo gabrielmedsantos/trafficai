@@ -89,7 +89,8 @@ async function findSource(token: string): Promise<(TrackingSource & {
     const rows = await query<any>(
         `SELECT id, user_id, pixel_id, access_token, test_event_code, is_active,
                 webhook_secret, domain,
-                crm_type, crm_subdomain, crm_access_token
+                crm_type, crm_subdomain, crm_access_token,
+                google_ads_account_id
          FROM tracking_sources
          WHERE public_token = $1`,
         [token]
@@ -142,6 +143,8 @@ router.post('/event/:token', eventLimiter, async (req: Request, res: Response) =
             fbp: body.fbp,
             fbc: body.fbc,
             gclid: body.gclid,
+            gbraid: body.gbraid,
+            wbraid: body.wbraid,
             client_ip: ctx.ip || undefined,
             client_user_agent: ctx.user_agent || undefined,
         };
@@ -189,6 +192,8 @@ router.post('/click/:token', clickLimiter, async (req: Request, res: Response) =
         const c: ClickRecordInput = {
             fbclid: req.body?.fbclid,
             gclid: req.body?.gclid,
+            gbraid: req.body?.gbraid,
+            wbraid: req.body?.wbraid,
             utm_source: req.body?.utm_source,
             utm_medium: req.body?.utm_medium,
             utm_campaign: req.body?.utm_campaign,
@@ -464,10 +469,10 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                         event.user_data!.fbc = `fb.1.${clickMs}.${result.click.fbclid}`;
                     }
                     if (result.click.gclid) event.user_data!.gclid = result.click.gclid;
+                    if (result.click.gbraid) event.user_data!.gbraid = result.click.gbraid;
+                    if (result.click.wbraid) event.user_data!.wbraid = result.click.wbraid;
                     event.custom_data = {
                         ...(event.custom_data || {}),
-                        ...(result.click.gbraid ? { gbraid: result.click.gbraid } : {}),
-                        ...(result.click.wbraid ? { wbraid: result.click.wbraid } : {}),
                         ...(result.click.utm_source ? { utm_source: result.click.utm_source } : {}),
                         ...(result.click.utm_campaign ? { utm_campaign: result.click.utm_campaign } : {}),
                     };
@@ -776,6 +781,19 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     }
     return getCookie('_tai_gclid');
   }
+  // gbraid (app→web, iOS 14.5+) e wbraid (web→app) — mesmo padrão do gclid.
+  function captureGbraid(){
+    var params = new URLSearchParams(window.location.search);
+    var gb = params.get('gbraid');
+    if (gb) { setCookie('_tai_gbraid', gb, 90); return gb; }
+    return getCookie('_tai_gbraid');
+  }
+  function captureWbraid(){
+    var params = new URLSearchParams(window.location.search);
+    var wb = params.get('wbraid');
+    if (wb) { setCookie('_tai_wbraid', wb, 90); return wb; }
+    return getCookie('_tai_wbraid');
+  }
 
   // ── Perfil do usuário (identify) persistido na sessão ─────────────────
   var IDENT_KEY = '__tai_ident__';
@@ -794,6 +812,8 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     return {
       fbclid: sp.get('fbclid') || undefined,
       gclid: sp.get('gclid') || undefined,
+      gbraid: sp.get('gbraid') || undefined,
+      wbraid: sp.get('wbraid') || undefined,
       utm_source: sp.get('utm_source') || undefined,
       utm_medium: sp.get('utm_medium') || undefined,
       utm_campaign: sp.get('utm_campaign') || undefined,
@@ -840,6 +860,8 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       fbp: ensureFbp(),
       fbc: captureFbc(),
       gclid: captureGclid(),
+      gbraid: captureGbraid(),
+      wbraid: captureWbraid(),
       session_id: getSession(),
       custom_data: params.custom_data,
     };
@@ -854,7 +876,7 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
 
   // ── Auto: registra clique e PageView ──────────────────────────────────
   var initParams = parseParams();
-  var hasTraffic = initParams.fbclid || initParams.gclid || initParams.utm_source || initParams.utm_campaign;
+  var hasTraffic = initParams.fbclid || initParams.gclid || initParams.gbraid || initParams.wbraid || initParams.utm_source || initParams.utm_campaign;
   if (hasTraffic) {
     send(EP_CLICK, Object.assign({}, initParams, {
       landing_page: window.location.href,

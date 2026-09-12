@@ -171,6 +171,7 @@ function CredentialsModal({ creds, onClose, onSaved }: any) {
         client_secret: '',
     });
     const [saving, setSaving] = useState(false);
+    const [connectingOAuth, setConnectingOAuth] = useState(false);
 
     async function save() {
         setSaving(true);
@@ -179,6 +180,28 @@ function CredentialsModal({ creds, onClose, onSaved }: any) {
             onSaved();
         } catch (e: any) { alert('Erro: ' + e.message); }
         finally { setSaving(false); }
+    }
+
+    // Alternativa ao refresh token manual (gerado via script Python): abre o
+    // consent do Google pro escopo do Ads e salva o refresh_token sozinho.
+    // Ainda exige developer_token/login_customer_id preenchidos e salvos
+    // antes (não têm equivalente OAuth).
+    async function connectOAuth() {
+        setConnectingOAuth(true);
+        try {
+            const { url } = await api.googleOAuthConnect(['https://www.googleapis.com/auth/adwords']);
+            const w = window.open(url, 'google-ads-oauth', 'width=500,height=650');
+            const check = setInterval(() => {
+                if (w?.closed) {
+                    clearInterval(check);
+                    setConnectingOAuth(false);
+                    onSaved();
+                }
+            }, 1000);
+        } catch (e: any) {
+            alert('Erro: ' + e.message);
+            setConnectingOAuth(false);
+        }
     }
 
     return (
@@ -195,11 +218,24 @@ function CredentialsModal({ creds, onClose, onSaved }: any) {
                 <Field label="Login Customer ID (MCC — 10 dígitos)" placeholder="1234567890"
                     val={form.login_customer_id} onChange={v => setForm({ ...form, login_customer_id: v })}
                     help="ID do seu Manager account (sem hífens)" />
-                <Field label="Refresh Token" placeholder="1//..."
-                    val={form.refresh_token} onChange={v => setForm({ ...form, refresh_token: v })}
-                    help="Rode `python mcp/get_refresh_token.py` na pasta 'google ads' pra gerar" />
                 <Field label="Client ID (OAuth)" val={form.client_id} onChange={v => setForm({ ...form, client_id: v })} />
                 <Field label="Client Secret" val={form.client_secret} onChange={v => setForm({ ...form, client_secret: v })} />
+
+                <div style={{ marginBottom: 14 }}>
+                    <label className="form-label" style={{ fontSize: 13 }}>Refresh Token</label>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input className="form-input" placeholder="1//..." type="password" style={{ flex: 1 }}
+                            value={form.refresh_token} onChange={e => setForm({ ...form, refresh_token: e.target.value })} />
+                        <button className="btn btn-secondary" type="button" onClick={connectOAuth} disabled={connectingOAuth}
+                            style={{ whiteSpace: 'nowrap' }}>
+                            {connectingOAuth ? 'Aguardando…' : 'Conectar via OAuth'}
+                        </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                        Salve Client ID/Secret acima primeiro, depois clique em "Conectar via OAuth" —
+                        gera e salva o refresh token sozinho. Cole manualmente só se preferir.
+                    </div>
+                </div>
 
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 }}>
                     <button className="btn" onClick={onClose}>Cancelar</button>

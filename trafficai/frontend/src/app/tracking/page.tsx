@@ -600,6 +600,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                         testing={testing}
                         testResult={testResult}
                     />
+                    <GoogleAdsSetup source={detail || source} onChange={load} />
                 </div>
                 )}
 
@@ -1456,6 +1457,15 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                     <span className={`badge ${e.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`}>
                                                         {e.meta_status || '—'}
                                                     </span>
+                                                    {e.google_status && (
+                                                        <span
+                                                            title={e.google_error || ''}
+                                                            className={`badge ${e.google_status === 'sent' ? 'badge-green' : e.google_status === 'not_applicable' ? '' : 'badge-red'}`}
+                                                            style={{ marginLeft: 4 }}
+                                                        >
+                                                            G:{e.google_status}
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="num">{e.emq_score || 0}</td>
                                                 <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -1665,6 +1675,22 @@ function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () =
                                             {data.attribution_confidence === 'high' ? 'alta confiança' : data.attribution_confidence === 'medium' ? 'confiança média' : 'confiança baixa'}
                                         </span>
                                         {data.attribution_reason && <span style={{ color: 'var(--text-muted)' }}> — {data.attribution_reason}</span>}
+                                    </span>
+                                }
+                            />
+                        )}
+                        {data.google_status && (
+                            <AuditField
+                                label="Google Ads"
+                                value={
+                                    <span>
+                                        <span style={{
+                                            fontWeight: 700,
+                                            color: data.google_status === 'sent' ? 'var(--accent-green)' : data.google_status === 'not_applicable' ? 'var(--text-muted)' : 'var(--accent-red)',
+                                        }}>
+                                            {data.google_status}
+                                        </span>
+                                        {data.google_error && <span style={{ color: 'var(--text-muted)' }}> — {data.google_error}</span>}
                                     </span>
                                 }
                             />
@@ -2291,6 +2317,155 @@ interface SetupItem {
     status: SetupStatus;
     actionLabel?: string;
     onAction?: () => void;
+}
+
+function GoogleAdsSetup({ source, onChange }: { source: any; onChange: () => void }) {
+    const [accounts, setAccounts] = useState<any[]>([]);
+    const [mappings, setMappings] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [newEvent, setNewEvent] = useState('');
+    const [newResource, setNewResource] = useState('');
+    const [testingId, setTestingId] = useState<string | null>(null);
+    const [testResults, setTestResults] = useState<Record<string, string>>({});
+
+    const linkedAccountId = source.google_ads_account_id || '';
+
+    useEffect(() => {
+        let mounted = true;
+        Promise.all([
+            api.gaListAccounts().catch(() => []),
+            api.getGoogleConversionActions(source.id).catch(() => []),
+        ]).then(([acc, maps]) => {
+            if (!mounted) return;
+            setAccounts(acc || []);
+            setMappings(maps || []);
+        }).finally(() => { if (mounted) setLoading(false); });
+        return () => { mounted = false; };
+    }, [source.id]);
+
+    async function linkAccount(accountId: string) {
+        setSaving(true);
+        try {
+            await api.updateTrackingSource(source.id, { google_ads_account_id: accountId || null });
+            onChange();
+        } catch (e: any) { alert('Erro: ' + e.message); }
+        finally { setSaving(false); }
+    }
+
+    async function addMapping() {
+        if (!newEvent.trim() || !newResource.trim()) return;
+        setSaving(true);
+        try {
+            const m = await api.createGoogleConversionAction(source.id, {
+                event_name: newEvent.trim(),
+                conversion_action_resource_name: newResource.trim(),
+            });
+            setMappings(prev => [...prev.filter(x => x.event_name !== m.event_name), m]);
+            setNewEvent(''); setNewResource('');
+        } catch (e: any) { alert('Erro: ' + e.message); }
+        finally { setSaving(false); }
+    }
+
+    async function removeMapping(id: string) {
+        if (!confirm('Remover esse mapeamento?')) return;
+        try {
+            await api.deleteGoogleConversionAction(id);
+            setMappings(prev => prev.filter(m => m.id !== id));
+        } catch (e: any) { alert('Erro: ' + e.message); }
+    }
+
+    async function testMapping(m: any) {
+        setTestingId(m.id);
+        setTestResults(prev => ({ ...prev, [m.id]: '' }));
+        try {
+            const r = await api.testTrackingSourceGoogle(source.id, { event_name: m.event_name });
+            const label = r.status === 'sent'
+                ? 'OK · aceito pelo Google'
+                : `Falhou · ${r.error || 'ver logs'}`;
+            setTestResults(prev => ({ ...prev, [m.id]: label }));
+        } catch (e: any) {
+            setTestResults(prev => ({ ...prev, [m.id]: 'Falhou · ' + e.message }));
+        } finally {
+            setTestingId(null);
+        }
+    }
+
+    if (loading) return null;
+
+    return (
+        <div className="card" style={{ marginTop: 16, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>Google Ads — envio de conversão</h3>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 14 }}>
+                Opcional. Sobe conversões (gclid/gbraid/wbraid) pro Google Ads, além do envio pro Meta.
+                Exige uma conta Google Ads já sincronizada e a ação de conversão correspondente já criada lá.
+            </p>
+
+            <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label" style={{ fontSize: 13 }}>Conta Google Ads vinculada</label>
+                <select className="form-input" value={linkedAccountId} disabled={saving}
+                    onChange={e => linkAccount(e.target.value)}>
+                    <option value="">Nenhuma — não envia pro Google</option>
+                    {accounts.map(a => (
+                        <option key={a.id} value={a.id}>{a.account_name} ({a.customer_id})</option>
+                    ))}
+                </select>
+                {accounts.length === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                        Nenhuma conta Google Ads sincronizada ainda — conecte em "Google Ads" no menu.
+                    </div>
+                )}
+            </div>
+
+            {linkedAccountId && (
+                <>
+                    <label className="form-label" style={{ fontSize: 13 }}>Mapeamento evento → ação de conversão</label>
+                    {mappings.length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                            {mappings.map(m => (
+                                <div key={m.id} style={{ padding: '6px 10px', background: 'var(--bg-input)', borderRadius: 6 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                                        <span style={{ fontWeight: 700, minWidth: 90 }}>{m.event_name}</span>
+                                        <span className="mono" style={{ flex: 1, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {m.conversion_action_resource_name}
+                                        </span>
+                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => testMapping(m)} disabled={testingId === m.id} title="Enviar conversão de teste">
+                                            {testingId === m.id ? 'Testando…' : 'Testar'}
+                                        </button>
+                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeMapping(m.id)} title="Remover">
+                                            <X size={12} />
+                                        </button>
+                                    </div>
+                                    {testResults[m.id] && (
+                                        <div style={{
+                                            fontSize: 11, marginTop: 4,
+                                            color: testResults[m.id].startsWith('OK') ? 'var(--accent-green)' : 'var(--accent-red)',
+                                        }}>
+                                            {testResults[m.id]}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <input className="form-input" placeholder="Nome do evento (ex: Lead, Purchase)" style={{ maxWidth: 200 }}
+                            value={newEvent} onChange={e => setNewEvent(e.target.value)} />
+                        <input className="form-input" placeholder="customers/123/conversionActions/456" style={{ flex: 1 }}
+                            value={newResource} onChange={e => setNewResource(e.target.value)} />
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={addMapping} disabled={saving || !newEvent.trim() || !newResource.trim()}>
+                            Adicionar
+                        </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+                        O nome do recurso da ação de conversão vem do Google Ads (Ferramentas → Conversões → clique na ação → copie o ID/resource name).
+                    </div>
+                </>
+            )}
+        </div>
+    );
 }
 
 function SetupChecklist({

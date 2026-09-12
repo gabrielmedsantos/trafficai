@@ -23,6 +23,7 @@ import { startBillingWorker } from './workers/billing.worker';
 import { startInvoiceReminderWorker } from './workers/invoice-reminder.worker';
 import { startTrackingRetryWorker } from './workers/tracking-retry.worker';
 import { startTrackingCleanupWorker } from './workers/tracking-cleanup.worker';
+import { startTrackingGoogleRetryWorker } from './workers/tracking-google-retry.worker';
 import { startCrmSyncWorker } from './workers/tracking-crm-sync.worker';
 import { startCommercialWorker } from './commercial/commercial.worker';
 import { logger } from './shared/logger';
@@ -132,6 +133,7 @@ app.listen(PORT, () => {
         startInvoiceReminderWorker();
         startTrackingRetryWorker();
         startTrackingCleanupWorker();
+        startTrackingGoogleRetryWorker();
         startCrmSyncWorker();
         startAutomationWorker();
         startGoogleAdsSyncWorker();

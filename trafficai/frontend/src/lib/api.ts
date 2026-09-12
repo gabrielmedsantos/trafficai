@@ -437,6 +437,7 @@ class ApiClient {
     async updateTrackingSource(id: string, data: Partial<{
         name: string; account_id: string | null; pixel_id: string;
         access_token: string; test_event_code: string; domain: string; is_active: boolean;
+        google_ads_account_id: string | null;
     }>) {
         return this.request<any>('PATCH', `/tracking/sources/${id}`, data);
     }
@@ -445,6 +446,25 @@ class ApiClient {
     }
     async rotateTrackingWebhook(id: string) {
         return this.request<{ webhook_secret: string }>('POST', `/tracking/sources/${id}/rotate-webhook`);
+    }
+    // Google Ads — mapeamento evento → conversion action por fonte de tracking
+    async getGoogleConversionActions(sourceId: string) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/google-conversion-actions`);
+    }
+    async createGoogleConversionAction(sourceId: string, data: { event_name: string; conversion_action_resource_name: string }) {
+        return this.request<any>('POST', `/tracking/sources/${sourceId}/google-conversion-actions`, data);
+    }
+    async updateGoogleConversionAction(mappingId: string, data: Partial<{ conversion_action_resource_name: string; is_active: boolean }>) {
+        return this.request<any>('PATCH', `/tracking/google-conversion-actions/${mappingId}`, data);
+    }
+    async deleteGoogleConversionAction(mappingId: string) {
+        return this.request<any>('DELETE', `/tracking/google-conversion-actions/${mappingId}`);
+    }
+    async retryFailedGoogleAds(sourceId: string) {
+        return this.request<{ attempted: number; succeeded: number; still_failed: number }>('POST', `/tracking/sources/${sourceId}/retry-failed-google`);
+    }
+    async testTrackingSourceGoogle(sourceId: string, data: { event_name: string; gclid?: string }) {
+        return this.request<{ status: 'sent' | 'failed' | 'not_applicable'; response?: any; error?: string }>('POST', `/tracking/sources/${sourceId}/test-google`, data);
     }
     async getTrackingEvents(sourceId: string, params?: {
         limit?: number;

@@ -12,7 +12,7 @@ import { AppError } from '../shared/errors';
 const OAUTH_URL = 'https://oauth2.googleapis.com/token';
 const API_BASE = 'https://googleads.googleapis.com/v20';
 
-interface Credentials {
+export interface Credentials {
     developer_token: string;
     login_customer_id: string;
     refresh_token: string;
@@ -20,7 +20,7 @@ interface Credentials {
     client_secret: string;
 }
 
-async function loadCredentials(userId: string): Promise<Credentials> {
+export async function loadCredentials(userId: string): Promise<Credentials> {
     const r = await query<any>(
         `SELECT developer_token, login_customer_id, refresh_token, client_id, client_secret
          FROM google_ads_credentials WHERE user_id = $1`,
@@ -37,7 +37,7 @@ async function loadCredentials(userId: string): Promise<Credentials> {
 // Cache do access_token em memória (1h)
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-async function getAccessToken(userId: string, creds: Credentials): Promise<string> {
+export async function getAccessToken(userId: string, creds: Credentials): Promise<string> {
     const cached = tokenCache.get(userId);
     if (cached && cached.expiresAt > Date.now() + 60000) return cached.token;
 

@@ -68,6 +68,21 @@ export async function handleOAuthCallback(code: string, state: string): Promise<
             access_token = EXCLUDED.access_token, access_token_expires_at = EXCLUDED.access_token_expires_at,
             google_email = EXCLUDED.google_email, updated_at = NOW()
     `, [stateData.userId, grantedScopes, refresh_token, access_token, expiresAt, email]);
+
+    // Se o consent incluiu o escopo do Google Ads, também salva o refresh_token
+    // em google_ads_credentials — é de lá que google-ads.service.ts lê pra
+    // chamar a API de Ads. developer_token/login_customer_id continuam sendo
+    // preenchidos manualmente (não têm equivalente OAuth), então isso só
+    // completa a conta se esses campos já tiverem sido salvos antes.
+    if (grantedScopes.includes('https://www.googleapis.com/auth/adwords')) {
+        await query(`
+            INSERT INTO google_ads_credentials (user_id, refresh_token)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id) DO UPDATE SET refresh_token = EXCLUDED.refresh_token, updated_at = NOW()
+        `, [stateData.userId, refresh_token]);
+        logger.info('google-oauth: refresh_token do Google Ads atualizado via OAuth', { userId: stateData.userId });
+    }
+
     logger.info('google-oauth: conectado', { userId: stateData.userId, email });
     return { userId: stateData.userId, email, scopes: grantedScopes };
 }

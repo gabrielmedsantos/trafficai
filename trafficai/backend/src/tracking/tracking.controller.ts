@@ -12,6 +12,7 @@ import { logger } from '../shared/logger';
 import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatch } from './tracking.service';
 import { normalizeKommoSubdomain } from './crm-adapters/kommo.adapter';
 import { getAdapter, backfillSource } from './crm-sync.service';
+import { retryGoogleEvent, retryFailedGoogleBatch, getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 
 const router = Router();
 router.use(authMiddleware);
@@ -267,6 +268,7 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
         const {
             name, account_id, pixel_id, access_token, test_event_code, domain, is_active,
             crm_type, crm_subdomain, crm_access_token, crm_config,
+            google_ads_account_id,
         } = req.body;
 
         // Validação: se crm_type está sendo setado, validar campos obrigatórios
@@ -321,6 +323,7 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
         }
         if (crm_access_token !== undefined) { fields.push(`crm_access_token=$${idx++}`); params.push(crm_access_token || null); }
         if (crm_config !== undefined)       { fields.push(`crm_config=$${idx++}::jsonb`); params.push(JSON.stringify(crm_config || {})); }
+        if (google_ads_account_id !== undefined) { fields.push(`google_ads_account_id=$${idx++}`); params.push(google_ads_account_id || null); }
 
         if (!fields.length) return res.status(400).json({ success: false, error: { message: 'Nada para atualizar' } });
 
@@ -337,6 +340,194 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
     } catch (err: any) {
         logger.error('tracking: update fonte falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── Google Ads — mapeamento evento → conversion action ────────────────────
+// Um evento (Lead, Purchase, ...) só sobe pro Google Ads quando existe um
+// mapeamento ativo pra ele nessa fonte. Sem mapeamento, o evento continua
+// indo normalmente pra Meta e simplesmente não tenta o Google.
+
+// GET /tracking/sources/:id/google-conversion-actions
+router.get('/sources/:id/google-conversion-actions', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const rows = await query<any>(
+            `SELECT id, event_name, conversion_action_resource_name, is_active, created_at, updated_at
+             FROM tracking_google_conversion_actions
+             WHERE tracking_source_id = $1
+             ORDER BY event_name ASC`,
+            [id]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('tracking: listar conversion actions falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /tracking/sources/:id/google-conversion-actions
+// Body: { event_name, conversion_action_resource_name }
+router.post('/sources/:id/google-conversion-actions', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { event_name, conversion_action_resource_name } = req.body;
+        if (!event_name || !conversion_action_resource_name) {
+            return res.status(400).json({ success: false, error: { message: 'event_name e conversion_action_resource_name são obrigatórios' } });
+        }
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const rows = await query<any>(
+            `INSERT INTO tracking_google_conversion_actions (tracking_source_id, event_name, conversion_action_resource_name)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (tracking_source_id, event_name) DO UPDATE SET
+                conversion_action_resource_name = EXCLUDED.conversion_action_resource_name,
+                is_active = TRUE, updated_at = NOW()
+             RETURNING id, event_name, conversion_action_resource_name, is_active, created_at, updated_at`,
+            [id, event_name, conversion_action_resource_name]
+        );
+        res.json({ success: true, data: rows[0] });
+    } catch (err: any) {
+        logger.error('tracking: criar conversion action falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// PATCH /tracking/google-conversion-actions/:mappingId
+// Body: { conversion_action_resource_name?, is_active? }
+router.patch('/google-conversion-actions/:mappingId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { mappingId } = req.params;
+        const { conversion_action_resource_name, is_active } = req.body;
+
+        const fields: string[] = [];
+        const params: any[] = [];
+        let idx = 1;
+        if (conversion_action_resource_name !== undefined) { fields.push(`conversion_action_resource_name=$${idx++}`); params.push(conversion_action_resource_name); }
+        if (is_active !== undefined) { fields.push(`is_active=$${idx++}`); params.push(Boolean(is_active)); }
+        if (!fields.length) return res.status(400).json({ success: false, error: { message: 'Nada para atualizar' } });
+        fields.push(`updated_at = NOW()`);
+
+        params.push(mappingId, userId);
+        const rows = await query<any>(
+            `UPDATE tracking_google_conversion_actions m SET ${fields.join(', ')}
+             FROM tracking_sources s
+             WHERE m.id = $${idx++} AND m.tracking_source_id = s.id AND s.user_id = $${idx}
+             RETURNING m.id, m.event_name, m.conversion_action_resource_name, m.is_active`,
+            params
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        res.json({ success: true, data: rows[0] });
+    } catch (err: any) {
+        logger.error('tracking: atualizar conversion action falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// DELETE /tracking/google-conversion-actions/:mappingId
+router.delete('/google-conversion-actions/:mappingId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { mappingId } = req.params;
+        await query(
+            `DELETE FROM tracking_google_conversion_actions m
+             USING tracking_sources s
+             WHERE m.id = $1 AND m.tracking_source_id = s.id AND s.user_id = $2`,
+            [mappingId, userId]
+        );
+        res.json({ success: true, data: { message: 'Removido' } });
+    } catch (err: any) {
+        logger.error('tracking: remover conversion action falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /tracking/sources/:id/retry-failed-google — retenta em batch eventos
+// com falha no envio pro Google Ads (mesmo padrão do retry-failed do Meta).
+router.post('/sources/:id/retry-failed-google', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const result = await retryFailedGoogleBatch({ sourceId: id });
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking: retry-failed google falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /tracking/events/:eventId/retry-google
+router.post('/events/:eventId/retry-google', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { eventId } = req.params;
+        const own = await query<any>(
+            `SELECT e.id FROM tracking_events e JOIN tracking_sources s ON e.source_id = s.id
+             WHERE e.id = $1 AND s.user_id = $2`,
+            [eventId, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const result = await retryGoogleEvent(eventId);
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking: retry evento google falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /tracking/sources/:id/test-google — dispara uma conversão de teste pro
+// Google Ads pra validar credenciais OAuth/developer-token e o mapeamento de
+// conversion action, mesmo espírito do POST /sources/:id/test (Meta). Sem
+// gclid real informado, usa um valor fake — a Google deve rejeitar esse
+// clique específico, mas o erro retornado já serve de diagnóstico (credencial
+// inválida, developer-token sem acesso, conversion action errada, etc).
+router.post('/sources/:id/test-google', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { event_name, gclid } = req.body || {};
+
+        const src = await query<any>(`SELECT * FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!src.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const source = src[0];
+
+        if (!source.google_ads_account_id) {
+            return res.status(400).json({ success: false, error: { message: 'Fonte sem conta Google Ads linkada' } });
+        }
+
+        const eventName = event_name || 'Lead';
+        const mapping = await getConversionActionMapping(id, eventName);
+        if (!mapping) {
+            return res.status(400).json({ success: false, error: { message: `Sem conversion action mapeada para o evento "${eventName}"` } });
+        }
+        const customerId = await getLinkedGoogleAdsCustomerId(source.google_ads_account_id);
+        if (!customerId) {
+            return res.status(400).json({ success: false, error: { message: 'Conta Google Ads linkada não encontrada' } });
+        }
+
+        const result = await sendGoogleConversion(userId, customerId, {
+            gclid: gclid || 'TEST_' + crypto.randomBytes(8).toString('hex'),
+            conversionActionResourceName: mapping.conversion_action_resource_name,
+            conversionDateTimeUnixSec: Math.floor(Date.now() / 1000),
+            value: 1,
+            currency: 'BRL',
+            orderId: 'test-' + crypto.randomBytes(6).toString('hex'),
+        });
+        res.json({ success: true, data: result });
+    } catch (err: any) {
+        logger.error('tracking: test-google falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: err.message } });
     }
 });
 
@@ -544,7 +735,8 @@ router.get('/sources/:id/events', async (req: Request, res: Response) => {
             SELECT id, event_name, event_id, event_time, action_source, external_id,
                    event_source_url, value, currency, emq_score, meta_status,
                    meta_error, meta_fbtrace_id, retry_count, created_at,
-                   city, state, country, attribution_confidence, attribution_reason
+                   city, state, country, attribution_confidence, attribution_reason,
+                   google_status, google_error, google_retry_count
             FROM tracking_events
             WHERE ${whereSql}
             ORDER BY created_at DESC
