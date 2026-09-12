@@ -6,6 +6,7 @@ import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
     Zap, ShieldCheck, CircleAlert, Sparkles, Globe, ChevronDown,
     TrendingUp, TrendingDown, Users, UserCheck, Calendar, ShoppingCart, DollarSign, Target,
+    Download, MessageCircle,
 } from 'lucide-react';
 import {
     ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -477,6 +478,42 @@ function SourceDetail({ source, onClose, onEdit }: {
 
     useEffect(() => { loadDash(); }, [loadDash]);
 
+    const [exportingCsv, setExportingCsv] = useState(false);
+    async function exportCsv() {
+        setExportingCsv(true);
+        try {
+            let since = dashSince, until = dashUntil;
+            if (dashRange !== 'custom') {
+                const days = dashRange === '7d' ? 7 : dashRange === '14d' ? 14 : 30;
+                const end = new Date();
+                const start = new Date(end.getTime() - days * 86400000);
+                since = start.toISOString().slice(0, 10);
+                until = end.toISOString().slice(0, 10);
+            }
+            const q = new URLSearchParams();
+            if (since) q.set('since', since);
+            if (until) q.set('until', until);
+            const token = typeof window !== 'undefined' ? localStorage.getItem('trafficai_token') : null;
+            const resp = await fetch(`${API_BASE}/tracking/sources/${source.id}/dashboard/export.csv?${q.toString()}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!resp.ok) throw new Error('Falha ao exportar');
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `performance-${since}-a-${until}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (e: any) {
+            alert('Erro ao exportar CSV: ' + e.message);
+        } finally {
+            setExportingCsv(false);
+        }
+    }
+
     async function testCrm() {
         setCrmTest(null); setCrmTestErr('');
         try {
@@ -673,7 +710,10 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </button>
                             </>
                         )}
-                        <button type="button" className="btn btn-sm btn-ghost" onClick={loadDash} style={{ marginLeft: 'auto' }}>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={exportCsv} disabled={exportingCsv} style={{ marginLeft: 'auto' }}>
+                            <Download size={12} /> {exportingCsv ? 'Exportando…' : 'Exportar CSV'}
+                        </button>
+                        <button type="button" className="btn btn-sm btn-ghost" onClick={loadDash}>
                             <RefreshCw size={12} /> Atualizar
                         </button>
                     </div>
@@ -706,6 +746,20 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     label="Leads"
                                     value={dash.kpis.leads.toLocaleString('pt-BR')}
                                     hint={`${dash.kpis.qualified_rate.toFixed(0)}% qualificados`}
+                                />
+                                <BigKpi
+                                    icon={<MessageCircle size={14} />}
+                                    label="Conversas Meta"
+                                    value={dash.kpis.conversations_meta.toLocaleString('pt-BR')}
+                                    hint="Registradas pela Meta"
+                                    color="var(--accent-blue)"
+                                />
+                                <BigKpi
+                                    icon={<MessageCircle size={14} />}
+                                    label="Conversas reais"
+                                    value={dash.kpis.conversations_real.toLocaleString('pt-BR')}
+                                    hint="Identificadas no WhatsApp"
+                                    color="var(--accent-green)"
                                 />
                                 <BigKpi
                                     icon={<UserCheck size={14} />}
@@ -808,22 +862,23 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 <Funnel kpis={dash.kpis} />
                             </div>
 
-                            {/* Origem da venda — por campanha */}
+                            {/* Performance por campanha — "Origem da venda" */}
                             {dash.by_campaign && dash.by_campaign.length > 0 && (
                                 <div style={{ marginTop: 20 }}>
                                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-                                        Origem da venda — por campanha
+                                        Performance por campanha
                                     </div>
                                     <div className="table-container">
                                         <table>
                                             <thead>
                                                 <tr>
                                                     <th>Campanha</th>
-                                                    <th>Leads</th>
-                                                    <th>Vendas</th>
+                                                    <th>Investimento</th>
+                                                    <th>Conversas Meta</th>
+                                                    <th>Conversas reais</th>
+                                                    <th>Lead qualificado</th>
+                                                    <th>Compras</th>
                                                     <th>Receita</th>
-                                                    <th>Investido</th>
-                                                    <th>CPL</th>
                                                     <th>ROAS</th>
                                                 </tr>
                                             </thead>
@@ -831,22 +886,24 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                 {dash.by_campaign.map((c: any) => (
                                                     <tr key={c.campaign_id}>
                                                         <td>{c.campaign_name || <span className="mono">{c.campaign_id}</span>}</td>
-                                                        <td className="num">{c.leads}</td>
+                                                        <td className="num">{c.spend > 0 ? `R$ ${Number(c.spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—'}</td>
+                                                        <td className="num">{c.conversations_meta}</td>
+                                                        <td className="num">{c.conversations_real}</td>
+                                                        <td className="num">{c.qualified}</td>
                                                         <td className="num">{c.sales_count}</td>
                                                         <td className="num">R$ {Number(c.sales_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
-                                                        <td className="num">{c.spend > 0 ? `R$ ${Number(c.spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—'}</td>
-                                                        <td className="num">{c.cpl > 0 ? `R$ ${Number(c.cpl).toFixed(2)}` : '—'}</td>
                                                         <td className="num">{c.roas > 0 ? `${c.roas.toFixed(2)}x` : '—'}</td>
                                                     </tr>
                                                 ))}
                                                 {dash.unattributed && (dash.unattributed.leads > 0 || dash.unattributed.sales_count > 0) && (
                                                     <tr>
                                                         <td style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Não atribuído (sem campanha resolvida)</td>
-                                                        <td className="num">{dash.unattributed.leads}</td>
+                                                        <td className="num">—</td>
+                                                        <td className="num">—</td>
+                                                        <td className="num">—</td>
+                                                        <td className="num">—</td>
                                                         <td className="num">{dash.unattributed.sales_count}</td>
                                                         <td className="num">R$ {Number(dash.unattributed.sales_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</td>
-                                                        <td className="num">—</td>
-                                                        <td className="num">—</td>
                                                         <td className="num">—</td>
                                                     </tr>
                                                 )}
@@ -854,8 +911,9 @@ function SourceDetail({ source, onClose, onEdit }: {
                                         </table>
                                     </div>
                                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-                                        Hoje só resolve campanha pra leads vindos de anúncio do WhatsApp (Click-to-WhatsApp).
-                                        Tráfego web/CRM sem clique de anúncio identificável cai em "Não atribuído".
+                                        Modelo: {dash.model_info?.model} · Fuso: {dash.model_info?.timezone} · Moeda: {dash.model_info?.currency}.
+                                        Hoje só resolve campanha pra leads vindos de anúncio do WhatsApp (Click-to-WhatsApp);
+                                        tráfego web/CRM sem clique de anúncio identificável cai em "Não atribuído".
                                     </div>
                                 </div>
                             )}

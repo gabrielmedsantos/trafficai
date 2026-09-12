@@ -1034,7 +1034,7 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         const { since, until } = req.query as any;
 
         const src = await query<any>(
-            `SELECT s.*, a.account_name AS meta_account_name
+            `SELECT s.*, a.account_name AS meta_account_name, a.timezone AS account_timezone, a.currency AS account_currency
              FROM tracking_sources s
              LEFT JOIN ad_accounts a ON s.account_id = a.id
              WHERE s.id = $1 AND s.user_id = $2`,
@@ -1086,6 +1086,30 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
             );
             adSpend = Number(spendQ[0]?.spend) || 0;
         }
+
+        // Conversas Meta (reportadas pela própria Meta via Insights — ação
+        // "onsite_conversion.messaging_conversation_started_7d") vs Conversas
+        // reais (identificadas pelo nosso próprio tracking no WhatsApp) — são
+        // números diferentes de propósito e nunca devem ser somados.
+        let conversationsMeta = 0;
+        if (source.account_id) {
+            const convQ = await query<any>(
+                `SELECT COALESCE(SUM((elem->>'value')::numeric), 0) AS total
+                 FROM insights_history ih
+                 JOIN campaigns c ON ih.campaign_id = c.id
+                 CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ih.actions, '[]'::jsonb)) AS elem
+                 WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3
+                   AND elem->>'action_type' = 'onsite_conversion.messaging_conversation_started_7d'`,
+                [source.account_id, sinceStr, untilStr]
+            );
+            conversationsMeta = Number(convQ[0]?.total) || 0;
+        }
+        const convRealQ = await query<any>(
+            `SELECT COUNT(*) AS total FROM tracking_whatsapp_leads
+             WHERE source_id = $1 AND created_at BETWEEN $2 AND $3`,
+            [id, startDate.toISOString(), endDate.toISOString()]
+        );
+        const conversationsReal = Number(convRealQ[0]?.total) || 0;
 
         // Indicadores derivados
         const cpl = leadsNum > 0 ? adSpend / leadsNum : 0;
@@ -1156,6 +1180,7 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
             `SELECT e.campaign_id,
                     COALESCE(c.name, MAX(e.meta_campaign_name)) AS campaign_name,
                     COUNT(*) FILTER (WHERE e.event_name = 'Lead') AS leads,
+                    COUNT(*) FILTER (WHERE e.event_name = 'Contact') AS qualified,
                     COUNT(*) FILTER (WHERE e.event_name = 'Purchase') AS sales_count,
                     COALESCE(SUM(e.value) FILTER (WHERE e.event_name = 'Purchase'), 0) AS sales_value
              FROM tracking_events e
@@ -1174,7 +1199,28 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                 [campaignIds, sinceStr, untilStr]
             )
             : [];
+        const campaignConvMeta = campaignIds.length
+            ? await query<any>(
+                `SELECT ih.campaign_id, COALESCE(SUM((elem->>'value')::numeric), 0) AS total
+                 FROM insights_history ih
+                 CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ih.actions, '[]'::jsonb)) AS elem
+                 WHERE ih.campaign_id = ANY($1) AND ih.date BETWEEN $2 AND $3
+                   AND elem->>'action_type' = 'onsite_conversion.messaging_conversation_started_7d'
+                 GROUP BY ih.campaign_id`,
+                [campaignIds, sinceStr, untilStr]
+            )
+            : [];
+        const campaignConvReal = campaignIds.length
+            ? await query<any>(
+                `SELECT campaign_id, COUNT(*) AS total FROM tracking_whatsapp_leads
+                 WHERE campaign_id = ANY($1) AND created_at BETWEEN $2 AND $3
+                 GROUP BY campaign_id`,
+                [campaignIds, startDate.toISOString(), endDate.toISOString()]
+            )
+            : [];
         const spendByCampaign = new Map(campaignSpend.map((r: any) => [r.campaign_id, Number(r.spend) || 0]));
+        const convMetaByCampaign = new Map(campaignConvMeta.map((r: any) => [r.campaign_id, Number(r.total) || 0]));
+        const convRealByCampaign = new Map(campaignConvReal.map((r: any) => [r.campaign_id, Number(r.total) || 0]));
         const byCampaignOut = byCampaign.map((r: any) => {
             const spend = spendByCampaign.get(r.campaign_id) || 0;
             const leads = Number(r.leads) || 0;
@@ -1183,8 +1229,12 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
             return {
                 campaign_id: r.campaign_id,
                 campaign_name: r.campaign_name,
-                leads, sales_count: salesN, sales_value: salesVal,
+                leads,
+                qualified: Number(r.qualified) || 0,
+                sales_count: salesN, sales_value: salesVal,
                 spend,
+                conversations_meta: convMetaByCampaign.get(r.campaign_id) || 0,
+                conversations_real: convRealByCampaign.get(r.campaign_id) || 0,
                 cpl: leads > 0 ? spend / leads : 0,
                 roas: spend > 0 ? salesVal / spend : 0,
             };
@@ -1210,11 +1260,18 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                     has_account_link: !!source.account_id,
                 },
                 period: { since: sinceStr, until: untilStr },
+                model_info: {
+                    model: 'Click-to-WhatsApp determinístico (via ctwa_clid) — resto cai em "não atribuído"',
+                    timezone: source.account_timezone || 'America/Sao_Paulo',
+                    currency: source.account_currency || 'BRL',
+                },
                 kpis: {
                     leads: leadsNum,
                     qualified: qualifiedNum,
                     disqualified: Number(t.disqualified) || 0,
                     scheduled: Number(t.scheduled) || 0,
+                    conversations_meta: conversationsMeta,
+                    conversations_real: conversationsReal,
                     sales_count: salesCount,
                     sales_value: salesValue,
                     ad_spend: adSpend,
@@ -1240,6 +1297,81 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         });
     } catch (err: any) {
         logger.error('tracking: dashboard falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/dashboard/export.csv ─────────────────────────
+// CSV da performance por campanha no período — mesmos números da tabela
+// "Performance" do dashboard (Investimento, Conversas Meta/reais, Lead
+// qualificado, Compras, Receita, ROAS).
+router.get('/sources/:id/dashboard/export.csv', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { since, until } = req.query as any;
+
+        const src = await query<any>(
+            `SELECT id, account_id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!src.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const source = src[0];
+
+        const now = new Date();
+        const endDate = until ? new Date(until + 'T23:59:59') : now;
+        const startDate = since ? new Date(since + 'T00:00:00') : new Date(now.getTime() - 30 * 86400000);
+        const sinceStr = startDate.toISOString().split('T')[0];
+        const untilStr = endDate.toISOString().split('T')[0];
+
+        const byCampaign = await query<any>(
+            `SELECT e.campaign_id,
+                    COALESCE(c.name, MAX(e.meta_campaign_name)) AS campaign_name,
+                    COUNT(*) FILTER (WHERE e.event_name = 'Lead') AS leads,
+                    COUNT(*) FILTER (WHERE e.event_name = 'Contact') AS qualified,
+                    COUNT(*) FILTER (WHERE e.event_name = 'Purchase') AS sales_count,
+                    COALESCE(SUM(e.value) FILTER (WHERE e.event_name = 'Purchase'), 0) AS sales_value
+             FROM tracking_events e
+             LEFT JOIN campaigns c ON c.id = e.campaign_id
+             WHERE e.source_id = $1 AND e.created_at BETWEEN $2 AND $3 AND e.campaign_id IS NOT NULL
+             GROUP BY e.campaign_id, c.name
+             ORDER BY sales_value DESC`,
+            [id, startDate.toISOString(), endDate.toISOString()]
+        );
+        const campaignIds = byCampaign.map((r: any) => r.campaign_id);
+        const campaignSpend = campaignIds.length
+            ? await query<any>(
+                `SELECT campaign_id, COALESCE(SUM(spend), 0) AS spend FROM insights_history
+                 WHERE campaign_id = ANY($1) AND date BETWEEN $2 AND $3 GROUP BY campaign_id`,
+                [campaignIds, sinceStr, untilStr]
+            )
+            : [];
+        const spendByCampaign = new Map(campaignSpend.map((r: any) => [r.campaign_id, Number(r.spend) || 0]));
+
+        const header = ['Campanha', 'Leads', 'Lead qualificado', 'Compras', 'Receita', 'Investido', 'CPL', 'ROAS'];
+        const csvEscape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const lines = [header.map(csvEscape).join(',')];
+        for (const r of byCampaign) {
+            const spend = spendByCampaign.get(r.campaign_id) || 0;
+            const leads = Number(r.leads) || 0;
+            const salesVal = Number(r.sales_value) || 0;
+            lines.push([
+                r.campaign_name || r.campaign_id,
+                leads,
+                Number(r.qualified) || 0,
+                Number(r.sales_count) || 0,
+                salesVal.toFixed(2),
+                spend.toFixed(2),
+                leads > 0 ? (spend / leads).toFixed(2) : '',
+                spend > 0 ? (salesVal / spend).toFixed(2) : '',
+            ].map(csvEscape).join(','));
+        }
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="performance-${sinceStr}-a-${untilStr}.csv"`);
+        res.send('﻿' + lines.join('\r\n'));
+    } catch (err: any) {
+        logger.error('tracking: export csv falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
