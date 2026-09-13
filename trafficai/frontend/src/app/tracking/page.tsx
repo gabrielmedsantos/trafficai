@@ -63,6 +63,7 @@ interface FormState {
     account_id: string;
     pixel_id: string;
     access_token: string;
+    use_ads_token: boolean;
     test_event_code: string;
     domain: string;
     crm_type: string;
@@ -71,7 +72,7 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = {
-    name: '', account_id: '', pixel_id: '', access_token: '',
+    name: '', account_id: '', pixel_id: '', access_token: '', use_ads_token: false,
     test_event_code: '', domain: '',
     crm_type: '', crm_subdomain: '', crm_access_token: '',
 };
@@ -3838,6 +3839,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
             account_id: source.account_id || '',
             pixel_id: source.pixel_id || '',
             access_token: '', // não trazemos o token por segurança; só setamos se mudar
+            use_ads_token: false,
             test_event_code: source.test_event_code || '',
             domain: source.domain || '',
             crm_type: source.crm_type || '',
@@ -3850,12 +3852,27 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
     const [error, setError] = useState('');
     const [crmSchema, setCrmSchema] = useState<Record<string, any> | null>(null);
     const [loadingSchema, setLoadingSchema] = useState(mode === 'create');
+    const [discoveredPixels, setDiscoveredPixels] = useState<{ pixel_id: string; pixel_name: string; business_name: string | null }[]>([]);
+    const [selectedPixel, setSelectedPixel] = useState('');
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
     }, [onClose]);
+
+    // Pixels descobertos via Cadastro Incorporado (Ads) — permite escolher em
+    // vez de colar Pixel ID + token manualmente.
+    useEffect(() => {
+        api.metaSignupPixels().then(setDiscoveredPixels).catch(() => setDiscoveredPixels([]));
+    }, []);
+
+    function pickDiscoveredPixel(pixelId: string) {
+        setSelectedPixel(pixelId);
+        if (pixelId) {
+            setForm(f => ({ ...f, pixel_id: pixelId, use_ads_token: true, access_token: '' }));
+        }
+    }
 
     // Carregar schema de CRM no modo 'create'
     useEffect(() => {
@@ -3890,6 +3907,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                     account_id: form.account_id || undefined,
                     pixel_id: form.pixel_id.trim() || undefined,
                     access_token: form.access_token.trim() || undefined,
+                    use_ads_token: form.use_ads_token || undefined,
                     test_event_code: form.test_event_code.trim() || undefined,
                     domain: form.domain.trim() || undefined,
                 });
@@ -3905,6 +3923,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                 };
                 // Só envia tokens se foram preenchidos (preserva atuais se vazio)
                 if (form.access_token.trim()) payload.access_token = form.access_token.trim();
+                if (form.use_ads_token) payload.use_ads_token = true;
                 if (form.crm_access_token.trim()) payload.crm_access_token = form.crm_access_token.trim();
                 await api.updateTrackingSource(source.id, payload);
             }
@@ -4017,7 +4036,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                                                 <input
                                                     type={field.type}
                                                     className="form-input"
-                                                    value={form[field.key as keyof FormState] || ''}
+                                                    value={(form[field.key as keyof FormState] as string) || ''}
                                                     onChange={e => upd(field.key as keyof FormState, e.target.value)}
                                                     placeholder={field.placeholder || ''}
                                                     autoComplete="off"
@@ -4075,12 +4094,29 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
 
                 <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0 14px' }} />
 
+                {discoveredPixels.length > 0 && (
+                    <div className="form-group">
+                        <label className="form-label">Pixels descobertos (Cadastro Incorporado)</label>
+                        <select className="form-select" value={selectedPixel} onChange={e => pickDiscoveredPixel(e.target.value)}>
+                            <option value="">Escolher um pixel já conectado…</option>
+                            {discoveredPixels.map(p => (
+                                <option key={p.pixel_id} value={p.pixel_id}>
+                                    {p.pixel_name} ({p.pixel_id}){p.business_name ? ` · ${p.business_name}` : ''}
+                                </option>
+                            ))}
+                        </select>
+                        <span className="form-hint">
+                            Escolhendo aqui, usa o token da sua conta de Ads conectada — não precisa colar token separado do pixel.
+                        </span>
+                    </div>
+                )}
+
                 <div className="form-group">
                     <label className="form-label">Pixel ID (Conjunto de Dados)</label>
                     <input
                         type="text" className="form-input"
                         value={form.pixel_id}
-                        onChange={e => upd('pixel_id', e.target.value)}
+                        onChange={e => { upd('pixel_id', e.target.value); setSelectedPixel(''); setForm(f => ({ ...f, use_ads_token: false })); }}
                         placeholder="ex: 26710064741954259"
                     />
                     <span className="form-hint">
@@ -4088,19 +4124,28 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved }: {
                     </span>
                 </div>
 
-                <div className="form-group">
-                    <label className="form-label">Token de Acesso do Pixel <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Conversions API)</span></label>
-                    <input
-                        type="password" className="form-input"
-                        value={form.access_token}
-                        onChange={e => upd('access_token', e.target.value)}
-                        placeholder={mode === 'edit' ? 'Deixe vazio pra manter o atual' : 'Cole o token gerado no pixel (começa com EAA...)'}
-                        autoComplete="off"
-                    />
-                    <span className="form-hint">
-                        <strong>Token DO PIXEL, não do app.</strong> Events Manager &rsaquo; abre o pixel &rsaquo; aba <strong>Configurações</strong> &rsaquo; rola até "Token de acesso da API de Conversões" &rsaquo; <strong>Gerar token de acesso</strong>. É permanente, não expira.
-                    </span>
-                </div>
+                {!form.use_ads_token && (
+                    <div className="form-group">
+                        <label className="form-label">Token de Acesso do Pixel <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Conversions API)</span></label>
+                        <input
+                            type="password" className="form-input"
+                            value={form.access_token}
+                            onChange={e => upd('access_token', e.target.value)}
+                            placeholder={mode === 'edit' ? 'Deixe vazio pra manter o atual' : 'Cole o token gerado no pixel (começa com EAA...)'}
+                            autoComplete="off"
+                        />
+                        <span className="form-hint">
+                            <strong>Token DO PIXEL, não do app.</strong> Events Manager &rsaquo; abre o pixel &rsaquo; aba <strong>Configurações</strong> &rsaquo; rola até "Token de acesso da API de Conversões" &rsaquo; <strong>Gerar token de acesso</strong>. É permanente, não expira.
+                        </span>
+                    </div>
+                )}
+                {form.use_ads_token && (
+                    <div className="form-group">
+                        <div style={{ fontSize: 12.5, color: 'var(--accent-green)', padding: '8px 10px', background: 'rgba(34,197,94,.08)', borderRadius: 6 }}>
+                            Vai usar o token da sua conta de Ads conectada pra esse pixel — nada pra colar aqui.
+                        </div>
+                    </div>
+                )}
 
                 <div className="form-group" style={{ marginBottom: 24 }}>
                     <label className="form-label">Test Event Code <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(opcional — só pra debug)</span></label>

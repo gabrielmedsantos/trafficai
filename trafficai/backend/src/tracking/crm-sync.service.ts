@@ -10,6 +10,7 @@ import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { KommoAdapter, ExtractedUserData as KommoUserData } from './crm-adapters/kommo.adapter';
 import { DataCrazyAdapter, ExtractedUserData as DataCrazyUserData, discoverDataCrazyStages } from './crm-adapters/datacrazy.adapter';
+import { decryptMaybe } from '../shared/encryption';
 
 const META_VERSION = 'v19.0';
 
@@ -88,7 +89,7 @@ async function sendToMeta(source: any, payload: any): Promise<{
         const r = await axios.post(
             `https://graph.facebook.com/${META_VERSION}/${source.pixel_id}/events`,
             body,
-            { params: { access_token: source.access_token }, timeout: 15000 }
+            { params: { access_token: decryptMaybe(source.access_token) }, timeout: 15000 }
         );
         return { status: 'sent', response: r.data, fbtrace_id: r.data?.fbtrace_id };
     } catch (e: any) {

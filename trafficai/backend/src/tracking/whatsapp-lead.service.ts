@@ -10,6 +10,7 @@ import axios from 'axios';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { trackEvent, TrackingEventInput, resolveCampaignByMetaId } from './tracking.service';
+import { decryptMaybe } from '../shared/encryption';
 
 const META_VERSION = 'v20.0';
 
@@ -211,7 +212,7 @@ async function processExtractedLead(source: any, input: ExtractedLeadInput): Pro
     let metaAdsetName: string | null = null;
     let campaignId: string | null = null;
     if (adSourceId && source.access_token) {
-        const resolved = await resolveAdMetadata(adSourceId, source.access_token);
+        const resolved = await resolveAdMetadata(adSourceId, decryptMaybe(source.access_token)!);
         pixelId = resolved.pixel;
         pageId = resolved.page;
         adName = resolved.ad_name;

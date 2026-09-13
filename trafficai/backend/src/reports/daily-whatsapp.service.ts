@@ -602,8 +602,9 @@ export class DailyWhatsAppService {
             );
             if (!accRows.length) return [];
             const { meta_account_id, user_id } = accRows[0];
-            const userRows = await query<any>(`SELECT access_token FROM users WHERE id = $1`, [user_id]);
-            const accessToken = userRows[0]?.access_token;
+            const { authRepository } = await import('../auth/auth.repository');
+            const user = await authRepository.findById(user_id);
+            const accessToken = user?.access_token;
             if (!accessToken) return [];
 
             const { metaService } = await import('../meta/meta.service');

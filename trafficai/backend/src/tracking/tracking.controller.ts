@@ -13,6 +13,7 @@ import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatc
 import { normalizeKommoSubdomain } from './crm-adapters/kommo.adapter';
 import { getAdapter, backfillSource } from './crm-sync.service';
 import { retryGoogleEvent, retryFailedGoogleBatch, getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
+import { encrypt } from '../shared/encryption';
 
 const router = Router();
 router.use(authMiddleware);
@@ -291,8 +292,21 @@ router.get('/sources/:id/whatsapp-leads/:leadId', async (req: Request, res: Resp
 router.post('/sources', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { name, account_id, pixel_id, access_token, test_event_code, domain } = req.body;
+        const { name, account_id, pixel_id, access_token, use_ads_token, test_event_code, domain } = req.body;
         if (!name) return res.status(400).json({ success: false, error: { message: 'Nome é obrigatório' } });
+
+        // use_ads_token: reaproveita o token de Ads do Cadastro Incorporado
+        // (mesmo Business Manager do pixel) em vez de exigir colar um token
+        // separado do pixel — nunca passa pelo frontend, resolvido aqui.
+        let effectiveToken: string | null = access_token || null;
+        if (use_ads_token && !access_token) {
+            const { authRepository } = await import('../auth/auth.repository');
+            const user = await authRepository.findById(userId);
+            if (!user?.access_token) {
+                return res.status(400).json({ success: false, error: { message: 'Conta Meta Ads não conectada — conecte em Configurações antes de usar essa opção.' } });
+            }
+            effectiveToken = user.access_token;
+        }
 
         const rows = await query<any>(
             `INSERT INTO tracking_sources
@@ -306,7 +320,7 @@ router.post('/sources', async (req: Request, res: Response) => {
                 name.trim(),
                 generatePublicToken(),
                 pixel_id || null,
-                access_token || null,
+                effectiveToken ? encrypt(effectiveToken) : null,
                 test_event_code || null,
                 domain || null,
                 generateWebhookSecret(),
@@ -341,10 +355,23 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
         const userId = (req as any).user.userId;
         const { id } = req.params;
         const {
-            name, account_id, pixel_id, access_token, test_event_code, domain, is_active,
+            name, account_id, pixel_id, access_token, use_ads_token, test_event_code, domain, is_active,
             crm_type, crm_subdomain, crm_access_token, crm_config,
             google_ads_account_id,
         } = req.body;
+
+        // use_ads_token: reaproveita o token de Ads do Cadastro Incorporado em
+        // vez de exigir colar um token separado do pixel — resolvido aqui,
+        // nunca passa pelo frontend.
+        let effectiveAccessToken = access_token;
+        if (use_ads_token && !access_token) {
+            const { authRepository } = await import('../auth/auth.repository');
+            const user = await authRepository.findById(userId);
+            if (!user?.access_token) {
+                return res.status(400).json({ success: false, error: { message: 'Conta Meta Ads não conectada — conecte em Configurações antes de usar essa opção.' } });
+            }
+            effectiveAccessToken = user.access_token;
+        }
 
         // Validação: se crm_type está sendo setado, validar campos obrigatórios
         if (crm_type) {
@@ -385,7 +412,7 @@ router.patch('/sources/:id', async (req: Request, res: Response) => {
         if (name !== undefined)             { fields.push(`name=$${idx++}`); params.push(name); }
         if (account_id !== undefined)       { fields.push(`account_id=$${idx++}`); params.push(account_id || null); }
         if (pixel_id !== undefined)         { fields.push(`pixel_id=$${idx++}`); params.push(pixel_id || null); }
-        if (access_token !== undefined)     { fields.push(`access_token=$${idx++}`); params.push(access_token || null); }
+        if (effectiveAccessToken !== undefined) { fields.push(`access_token=$${idx++}`); params.push(effectiveAccessToken ? encrypt(effectiveAccessToken) : null); }
         if (test_event_code !== undefined)  { fields.push(`test_event_code=$${idx++}`); params.push(test_event_code || null); }
         if (domain !== undefined)           { fields.push(`domain=$${idx++}`); params.push(domain || null); }
         if (is_active !== undefined)        { fields.push(`is_active=$${idx++}`); params.push(Boolean(is_active)); }

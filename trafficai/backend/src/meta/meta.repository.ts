@@ -68,16 +68,46 @@ export class MetaRepository {
         account_name: string;
         currency: string;
         timezone: string;
+        business_id?: string | null;
     }): Promise<AdAccount> {
         const rows = await query<AdAccount>(
-            `INSERT INTO ad_accounts (user_id, meta_account_id, account_name, currency, timezone)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (user_id, meta_account_id) 
-       DO UPDATE SET account_name = $3, currency = $4, timezone = $5, updated_at = NOW()
+            `INSERT INTO ad_accounts (user_id, meta_account_id, account_name, currency, timezone, business_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (user_id, meta_account_id)
+       DO UPDATE SET account_name = $3, currency = $4, timezone = $5,
+                     business_id = COALESCE($6, ad_accounts.business_id), updated_at = NOW()
        RETURNING *`,
-            [userId, account.meta_account_id, account.account_name, account.currency, account.timezone]
+            [userId, account.meta_account_id, account.account_name, account.currency, account.timezone, account.business_id || null]
         );
         return rows[0];
+    }
+
+    /**
+     * Descoberta de Pixel via Cadastro Incorporado — não tem endpoint "listar
+     * pixels do usuário" direto na Graph API, só por Business
+     * (owned_pixels), por isso vem agrupado por business_id.
+     */
+    async upsertPixels(
+        userId: string,
+        pixels: { id: string; name: string; businessId: string; businessName: string | null }[]
+    ): Promise<void> {
+        for (const p of pixels) {
+            await query(
+                `INSERT INTO meta_pixels (user_id, business_id, business_name, pixel_id, pixel_name)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (user_id, pixel_id)
+                 DO UPDATE SET business_id = $2, business_name = $3, pixel_name = $5, updated_at = NOW()`,
+                [userId, p.businessId, p.businessName, p.id, p.name]
+            );
+        }
+    }
+
+    async getPixelsByUser(userId: string): Promise<{ id: string; pixel_id: string; pixel_name: string; business_id: string; business_name: string | null }[]> {
+        return query(
+            `SELECT id, pixel_id, pixel_name, business_id, business_name
+             FROM meta_pixels WHERE user_id = $1 ORDER BY pixel_name`,
+            [userId]
+        );
     }
 
     async getAdAccountsByUser(userId: string): Promise<AdAccount[]> {

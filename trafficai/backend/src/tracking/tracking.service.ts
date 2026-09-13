@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
+import { encrypt, decryptMaybe } from '../shared/encryption';
 
 const META_VERSION = 'v19.0';
 const META_BASE = `https://graph.facebook.com/${META_VERSION}`;
@@ -217,7 +218,7 @@ export async function postToMeta(
             `${META_BASE}/${pixelId}/events`,
             body,
             {
-                params: { access_token: accessToken },
+                params: { access_token: decryptMaybe(accessToken) },
                 timeout: 15000,
                 headers: { 'Content-Type': 'application/json' },
             }

@@ -70,14 +70,22 @@ export class MetaService {
         const client = this.createClient(accessToken);
         const seen = new Set<string>();
         const allAccounts: any[] = [];
-        const FIELDS = 'id,name,currency,timezone_name,account_status';
+        const FIELDS = 'id,name,currency,timezone_name,account_status,business';
 
-        const merge = (accounts: any[]) => {
+        // business_id conhecido por contexto (owned/client_ad_accounts já sabem
+        // de qual BM vieram, mesmo se a Meta não devolver o campo `business`
+        // pra esse tipo específico de conta).
+        const merge = (accounts: any[], knownBusinessId?: string, knownBusinessName?: string) => {
             for (const acc of accounts) {
                 const rawId = String(acc.id).replace(/^act_/, '');
                 if (!seen.has(rawId)) {
                     seen.add(rawId);
-                    allAccounts.push({ ...acc, id: `act_${rawId}` });
+                    allAccounts.push({
+                        ...acc,
+                        id: `act_${rawId}`,
+                        business_id: acc.business?.id || knownBusinessId || null,
+                        business_name: acc.business?.name || knownBusinessName || null,
+                    });
                 }
             }
         };
@@ -98,11 +106,17 @@ export class MetaService {
                     logger.warn('Falha ao buscar Business Managers (permissão insuficiente)', { error: e.message });
                 }
 
+                // Pixels — só existe endpoint "por Business" (owned_pixels), não
+                // "todos os pixels do usuário" direto. Agrega por business_id
+                // único pra depois filtrar/auto-selecionar com base na conta
+                // de anúncio escolhida (mesmo Business Manager).
+                const pixels: { id: string; name: string; businessId: string; businessName: string | null }[] = [];
+
                 for (const biz of businesses) {
                     // Owned ad accounts
                     try {
                         const owned = await this.fetchAllPages(client, `/${biz.id}/owned_ad_accounts`, { fields: FIELDS });
-                        merge(owned);
+                        merge(owned, biz.id, biz.name);
                         logger.info(`BM ${biz.name} — owned accounts: ${owned.length}`);
                     } catch (e: any) {
                         logger.warn(`Falha em owned_ad_accounts do BM ${biz.id}`, { error: e.message });
@@ -111,15 +125,26 @@ export class MetaService {
                     // Client ad accounts
                     try {
                         const client_accs = await this.fetchAllPages(client, `/${biz.id}/client_ad_accounts`, { fields: FIELDS });
-                        merge(client_accs);
+                        merge(client_accs, biz.id, biz.name);
                         logger.info(`BM ${biz.name} — client accounts: ${client_accs.length}`);
                     } catch (e: any) {
                         logger.warn(`Falha em client_ad_accounts do BM ${biz.id}`, { error: e.message });
                     }
+
+                    // Pixels desse Business
+                    try {
+                        const owned_pixels = await this.fetchAllPages(client, `/${biz.id}/owned_pixels`, { fields: 'id,name' });
+                        for (const p of owned_pixels) {
+                            pixels.push({ id: p.id, name: p.name, businessId: biz.id, businessName: biz.name || null });
+                        }
+                        logger.info(`BM ${biz.name} — pixels: ${owned_pixels.length}`);
+                    } catch (e: any) {
+                        logger.warn(`Falha em owned_pixels do BM ${biz.id}`, { error: e.message });
+                    }
                 }
 
-                logger.info(`✅ Total de contas Meta encontradas: ${allAccounts.length}`);
-                return allAccounts;
+                logger.info(`✅ Total de contas Meta encontradas: ${allAccounts.length}, pixels: ${pixels.length}`);
+                return { accounts: allAccounts, pixels };
             } catch (error: any) {
                 this.handleMetaError(error);
             }
@@ -922,17 +947,19 @@ export class MetaService {
             // ── FASE 1 — Discovery: upsert todas as contas (sem campanhas) ─────
             let discovered = 0;
             try {
-                const metaAccounts = await this.getAdAccounts(userId, accessToken);
+                const { accounts: metaAccounts, pixels } = await this.getAdAccounts(userId, accessToken);
                 for (const account of metaAccounts) {
                     await metaRepository.upsertAdAccount(userId, {
                         meta_account_id: account.id,
                         account_name: account.name,
                         currency: account.currency || 'BRL',
                         timezone: account.timezone_name || 'America/Sao_Paulo',
+                        business_id: account.business_id || null,
                     });
                     discovered++;
                 }
-                logger.info(`sync: descoberta concluída`, { userId, discovered });
+                if (pixels.length > 0) await metaRepository.upsertPixels(userId, pixels);
+                logger.info(`sync: descoberta concluída`, { userId, discovered, pixels: pixels.length });
             } catch (err: any) {
                 logger.warn('sync: falha na fase de descoberta, seguindo com contas do banco', { error: err.message });
             }

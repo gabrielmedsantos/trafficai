@@ -11,6 +11,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from './auth.middleware';
 import { authRepository } from './auth.repository';
 import { metaService } from '../meta/meta.service';
+import { metaRepository } from '../meta/meta.repository';
 import { AppError, ValidationError } from '../shared/errors';
 import { logger } from '../shared/logger';
 
@@ -155,6 +156,19 @@ router.post('/disconnect', async (req: Request, res: Response, next: NextFunctio
     try {
         await authRepository.updateMetaToken(req.user!.userId, '', '', new Date(0));
         res.json({ success: true });
+    } catch (err) { next(err); }
+});
+
+/**
+ * GET /meta-signup/pixels — Pixels descobertos via Cadastro Incorporado,
+ * agrupados por Business Manager (não tem endpoint "listar pixels do
+ * usuário" direto na Graph API). Populado em background pelo sync inicial
+ * disparado em /exchange; pode vir vazio logo depois de conectar.
+ */
+router.get('/pixels', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const pixels = await metaRepository.getPixelsByUser(req.user!.userId);
+        res.json({ success: true, data: pixels });
     } catch (err) { next(err); }
 });
 

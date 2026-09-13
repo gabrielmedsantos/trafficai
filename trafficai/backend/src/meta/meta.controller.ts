@@ -38,7 +38,7 @@ router.get('/ad-accounts', async (req: Request, res: Response, next: NextFunctio
     try {
         const userId = req.user!.userId;
         const accessToken = await getAccessToken(userId);
-        const accounts = await metaService.getAdAccounts(userId, accessToken);
+        const { accounts } = await metaService.getAdAccounts(userId, accessToken);
         res.json({ success: true, data: accounts });
     } catch (err) {
         next(err);

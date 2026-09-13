@@ -270,6 +270,11 @@ class ApiClient {
     async metaSignupDisconnect() {
         return this.request<any>('POST', '/meta-signup/disconnect');
     }
+    async metaSignupPixels() {
+        return this.request<{ id: string; pixel_id: string; pixel_name: string; business_id: string; business_name: string | null }[]>(
+            'GET', '/meta-signup/pixels'
+        );
+    }
 
     // Google Ads
     async gaGetCredentials() {
@@ -430,13 +435,13 @@ class ApiClient {
     }
     async createTrackingSource(data: {
         name: string; account_id?: string; pixel_id?: string; access_token?: string;
-        test_event_code?: string; domain?: string;
+        use_ads_token?: boolean; test_event_code?: string; domain?: string;
     }) {
         return this.request<any>('POST', '/tracking/sources', data);
     }
     async updateTrackingSource(id: string, data: Partial<{
         name: string; account_id: string | null; pixel_id: string;
-        access_token: string; test_event_code: string; domain: string; is_active: boolean;
+        access_token: string; use_ads_token: boolean; test_event_code: string; domain: string; is_active: boolean;
         google_ads_account_id: string | null;
     }>) {
         return this.request<any>('PATCH', `/tracking/sources/${id}`, data);
