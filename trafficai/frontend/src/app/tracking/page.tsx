@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
@@ -107,6 +107,17 @@ export default function TrackingPage() {
     }, []);
 
     useEffect(() => { load(); }, [load]);
+
+    // Landing na primeira fonte automaticamente — evita a tela em branco
+    // "clique num cliente pra ver algo". O dropdown/"Ver todas as fontes"
+    // continuam disponíveis pra trocar ou voltar pra grade manualmente.
+    const autoSelectedRef = useRef(false);
+    useEffect(() => {
+        if (!loading && !selected && sources.length > 0 && !autoSelectedRef.current) {
+            autoSelectedRef.current = true;
+            setSelected(sources[0]);
+        }
+    }, [loading, selected, sources]);
 
     return (
         <div className="fade-in">
