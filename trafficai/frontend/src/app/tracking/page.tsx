@@ -115,7 +115,23 @@ export default function TrackingPage() {
                     <h1>Tracking</h1>
                     <p>Pixel proprietário + Meta CAPI com deduplicação e hashing automático</p>
                 </div>
-                <div className="page-header-actions">
+                <div className="page-header-actions" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {sources.length > 0 && (
+                        <select
+                            className="form-select"
+                            style={{ minWidth: 220 }}
+                            value={selected?.id || ''}
+                            onChange={e => {
+                                const s = sources.find(x => x.id === e.target.value);
+                                setSelected(s || null);
+                            }}
+                        >
+                            <option value="">Ver todas as fontes…</option>
+                            {sources.map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                        </select>
+                    )}
                     <button
                         type="button"
                         className="btn btn-primary btn-sm"
@@ -144,6 +160,12 @@ export default function TrackingPage() {
                         </button>
                     </div>
                 </div>
+            ) : selected ? (
+                <SourceDetail
+                    source={selected}
+                    onClose={() => setSelected(null)}
+                    onEdit={() => { setEditing(selected); }}
+                />
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
                     {sources.map(s => (
@@ -172,15 +194,7 @@ export default function TrackingPage() {
                     source={editing}
                     accounts={accounts}
                     onClose={() => setEditing(null)}
-                    onSaved={() => { setEditing(null); load(); if (selected?.id === editing.id) setSelected(null); }}
-                />
-            )}
-
-            {selected && (
-                <SourceDetail
-                    source={selected}
-                    onClose={() => setSelected(null)}
-                    onEdit={() => { setEditing(selected); setSelected(null); }}
+                    onSaved={() => { setEditing(null); load(); }}
                 />
             )}
         </div>
@@ -328,7 +342,7 @@ function SourceDetail({ source, onClose, onEdit }: {
 
     // Modal tab navigation
     type TabKey = 'setup' | 'overview' | 'leads' | 'events' | 'install' | 'crm';
-    const [activeTab, setActiveTab] = useState<TabKey>('setup');
+    const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
     // Auth method segmented control (na aba CRM)
     type AuthMethod = 'bearer' | 'key' | 'hmac';
@@ -603,12 +617,8 @@ function SourceDetail({ source, onClose, onEdit }: {
     const embed = `<script async src="${pixelUrl}"></script>`;
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div
-                className="modal-box"
-                style={{ maxWidth: 860, maxHeight: '90vh', overflowY: 'auto' }}
-                onClick={e => e.stopPropagation()}
-            >
+        <div>
+            <div className="card-glass" style={{ padding: 24 }}>
                 <div className="modal-header">
                     <div style={{ minWidth: 0, flex: 1 }}>
                         <div className="modal-title">{source.name}</div>
@@ -1999,7 +2009,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                 {/* ───────── end tab content ───────── */}
 
                 <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
-                    <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Fechar</button>
+                    <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">← Voltar pra lista de fontes</button>
                 </div>
             </div>
 
