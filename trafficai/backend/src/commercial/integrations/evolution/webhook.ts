@@ -10,6 +10,7 @@ import { queryOne } from '../../../database/connection';
 import { logger } from '../../../shared/logger';
 import { persistEvolutionMessage, updateIntegrationConnectionState, type EvolutionMessageEvent } from './persist';
 import { processWhatsAppMessage } from '../../../tracking/whatsapp-lead.service';
+import { tryDetectPurchaseMessage } from '../../../tracking/whatsapp-purchase-detector';
 
 const router = Router();
 
@@ -115,18 +116,28 @@ async function handleMessagesUpsert(
             logger.warn(`Evolution: falha ao persistir msg ${evt.messageId}: ${err.message}`);
         }
 
-        // Atribuição de anúncio (ctwa_clid) — mesma conexão Evolution que já
-        // atende o inbox do CRM também alimenta o Tracking, quando essa
-        // integração está linkada a uma fonte. processWhatsAppMessage() já
-        // ignora mensagens fromMe e sem ctwa_clid internamente; nunca bloqueia
-        // nem derruba o fluxo do inbox acima em caso de falha.
+        // Atribuição de anúncio (ctwa_clid) e detecção de venda por mensagem —
+        // mesma conexão Evolution que já atende o inbox do CRM também
+        // alimenta o Tracking, quando essa integração está linkada a uma
+        // fonte. processWhatsAppMessage() já ignora mensagens fromMe e sem
+        // ctwa_clid internamente; nunca bloqueia nem derruba o fluxo do
+        // inbox acima em caso de falha.
         if (ctx.trackingSourceId) {
             try {
                 const src = await queryOne<any>(
                     `SELECT * FROM tracking_sources WHERE id = $1 AND is_active = TRUE`,
                     [ctx.trackingSourceId]
                 );
-                if (src) await processWhatsAppMessage(src, { data: msg });
+                if (src) {
+                    if (evt.direction === 'in') {
+                        await processWhatsAppMessage(src, { data: msg });
+                    } else {
+                        // Mensagem do próprio atendente — só interessa se bater
+                        // com o template de confirmação de compra ("Pedido:" +
+                        // "Valor:"); qualquer outro texto passa direto sem efeito.
+                        await tryDetectPurchaseMessage(src, evt.contactPhone, evt.content);
+                    }
+                }
             } catch (err: any) {
                 logger.warn('Evolution: captura de atribuição (tracking) falhou', { error: err.message, integrationId: ctx.integrationId });
             }

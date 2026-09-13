@@ -10,6 +10,12 @@
 // `referral` chega igual nos dois — ver whatsapp-lead.service.ts). Os 3
 // webhooks extras de Coexistência (history, smb_app_state_sync,
 // smb_message_echoes) ainda não têm handler dedicado — ver nota abaixo.
+//
+// Por causa disso, a detecção de Purchase por mensagem padrão
+// (whatsapp-purchase-detector.ts) só está ligada no Evolution por enquanto:
+// lá a mensagem que o atendente digita chega via messages.upsert (fromMe).
+// Aqui, o mesmo texto do atendente só chegaria via smb_message_echoes
+// (Coexistência) — precisa desse handler antes de plugar o detector aqui.
 // ==============================
 
 import { Router, Request, Response } from 'express';
