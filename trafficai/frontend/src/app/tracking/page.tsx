@@ -723,28 +723,6 @@ function SourceDetail({ source, onClose, onEdit }: {
                 {activeTab === 'overview' && (
                 <div className="tab-fade-in">
 
-                {/* Health banner */}
-                {health && (
-                    <HealthBanner health={health} />
-                )}
-
-                {/* Stats */}
-                {stats && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 24 }}>
-                        <MiniKpi label="Total 7d" value={Number(stats.totals.total || 0).toLocaleString('pt-BR')} />
-                        <MiniKpi label="Enviados" value={Number(stats.totals.sent || 0).toLocaleString('pt-BR')} color="var(--accent-green)" />
-                        <MiniKpi label="Falhas" value={Number(stats.totals.failed || 0).toLocaleString('pt-BR')}
-                            color={Number(stats.totals.failed || 0) > 0 ? 'var(--accent-red)' : undefined} />
-                        <MiniKpi label="EMQ médio"
-                            value={stats.totals.avg_emq ? Number(stats.totals.avg_emq).toFixed(1) : '—'}
-                            color={
-                                stats.totals.avg_emq >= 7 ? 'var(--accent-green)' :
-                                stats.totals.avg_emq >= 4 ? 'var(--accent-yellow)' :
-                                'var(--accent-red)'
-                            } />
-                    </div>
-                )}
-
                 {/* Performance por campanha */}
                 <div style={{ marginBottom: 22 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
