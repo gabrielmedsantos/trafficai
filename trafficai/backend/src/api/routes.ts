@@ -25,6 +25,7 @@ import { commercialController } from '../commercial/commercial.controller';
 import { integrationsController as commercialIntegrationsController } from '../commercial/integrations/integrations.controller';
 import { kommoWebhookController } from '../commercial/integrations/kommo/webhook';
 import { evolutionWebhookController } from '../commercial/integrations/evolution/webhook';
+import { whatsappCloudWebhookController } from '../commercial/integrations/whatsapp-cloud/webhook';
 import { shareLinksController, shareLinksPublicController } from '../commercial/share-links.controller';
 import { automationController } from '../automation/automation.controller';
 import { metaActionsController } from '../meta/meta-actions.controller';
@@ -98,6 +99,7 @@ router.use('/tracking', trackingController);
 // Comercial — webhooks públicos PRIMEIRO (sem JWT), depois rotas autenticadas
 router.use('/commercial/webhooks', kommoWebhookController);
 router.use('/commercial/webhooks', evolutionWebhookController);
+router.use('/commercial/webhooks', whatsappCloudWebhookController);
 router.use('/commercial/public', shareLinksPublicController);
 router.use('/commercial/integrations', commercialIntegrationsController);
 router.use('/commercial/share-links', shareLinksController);

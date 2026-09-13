@@ -980,6 +980,15 @@ class ApiClient {
         );
     }
 
+    async connectWhatsAppCloud(payload: {
+        phoneNumberId: string; wabaId: string; accessToken: string;
+        name?: string; clientId?: string; trackingSourceId?: string;
+    }) {
+        return this.request<{ integrationId: string; displayPhone: string | null; verifiedName: string | null; message: string }>(
+            'POST', '/commercial/integrations/whatsapp-cloud/connect', payload
+        );
+    }
+
     async linkCommercialIntegrationToTrackingSource(id: string, trackingSourceId: string | null) {
         return this.request<{ id: string; tracking_source_id: string | null }>(
             'PATCH', `/commercial/integrations/${id}/link-tracking-source`, { trackingSourceId }

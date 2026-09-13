@@ -4,6 +4,7 @@
 // ==============================
 
 import { Router, Request, Response } from 'express';
+import axios from 'axios';
 import { query, queryOne } from '../../database/connection';
 import { authMiddleware } from '../../auth/auth.middleware';
 import { logger } from '../../shared/logger';
@@ -11,6 +12,9 @@ import crypto from 'crypto';
 import { KommoClient } from './kommo/client';
 import { syncKommoIntegration } from './kommo/sync';
 import { EvolutionClient } from './evolution/client';
+
+const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
+const META_GRAPH_URL = `https://graph.facebook.com/${META_API_VERSION}`;
 
 const router = Router();
 router.use(authMiddleware);
@@ -311,6 +315,94 @@ router.get('/:id/qr', async (req: Request, res: Response): Promise<void> => {
     } catch (err: any) {
         logger.error('Erro ao buscar QR', { error: err.message });
         fail(res, EvolutionClient.formatError(err), 500);
+    }
+});
+
+// ===========================================================================
+// WHATSAPP — CLOUD API OFICIAL (Meta)
+// ===========================================================================
+
+// POST /commercial/integrations/whatsapp-cloud/connect
+// Body: { phoneNumberId, wabaId, accessToken, name?, clientId?, trackingSourceId? }
+// Conexão manual por enquanto (colar phone_number_id/waba_id/token, do jeito
+// que já funciona pra Pixel/CAPI em Tracking) — o Cadastro Incorporado
+// específico de WhatsApp (FB.login com escopo de WABA) fica pra uma fase
+// seguinte, exige config_id próprio no App da Meta.
+router.post('/whatsapp-cloud/connect', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = getUserId(req);
+        const { phoneNumberId, wabaId, accessToken, name, clientId, trackingSourceId } = req.body as {
+            phoneNumberId?: string; wabaId?: string; accessToken?: string;
+            name?: string; clientId?: string; trackingSourceId?: string;
+        };
+        if (!phoneNumberId || !wabaId || !accessToken) {
+            return fail(res, 'phoneNumberId, wabaId e accessToken são obrigatórios');
+        }
+
+        if (trackingSourceId) {
+            const own = await queryOne<{ id: string }>(
+                `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+                [trackingSourceId, userId]
+            );
+            if (!own) return fail(res, 'Fonte de tracking não encontrada', 404);
+        }
+
+        // Valida credenciais direto na Graph API antes de salvar
+        let displayPhone: string | null = null;
+        let verifiedName: string | null = null;
+        try {
+            const r = await axios.get(`${META_GRAPH_URL}/${phoneNumberId}`, {
+                params: { fields: 'display_phone_number,verified_name', access_token: accessToken },
+                timeout: 15000,
+            });
+            displayPhone = r.data?.display_phone_number || null;
+            verifiedName = r.data?.verified_name || null;
+        } catch (err: any) {
+            const detail = err.response?.data?.error?.message || err.message;
+            return fail(res, 'Credenciais inválidas: ' + detail, 401);
+        }
+
+        const existing = await queryOne<{ id: string }>(
+            `SELECT id FROM comm_integrations
+             WHERE user_id = $1 AND type = 'whatsapp_cloud' AND config->>'phone_number_id' = $2`,
+            [userId, phoneNumberId]
+        );
+
+        const config = { phone_number_id: phoneNumberId, waba_id: wabaId, display_phone_number: displayPhone, verified_name: verifiedName };
+        const credentials = { access_token: accessToken };
+
+        let integrationId: string;
+        if (existing) {
+            await query(
+                `UPDATE comm_integrations
+                 SET credentials = $1, config = config || $2::jsonb, status = 'connected',
+                     tracking_source_id = COALESCE($3, tracking_source_id), updated_at = NOW()
+                 WHERE id = $4`,
+                [credentials, config, trackingSourceId ?? null, existing.id]
+            );
+            integrationId = existing.id;
+        } else {
+            const ins = await query<{ id: string }>(
+                `INSERT INTO comm_integrations
+                 (user_id, client_id, type, name, status, config, credentials, connected_at, tracking_source_id)
+                 VALUES ($1, $2, 'whatsapp_cloud', $3, 'connected', $4, $5, NOW(), $6)
+                 RETURNING id`,
+                [
+                    userId, clientId ?? null,
+                    name ?? `WhatsApp Cloud API · ${verifiedName || displayPhone || phoneNumberId}`,
+                    config, credentials, trackingSourceId ?? null,
+                ]
+            );
+            integrationId = ins[0]!.id;
+        }
+
+        res.json({
+            success: true,
+            data: { integrationId, displayPhone, verifiedName, message: 'WhatsApp Cloud API conectado.' },
+        });
+    } catch (err: any) {
+        logger.error('Erro ao conectar WhatsApp Cloud API', { error: err.message });
+        fail(res, 'Erro ao conectar: ' + err.message, 500);
     }
 });
 

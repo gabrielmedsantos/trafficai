@@ -115,6 +115,83 @@ export async function processWhatsAppMessage(
         return { lead_created: false, meta_sent: false, phone, reason: 'sem ctwa_clid (não veio de anúncio)' };
     }
 
+    return processExtractedLead(source, {
+        phone,
+        name: String(body.pushName || '').trim() || null,
+        ctwaClid,
+        adSourceId: adReply?.sourceId || null,
+        adSourceUrl: adReply?.sourceUrl || null,
+        adTitle: adReply?.title || null,
+        adThumbUrl: adReply?.thumbnailUrl || null,
+        messageText: body.message?.conversation || body.message?.extendedTextMessage?.text || null,
+        instanceName: evolutionPayload?.instance || null,
+        rawPayload: evolutionPayload,
+    });
+}
+
+/**
+ * Processa uma mensagem do WhatsApp Cloud API oficial (ou Coexistência, que
+ * usa o mesmo formato de webhook pra mensagens novas). O campo de atribuição
+ * vem em `referral` dentro do objeto message do webhook padrão — bem
+ * diferente do contextInfo.externalAdReply do Evolution/Baileys, mas o
+ * resultado (ctwa_clid + hierarquia do anúncio) é o mesmo, então cai no
+ * mesmo pipeline de dedupe/resolução/envio depois de extraído.
+ *
+ * `message` é UM item de `entry[].changes[].value.messages[]`.
+ * `contactName` vem de `entry[].changes[].value.contacts[0].profile.name`.
+ */
+export async function processCloudApiMessage(
+    source: any,
+    message: any,
+    contactName: string | null,
+    rawPayload: any
+): Promise<WhatsAppProcessResult> {
+    if (!message) return { lead_created: false, meta_sent: false, reason: 'payload vazio' };
+
+    const phone = String(message.from || '').replace(/\D/g, '');
+    if (!phone) return { lead_created: false, meta_sent: false, reason: 'sem telefone' };
+
+    const referral = message.referral;
+    const ctwaClid = referral?.ctwa_clid;
+    if (!ctwaClid) {
+        return { lead_created: false, meta_sent: false, phone, reason: 'sem ctwa_clid (não veio de anúncio)' };
+    }
+
+    return processExtractedLead(source, {
+        phone,
+        name: contactName,
+        ctwaClid,
+        adSourceId: referral?.source_id || null,
+        adSourceUrl: referral?.source_url || null,
+        adTitle: referral?.headline || null,
+        adThumbUrl: referral?.thumbnail_url || referral?.image_url || null,
+        messageText: message.text?.body || null,
+        instanceName: 'cloud-api',
+        rawPayload,
+    });
+}
+
+interface ExtractedLeadInput {
+    phone: string;
+    name: string | null;
+    ctwaClid: string;
+    adSourceId: string | null;
+    adSourceUrl: string | null;
+    adTitle: string | null;
+    adThumbUrl: string | null;
+    messageText: string | null;
+    instanceName: string | null;
+    rawPayload: any;
+}
+
+/**
+ * Núcleo compartilhado por Evolution e Cloud API depois que cada um já
+ * extraiu os campos do seu próprio formato de payload: dedupe, resolve
+ * campanha/conjunto/anúncio, persiste e dispara Lead pra Meta.
+ */
+async function processExtractedLead(source: any, input: ExtractedLeadInput): Promise<WhatsAppProcessResult> {
+    const { phone, name, ctwaClid, adSourceId, adSourceUrl, adTitle, adThumbUrl, messageText, instanceName, rawPayload } = input;
+
     // Deduplica — se já tem esse phone nessa fonte, retorna
     const existing = await query<any>(
         `SELECT id FROM tracking_whatsapp_leads WHERE source_id = $1 AND phone = $2`,
@@ -123,16 +200,6 @@ export async function processWhatsAppMessage(
     if (existing.length > 0) {
         return { lead_created: false, meta_sent: false, phone, ctwa_clid: ctwaClid, reason: 'lead já existe' };
     }
-
-    const name = String(body.pushName || '').trim() || null;
-    const adSourceId = adReply?.sourceId || null;
-    const adSourceUrl = adReply?.sourceUrl || null;
-    const adTitle = adReply?.title || null;
-    const adThumbUrl = adReply?.thumbnailUrl || null;
-    const messageText = body.message?.conversation
-        || body.message?.extendedTextMessage?.text
-        || null;
-    const instanceName = evolutionPayload?.instance || null;
 
     // Resolve pixel + page + campanha/conjunto/anúncio via Meta API (se tivermos access_token da fonte)
     let pixelId: string | null = null;
@@ -176,7 +243,7 @@ export async function processWhatsAppMessage(
         [
             source.id, phone, name, ctwaClid, adSourceId, adSourceUrl,
             adTitle, adThumbUrl, messageText, pixelId, pageId,
-            instanceName, JSON.stringify(evolutionPayload), leadEventId,
+            instanceName, JSON.stringify(rawPayload), leadEventId,
             campaignId, metaCampaignId, metaCampaignName, metaAdsetId, metaAdsetName, adName,
         ]
     );

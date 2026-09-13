@@ -3095,11 +3095,13 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
     const [qr, setQr] = useState<{ status: string; qrCode: string | null; pairingCode: string | null } | null>(null);
     const [selectedExisting, setSelectedExisting] = useState('');
     const [error, setError] = useState('');
+    const [showCloudForm, setShowCloudForm] = useState(false);
+    const [cloudForm, setCloudForm] = useState({ phoneNumberId: '', wabaId: '', accessToken: '' });
 
     const load = useCallback(async () => {
         try {
             const all = await api.listCommercialIntegrations();
-            setIntegrations((all || []).filter((i: any) => i.type === 'whatsapp_evolution'));
+            setIntegrations((all || []).filter((i: any) => i.type === 'whatsapp_evolution' || i.type === 'whatsapp_cloud'));
         } catch { setIntegrations([]); }
         finally { setLoading(false); }
     }, []);
@@ -3109,9 +3111,9 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
     const linked = integrations.find((i: any) => i.tracking_source_id === source.id) || null;
     const unlinked = integrations.filter((i: any) => !i.tracking_source_id);
 
-    // Polling do QR enquanto a integração linkada está "connecting"
+    // Polling do QR enquanto a integração linkada está "connecting" (só Evolution — Cloud API já conecta na hora)
     useEffect(() => {
-        if (!linked || linked.status === 'connected') { setQr(null); return; }
+        if (!linked || linked.type !== 'whatsapp_evolution' || linked.status === 'connected') { setQr(null); return; }
         let alive = true;
         const poll = async () => {
             try {
@@ -3137,6 +3139,29 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
             await load();
         } catch (e: any) {
             setError(e.message || 'Erro ao criar conexão');
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function connectCloud() {
+        if (!cloudForm.phoneNumberId || !cloudForm.wabaId || !cloudForm.accessToken) {
+            setError('Preencha phone_number_id, WABA ID e token de acesso');
+            return;
+        }
+        setSaving(true); setError('');
+        try {
+            await api.connectWhatsAppCloud({
+                ...cloudForm,
+                name: `WhatsApp Cloud — ${source.name}`,
+                trackingSourceId: source.id,
+            });
+            setCloudForm({ phoneNumberId: '', wabaId: '', accessToken: '' });
+            setShowCloudForm(false);
+            await load();
+            onChange();
+        } catch (e: any) {
+            setError(e.message || 'Erro ao conectar');
         } finally {
             setSaving(false);
         }
@@ -3175,26 +3200,28 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
 
     return (
         <div className="card" style={{ marginTop: 16, padding: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 14, marginBottom: 4 }}>WhatsApp (Evolution) — atribuição de anúncio</h3>
+            <h3 style={{ margin: 0, fontSize: 14, marginBottom: 4 }}>WhatsApp — atribuição de anúncio</h3>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
-                Liga essa fonte a uma conexão WhatsApp (a mesma que já atende o inbox do CRM em Comercial) pra capturar
-                automaticamente qual anúncio gerou cada conversa (Click-to-WhatsApp).
+                Liga essa fonte a uma conexão WhatsApp (a mesma que já atende o inbox do CRM em Comercial) — Evolution
+                (QR Code) ou Cloud API oficial da Meta — pra capturar automaticamente qual anúncio gerou cada conversa
+                (Click-to-WhatsApp).
             </p>
 
             {error && <p style={{ fontSize: 12, color: 'var(--accent-red)', marginBottom: 10 }}>{error}</p>}
 
             {linked ? (
                 <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                         <span className={`badge ${linked.status === 'connected' ? 'badge-green' : linked.status === 'connecting' ? 'badge-yellow' : 'badge-red'}`}>
                             {linked.status === 'connected' ? 'Conectado' : linked.status === 'connecting' ? 'Aguardando QR' : linked.status}
                         </span>
+                        <span className="badge badge-gray">{linked.type === 'whatsapp_cloud' ? 'Cloud API oficial' : 'Evolution'}</span>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>{linked.name}</span>
                         <button type="button" className="btn btn-ghost btn-sm" onClick={unlink} disabled={saving} style={{ marginLeft: 'auto' }}>
                             Desvincular
                         </button>
                     </div>
-                    {linked.status !== 'connected' && qr?.qrCode && (
+                    {linked.type === 'whatsapp_evolution' && linked.status !== 'connected' && qr?.qrCode && (
                         <div style={{ textAlign: 'center', padding: 16, background: 'var(--bg-input)', borderRadius: 8 }}>
                             <img src={qr.qrCode} alt="QR Code WhatsApp" style={{ width: 220, height: 220, borderRadius: 8 }} />
                             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
@@ -3202,18 +3229,18 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
                             </p>
                         </div>
                     )}
-                    {linked.status !== 'connected' && !qr?.qrCode && (
+                    {linked.type === 'whatsapp_evolution' && linked.status !== 'connected' && !qr?.qrCode && (
                         <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Gerando QR Code…</p>
                     )}
                 </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                     {unlinked.length > 0 && (
                         <div style={{ display: 'flex', gap: 8 }}>
                             <select className="form-select" value={selectedExisting} onChange={e => setSelectedExisting(e.target.value)} style={{ flex: 1 }}>
                                 <option value="">Vincular uma conexão já existente…</option>
                                 {unlinked.map((i: any) => (
-                                    <option key={i.id} value={i.id}>{i.name} ({i.status})</option>
+                                    <option key={i.id} value={i.id}>{i.name} ({i.type === 'whatsapp_cloud' ? 'Cloud API' : 'Evolution'} · {i.status})</option>
                                 ))}
                             </select>
                             <button type="button" className="btn btn-secondary btn-sm" onClick={linkExisting} disabled={!selectedExisting || saving}>
@@ -3221,9 +3248,31 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
                             </button>
                         </div>
                     )}
-                    <button type="button" className="btn btn-primary btn-sm" onClick={createNew} disabled={saving} style={{ alignSelf: 'flex-start' }}>
-                        {saving ? 'Criando…' : 'Criar nova conexão WhatsApp'}
-                    </button>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={createNew} disabled={saving}>
+                            {saving ? 'Criando…' : 'Criar nova conexão Evolution (QR Code)'}
+                        </button>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowCloudForm(v => !v)} disabled={saving}>
+                            Conectar via Cloud API oficial
+                        </button>
+                    </div>
+                    {showCloudForm && (
+                        <div style={{ padding: 12, background: 'var(--bg-input)', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <p style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                Cole os dados do número já configurado no Meta Business (WhatsApp → Configuração da API).
+                                Cadastro Incorporado (conectar clicando, sem colar nada) ainda não existe pra WhatsApp — só pra Ads (aba anterior).
+                            </p>
+                            <input className="form-input" placeholder="Phone Number ID" value={cloudForm.phoneNumberId}
+                                onChange={e => setCloudForm(f => ({ ...f, phoneNumberId: e.target.value }))} />
+                            <input className="form-input" placeholder="WhatsApp Business Account ID (WABA)" value={cloudForm.wabaId}
+                                onChange={e => setCloudForm(f => ({ ...f, wabaId: e.target.value }))} />
+                            <input className="form-input" placeholder="Token de acesso (permanente, do System User)" type="password" value={cloudForm.accessToken}
+                                onChange={e => setCloudForm(f => ({ ...f, accessToken: e.target.value }))} />
+                            <button type="button" className="btn btn-primary btn-sm" onClick={connectCloud} disabled={saving} style={{ alignSelf: 'flex-start' }}>
+                                {saving ? 'Conectando…' : 'Conectar'}
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

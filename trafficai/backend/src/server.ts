@@ -84,11 +84,12 @@ app.use('/api/v1/auth', authLimiter);
 app.use(mainLimiter);
 
 // ---- Body Parsing ----
-// IMPORTANTE: Stripe webhook precisa de raw body pra validar assinatura.
-// A rota /api/v1/billing/webhook usa express.raw() no seu próprio router,
-// então pulamos o express.json() pra ela.
+// IMPORTANTE: Stripe e Meta (WhatsApp Cloud API) exigem raw body pra validar
+// assinatura HMAC. Essas rotas usam express.raw() no próprio router, então
+// pulamos o express.json() global pra elas.
 app.use((req, res, next) => {
     if (req.path === '/api/v1/billing/webhook') return next();
+    if (req.path === '/api/v1/commercial/webhooks/whatsapp-cloud' && req.method === 'POST') return next();
     express.json({ limit: '10mb' })(req, res, next);
 });
 app.use(express.urlencoded({ extended: true }));
