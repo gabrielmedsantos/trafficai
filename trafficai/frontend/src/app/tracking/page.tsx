@@ -6,7 +6,7 @@ import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
     Zap, ShieldCheck, CircleAlert, Sparkles, Globe, ChevronDown,
     TrendingUp, TrendingDown, Users, UserCheck, Calendar, ShoppingCart, DollarSign, Target,
-    Download, MessageCircle, Search, ExternalLink,
+    Download, MessageCircle, Search, ExternalLink, Filter,
 } from 'lucide-react';
 import {
     ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -327,7 +327,7 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [rotating, setRotating] = useState(false);
 
     // Modal tab navigation
-    type TabKey = 'setup' | 'overview' | 'events' | 'install' | 'crm';
+    type TabKey = 'setup' | 'overview' | 'leads' | 'events' | 'install' | 'crm';
     const [activeTab, setActiveTab] = useState<TabKey>('setup');
 
     // Auth method segmented control (na aba CRM)
@@ -458,6 +458,46 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [campaignSearch, setCampaignSearch] = useState('');
     const [syncingMeta, setSyncingMeta] = useState(false);
     const [recentEvents, setRecentEvents] = useState<any[]>([]);
+
+    // Leads rastreados pelo WhatsApp
+    const LEADS_PER_PAGE = 25;
+    const [leadsSearch, setLeadsSearch] = useState('');
+    const [leadsSituacao, setLeadsSituacao] = useState<'' | 'ativo' | 'convertido'>('');
+    const [leadsEtapa, setLeadsEtapa] = useState<'' | 'iniciada' | 'convertida'>('');
+    const [leadsRows, setLeadsRows] = useState<any[]>([]);
+    const [leadsTotal, setLeadsTotal] = useState(0);
+    const [leadsOffset, setLeadsOffset] = useState(0);
+    const [leadsLoading, setLeadsLoading] = useState(false);
+    const [leadsLoaded, setLeadsLoaded] = useState(false);
+    const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+
+    const loadLeads = useCallback(async (offset = 0) => {
+        setLeadsLoading(true);
+        try {
+            const r = await api.getTrackingWhatsAppLeads(source.id, {
+                search: leadsSearch.trim() || undefined,
+                situacao: leadsSituacao || undefined,
+                etapa: leadsEtapa || undefined,
+                limit: LEADS_PER_PAGE,
+                offset,
+            });
+            setLeadsRows(r.data);
+            setLeadsTotal(r.total);
+            setLeadsOffset(r.offset);
+        } catch {
+            setLeadsRows([]);
+            setLeadsTotal(0);
+        } finally {
+            setLeadsLoading(false);
+        }
+    }, [source.id, leadsSearch, leadsSituacao, leadsEtapa]);
+
+    useEffect(() => {
+        if (activeTab === 'leads' && !leadsLoaded) {
+            loadLeads(0);
+            setLeadsLoaded(true);
+        }
+    }, [activeTab, leadsLoaded, loadLeads]);
 
     const resolveDashRange = useCallback((): { since: string; until: string } => {
         if (dashRange === 'custom') return { since: dashSince, until: dashUntil };
@@ -1076,6 +1116,125 @@ function SourceDetail({ source, onClose, onEdit }: {
 
                 </div>
                 )}
+                {/* ───────── TAB: LEADS RASTREADOS ───────── */}
+                {activeTab === 'leads' && (
+                <div className="tab-fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+                        <div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                                Leads
+                            </div>
+                            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Leads rastreados pelo WhatsApp</h2>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                Encontre conversas, confirme a atribuição e acompanhe a etapa atual de cada lead.
+                            </p>
+                        </div>
+                        <span className="badge" style={{ background: 'rgba(56,189,248,.10)', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,.22)' }}>
+                            {leadsTotal.toLocaleString('pt-BR')} conversas reais
+                        </span>
+                    </div>
+
+                    {/* Filtros */}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
+                        <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
+                            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                            <input
+                                type="text" placeholder="Nome ou telefone"
+                                value={leadsSearch} onChange={e => setLeadsSearch(e.target.value)}
+                                className="form-input" style={{ paddingLeft: 28 }}
+                            />
+                        </div>
+                        <select className="form-select" style={{ maxWidth: 180 }} value={leadsSituacao} onChange={e => setLeadsSituacao(e.target.value as any)}>
+                            <option value="">Toda situação</option>
+                            <option value="ativo">Ativo (sem venda)</option>
+                            <option value="convertido">Convertido</option>
+                        </select>
+                        <select className="form-select" style={{ maxWidth: 180 }} value={leadsEtapa} onChange={e => setLeadsEtapa(e.target.value as any)}>
+                            <option value="">Todas as etapas</option>
+                            <option value="iniciada">Conversa iniciada</option>
+                            <option value="convertida">Venda registrada</option>
+                        </select>
+                        <button type="button" className="btn btn-primary" onClick={() => loadLeads(0)} disabled={leadsLoading}>
+                            <Filter size={13} /> Aplicar
+                        </button>
+                    </div>
+
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 2 }}>
+                        Histórico
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Conversas recebidas</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                        Mostrando {leadsRows.length > 0 ? leadsOffset + 1 : 0}–{leadsOffset + leadsRows.length} de {leadsTotal.toLocaleString('pt-BR')} leads.
+                    </div>
+
+                    {leadsLoading && leadsRows.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Carregando leads…</div>
+                    ) : leadsRows.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Nenhum lead encontrado com esses filtros.</div>
+                    ) : (
+                        <>
+                            <div className="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Lead</th>
+                                            <th>Campanha / Origem</th>
+                                            <th>Etapa atual</th>
+                                            <th>Recebido</th>
+                                            <th>Última atividade</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {leadsRows.map((l: any) => (
+                                            <tr key={l.id} onClick={() => setSelectedLeadId(l.id)} style={{ cursor: 'pointer' }}>
+                                                <td>
+                                                    <div style={{ fontWeight: 600 }}>{l.name || 'Sem nome'}</div>
+                                                    <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)' }}>{l.phone}</div>
+                                                </td>
+                                                <td style={{ fontSize: 12 }}>
+                                                    <div>{l.meta_campaign_name || 'Origem não resolvida'}</div>
+                                                    <div style={{ color: 'var(--text-muted)' }}>Meta Ads</div>
+                                                </td>
+                                                <td>
+                                                    <span className="badge" style={l.purchase_event_id
+                                                        ? { background: 'rgba(34,197,94,.10)', color: '#4ade80', borderColor: 'rgba(34,197,94,.22)' }
+                                                        : { background: 'rgba(56,189,248,.10)', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,.22)' }}>
+                                                        {l.purchase_event_id ? 'Venda registrada' : 'Conversa iniciada'}
+                                                    </span>
+                                                </td>
+                                                <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtRelative(l.created_at)}</td>
+                                                <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtRelative(l.updated_at || l.created_at)}</td>
+                                                <td><ExternalLink size={13} color="var(--text-muted)" /></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {leadsTotal > LEADS_PER_PAGE && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        Página {Math.floor(leadsOffset / LEADS_PER_PAGE) + 1} de {Math.ceil(leadsTotal / LEADS_PER_PAGE)}
+                                    </span>
+                                    <div style={{ display: 'flex', gap: 6 }}>
+                                        <button type="button" className="btn btn-sm btn-ghost" disabled={leadsOffset === 0}
+                                            onClick={() => loadLeads(Math.max(0, leadsOffset - LEADS_PER_PAGE))}>Anterior</button>
+                                        <button type="button" className="btn btn-sm btn-ghost" disabled={leadsOffset + LEADS_PER_PAGE >= leadsTotal}
+                                            onClick={() => loadLeads(leadsOffset + LEADS_PER_PAGE)}>Próxima</button>
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+                )}
+                {selectedLeadId && (
+                    <WhatsAppLeadDetailModal
+                        sourceId={source.id}
+                        leadId={selectedLeadId}
+                        onClose={() => setSelectedLeadId(null)}
+                    />
+                )}
                 {/* ───────── TAB: INSTALAÇÃO ───────── */}
                 {activeTab === 'install' && (
                 <div className="tab-fade-in">
@@ -1571,9 +1730,38 @@ function SourceDetail({ source, onClose, onEdit }: {
 
                 </div>
                 )}
-                {/* ───────── TAB: EVENTOS ───────── */}
+                {/* ───────── TAB: AUDITORIA CAPI ───────── */}
                 {activeTab === 'events' && (
                 <div className="tab-fade-in">
+
+                <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                        Eventos Meta
+                    </div>
+                    <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Auditoria de conversões</h2>
+                    <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+                        Acompanhe o que foi enviado, o que está aguardando e o que precisa de atenção antes de chegar à Meta.
+                    </p>
+
+                    {stats?.totals && (
+                        <>
+                            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Fluxo para a Meta</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10 }}>
+                                {Number(stats.totals.total).toLocaleString('pt-BR')} eventos no período (últimos 7 dias)
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                                <BigKpi icon={<ShieldCheck size={14} />} label="Enviados" value={Number(stats.totals.sent).toLocaleString('pt-BR')} hint="Recebidos pela Meta" color="var(--accent-green)" />
+                                <BigKpi icon={<Clock size={14} />} label="Na fila" value={Number(stats.totals.retry_pending).toLocaleString('pt-BR')} hint="Aguardando nova tentativa" color="var(--accent-yellow)" />
+                                <BigKpi icon={<CircleAlert size={14} />} label="Falhas esgotadas" value={Number(stats.totals.retry_exhausted).toLocaleString('pt-BR')} hint="Precisam de correção manual" color={Number(stats.totals.retry_exhausted) > 0 ? 'var(--accent-red)' : undefined} />
+                                <BigKpi icon={<Activity size={14} />} label="EMQ médio" value={Number(stats.totals.avg_emq).toFixed(1)} hint="Qualidade de correspondência" />
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                                Hoje só rastreamos os estados enviado/falha (com retry automático) — não temos ainda os buckets
+                                "bloqueados/não elegíveis/sombra/descartados" da referência original.
+                            </div>
+                        </>
+                    )}
+                </div>
 
                 {/* Breakdown */}
                 {stats?.by_event && stats.by_event.length > 0 && (
@@ -1834,6 +2022,153 @@ function SourceDetail({ source, onClose, onEdit }: {
 }
 
 // ─── Event Detail Modal — auditoria completa ────────────────────────────────
+
+function WhatsAppLeadDetailModal({ sourceId, leadId, onClose }: { sourceId: string; leadId: string; onClose: () => void }) {
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+        setLoading(true); setError('');
+        api.getTrackingWhatsAppLeadDetail(sourceId, leadId)
+            .then(setData)
+            .catch((e: any) => setError(e.message || 'Falha ao carregar'))
+            .finally(() => setLoading(false));
+        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [sourceId, leadId, onClose]);
+
+    const lastJourneyEvent = data?.journey?.length ? data.journey[data.journey.length - 1] : null;
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+            <div className="modal-box" style={{ maxWidth: 880, maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                    <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                            Lead
+                        </div>
+                        <div className="modal-title" style={{ fontSize: 20 }}>{data?.name || 'Sem nome'}</div>
+                        <div className="mono" style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2 }}>{data?.phone}</div>
+                    </div>
+                    <button className="modal-close" onClick={onClose} type="button"><X size={16} /></button>
+                </div>
+
+                {loading && <div className="loading-spinner"><div className="spinner" /></div>}
+                {error && (
+                    <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.22)', borderRadius: 8, color: '#f87171', fontSize: 13 }}>
+                        {error}
+                    </div>
+                )}
+
+                {data && !loading && (
+                    <>
+                        <div style={{ marginBottom: 14 }}>
+                            <span className="badge" style={data.purchase_event_id
+                                ? { background: 'rgba(34,197,94,.10)', color: '#4ade80', borderColor: 'rgba(34,197,94,.22)' }
+                                : { background: 'rgba(56,189,248,.10)', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,.22)' }}>
+                                {data.purchase_event_id ? 'Venda registrada' : 'Atendimento ativo'}
+                            </span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 18 }}>
+                            {/* Atribuição */}
+                            <div className="card" style={{ padding: 18 }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                                    Atribuição
+                                </div>
+                                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Origem do anúncio</div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+                                    <div>
+                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>01 CAMPANHA</div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{data.meta_campaign_name || 'Não resolvida'}</div>
+                                        {data.meta_campaign_id && <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>ID {data.meta_campaign_id}</div>}
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>02 CONJUNTO</div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{data.meta_adset_name || 'Não resolvido'}</div>
+                                        {data.meta_adset_id && <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>ID {data.meta_adset_id}</div>}
+                                    </div>
+                                    <div>
+                                        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>03 ANÚNCIO</div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginTop: 6 }}>{data.ad_name || data.ad_title || 'Não resolvido'}</div>
+                                        {data.ad_source_id && <div className="mono" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>ID {data.ad_source_id}</div>}
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12, fontSize: 12 }}>
+                                    <span style={{ color: 'var(--text-muted)' }}>Último evento</span>
+                                    <span style={{ fontWeight: 600 }}>{lastJourneyEvent?.event_name || 'Conversa iniciada'}</span>
+                                </div>
+                            </div>
+
+                            {/* Criativo */}
+                            <div className="card" style={{ padding: 16 }}>
+                                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, marginBottom: 10 }}>CRIATIVO</div>
+                                {data.ad_thumbnail_url ? (
+                                    <img src={data.ad_thumbnail_url} alt={data.ad_title || 'Criativo'} style={{ width: '100%', borderRadius: 8, marginBottom: 12 }} />
+                                ) : (
+                                    <div style={{ width: '100%', aspectRatio: '4/5', background: 'var(--bg-input)', borderRadius: 8, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: 12 }}>
+                                        Sem prévia
+                                    </div>
+                                )}
+                                <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700 }}>ANÚNCIO ATRIBUÍDO</div>
+                                <div className="mono" style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4, marginBottom: 12, wordBreak: 'break-all' }}>
+                                    {data.ad_source_id || '—'}
+                                </div>
+                                {data.ad_source_url && (
+                                    <a href={data.ad_source_url} target="_blank" rel="noreferrer" className="btn btn-secondary btn-sm" style={{ width: '100%', justifyContent: 'center' }}>
+                                        <ExternalLink size={13} /> Ver origem do anúncio
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Jornada */}
+                        <div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 10 }}>
+                                Jornada
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-blue)' }} />
+                                    <span style={{ fontWeight: 600 }}>Conversa iniciada</span>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{fmtRelative(data.created_at)}</span>
+                                    <span className={`badge ${data.lead_meta_status === 'sent' ? 'badge-green' : 'badge-red'}`} style={{ marginLeft: 'auto' }}>
+                                        {data.lead_meta_status === 'sent' ? 'Enviado à Meta' : data.lead_meta_status || '—'}
+                                    </span>
+                                </div>
+                                {data.journey?.filter((j: any) => j.event_name !== 'Lead').map((j: any) => (
+                                    <div key={j.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: j.event_name === 'Purchase' ? 'var(--accent-green)' : 'var(--text-muted)' }} />
+                                        <span style={{ fontWeight: 600 }}>
+                                            {j.event_name}
+                                            {j.value != null && ` · R$ ${Number(j.value).toFixed(2)}`}
+                                        </span>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{fmtRelative(j.created_at)}</span>
+                                        <span className={`badge ${j.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`} style={{ marginLeft: 'auto' }}>
+                                            {j.meta_status === 'sent' ? 'Enviado à Meta' : j.meta_status || '—'}
+                                        </span>
+                                    </div>
+                                ))}
+                                {data.purchase_event_id && !data.journey?.some((j: any) => j.event_name === 'Purchase') && (
+                                    <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 13 }}>
+                                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-green)' }} />
+                                        <span style={{ fontWeight: 600 }}>
+                                            Venda registrada
+                                            {data.purchase_value != null && ` · R$ ${Number(data.purchase_value).toFixed(2)}`}
+                                        </span>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{fmtRelative(data.purchase_at)}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
 
 function EventDetailModal({ eventId, onClose }: { eventId: string; onClose: () => void }) {
     const [data, setData] = useState<any>(null);
@@ -2965,13 +3300,14 @@ function SetupRow({ item }: { item: SetupItem }) {
 
 const TAB_DEFS = [
     { key: 'setup',    label: 'Setup' },
-    { key: 'overview', label: 'Visão geral' },
-    { key: 'events',   label: 'Eventos' },
+    { key: 'overview', label: 'Performance' },
+    { key: 'leads',    label: 'Leads rastreados' },
+    { key: 'events',   label: 'Auditoria CAPI' },
     { key: 'install',  label: 'Instalação' },
     { key: 'crm',      label: 'CRM' },
 ] as const;
 
-type ModalTabKey = 'setup' | 'overview' | 'events' | 'install' | 'crm';
+type ModalTabKey = 'setup' | 'overview' | 'leads' | 'events' | 'install' | 'crm';
 
 function ModalTabs({
     active,

@@ -186,10 +186,73 @@ function computeSourceStatus(s: any): {
 }
 
 // ─── GET /tracking/sources/:id/whatsapp-leads ───────────────────────────────
+// "Leads rastreados pelo WhatsApp" — busca por nome/telefone, filtro por
+// situação (ativo/convertido) e etapa (só o que o Traffic AI de fato
+// acompanha: conversa iniciada / venda registrada — não substitui o funil
+// do CRM), paginado.
 router.get('/sources/:id/whatsapp-leads', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
+        const { search, situacao, etapa, limit = '25', offset = '0' } = req.query as any;
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const whereParts: string[] = [`source_id = $1`];
+        const params: any[] = [id];
+        if (search) {
+            const term = String(search).trim();
+            if (term) {
+                params.push(`%${term}%`);
+                const i = params.length;
+                whereParts.push(`(name ILIKE $${i} OR phone ILIKE $${i})`);
+            }
+        }
+        if (situacao === 'convertido') whereParts.push(`purchase_event_id IS NOT NULL`);
+        else if (situacao === 'ativo') whereParts.push(`purchase_event_id IS NULL`);
+        if (etapa === 'iniciada') whereParts.push(`purchase_event_id IS NULL`);
+        else if (etapa === 'convertida') whereParts.push(`purchase_event_id IS NOT NULL`);
+        const whereSql = whereParts.join(' AND ');
+
+        const lim = Math.min(parseInt(limit, 10) || 25, 200);
+        const off = Math.max(parseInt(offset, 10) || 0, 0);
+
+        const countRow = await query<{ total: string }>(
+            `SELECT COUNT(*)::text AS total FROM tracking_whatsapp_leads WHERE ${whereSql}`,
+            params
+        );
+        const total = Number(countRow[0]?.total || 0);
+
+        params.push(lim, off);
+        const rows = await query<any>(
+            `SELECT id, phone, name, ctwa_clid, ad_source_id, ad_source_url,
+                    ad_title, pixel_id, page_id, lead_meta_status, lead_meta_error,
+                    purchase_event_id, purchase_value, purchase_at, kommo_lead_id,
+                    campaign_id, meta_campaign_id, meta_campaign_name, meta_adset_name, ad_name,
+                    updated_at, created_at
+             FROM tracking_whatsapp_leads
+             WHERE ${whereSql}
+             ORDER BY created_at DESC
+             LIMIT $${params.length - 1} OFFSET $${params.length}`,
+            params
+        );
+        res.json({ success: true, data: rows, total, limit: lim, offset: off });
+    } catch (err: any) {
+        logger.error('tracking: whatsapp-leads falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/whatsapp-leads/:leadId ───────────────────────
+// "Origem da venda" — detalhe completo de um lead: atribuição
+// (campanha/conjunto/anúncio), criativo e jornada.
+router.get('/sources/:id/whatsapp-leads/:leadId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, leadId } = req.params;
         const own = await query<any>(
             `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
             [id, userId]
@@ -197,18 +260,29 @@ router.get('/sources/:id/whatsapp-leads', async (req: Request, res: Response) =>
         if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
 
         const rows = await query<any>(
-            `SELECT id, phone, name, ctwa_clid, ad_source_id, ad_source_url,
-                    ad_title, pixel_id, page_id, lead_meta_status, lead_meta_error,
-                    purchase_event_id, purchase_value, purchase_at, kommo_lead_id,
-                    meta_campaign_name, meta_adset_name, ad_name,
-                    created_at
-             FROM tracking_whatsapp_leads
-             WHERE source_id = $1
-             ORDER BY created_at DESC LIMIT 200`,
-            [id]
+            `SELECT * FROM tracking_whatsapp_leads WHERE id = $1 AND source_id = $2`,
+            [leadId, id]
         );
-        res.json({ success: true, data: rows });
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Lead não encontrado' } });
+        const lead = rows[0];
+        delete lead.raw_payload; // pode conter PII adicional do webhook — não expõe por padrão
+
+        // Jornada — todo evento com o mesmo ctwa_clid nessa fonte (Lead inicial
+        // + qualquer evento seguinte que o webhook genérico tenha enriquecido
+        // com esse mesmo clique, ex: Purchase).
+        const journey = lead.ctwa_clid
+            ? await query<any>(
+                `SELECT id, event_name, event_time, meta_status, value, currency, created_at
+                 FROM tracking_events
+                 WHERE source_id = $1 AND ctwa_clid = $2
+                 ORDER BY created_at ASC`,
+                [id, lead.ctwa_clid]
+            )
+            : [];
+
+        res.json({ success: true, data: { ...lead, journey } });
     } catch (err: any) {
+        logger.error('tracking: whatsapp-lead detail falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
@@ -964,6 +1038,8 @@ router.get('/sources/:id/stats', async (req: Request, res: Response) => {
                 COUNT(*) AS total,
                 COUNT(*) FILTER (WHERE meta_status = 'sent') AS sent,
                 COUNT(*) FILTER (WHERE meta_status = 'failed') AS failed,
+                COUNT(*) FILTER (WHERE meta_status = 'failed' AND retry_count < 3) AS retry_pending,
+                COUNT(*) FILTER (WHERE meta_status = 'failed' AND retry_count >= 3) AS retry_exhausted,
                 COALESCE(AVG(emq_score), 0)::float AS avg_emq,
                 COUNT(DISTINCT event_name) AS distinct_events,
                 COUNT(DISTINCT external_id) AS distinct_users

@@ -734,8 +734,30 @@ class ApiClient {
     async getTrackingEvent(eventId: string) {
         return this.request<any>('GET', `/tracking/events/${eventId}`);
     }
-    async getTrackingWhatsAppLeads(sourceId: string) {
-        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/whatsapp-leads`);
+    async getTrackingWhatsAppLeads(sourceId: string, params?: {
+        search?: string; situacao?: 'ativo' | 'convertido'; etapa?: 'iniciada' | 'convertida';
+        limit?: number; offset?: number;
+    }): Promise<{ data: any[]; total: number; limit: number; offset: number }> {
+        const q = new URLSearchParams();
+        if (params?.search) q.set('search', params.search);
+        if (params?.situacao) q.set('situacao', params.situacao);
+        if (params?.etapa) q.set('etapa', params.etapa);
+        if (params?.limit !== undefined) q.set('limit', String(params.limit));
+        if (params?.offset !== undefined) q.set('offset', String(params.offset));
+        const qs = q.toString();
+        const url = `${this.baseUrl}/tracking/sources/${sourceId}/whatsapp-leads${qs ? '?' + qs : ''}`;
+        const res = await fetch(url, { headers: this.getHeaders() });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error?.message || 'Falha ao listar leads');
+        return {
+            data: json.data,
+            total: json.total ?? json.data.length,
+            limit: json.limit ?? (params?.limit || 25),
+            offset: json.offset ?? (params?.offset || 0),
+        };
+    }
+    async getTrackingWhatsAppLeadDetail(sourceId: string, leadId: string) {
+        return this.request<any>('GET', `/tracking/sources/${sourceId}/whatsapp-leads/${leadId}`);
     }
     async getTrackingDashboard(sourceId: string, since?: string, until?: string) {
         const q = new URLSearchParams();
