@@ -714,6 +714,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                         testResult={testResult}
                     />
                     <GoogleAdsSetup source={detail || source} onChange={load} />
+                    <WhatsAppEvolutionSetup source={detail || source} onChange={load} />
                 </div>
                 )}
 
@@ -3082,6 +3083,148 @@ function GoogleAdsSetup({ source, onChange }: { source: any; onChange: () => voi
                         O nome do recurso da ação de conversão vem do Google Ads (Ferramentas → Conversões → clique na ação → copie o ID/resource name).
                     </div>
                 </>
+            )}
+        </div>
+    );
+}
+
+function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: () => void }) {
+    const [integrations, setIntegrations] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [qr, setQr] = useState<{ status: string; qrCode: string | null; pairingCode: string | null } | null>(null);
+    const [selectedExisting, setSelectedExisting] = useState('');
+    const [error, setError] = useState('');
+
+    const load = useCallback(async () => {
+        try {
+            const all = await api.listCommercialIntegrations();
+            setIntegrations((all || []).filter((i: any) => i.type === 'whatsapp_evolution'));
+        } catch { setIntegrations([]); }
+        finally { setLoading(false); }
+    }, []);
+
+    useEffect(() => { load(); }, [load]);
+
+    const linked = integrations.find((i: any) => i.tracking_source_id === source.id) || null;
+    const unlinked = integrations.filter((i: any) => !i.tracking_source_id);
+
+    // Polling do QR enquanto a integração linkada está "connecting"
+    useEffect(() => {
+        if (!linked || linked.status === 'connected') { setQr(null); return; }
+        let alive = true;
+        const poll = async () => {
+            try {
+                const r = await api.getCommercialIntegrationQr(linked.id);
+                if (alive) {
+                    setQr(r);
+                    if (r.status === 'connected') { load(); onChange(); }
+                }
+            } catch { /* ignora — instância pode ainda estar subindo */ }
+        };
+        poll();
+        const id = setInterval(poll, 4000);
+        return () => { alive = false; clearInterval(id); };
+    }, [linked?.id, linked?.status, load, onChange]);
+
+    async function createNew() {
+        setSaving(true); setError('');
+        try {
+            await api.connectCommercialWhatsApp({
+                name: `WhatsApp — ${source.name}`,
+                trackingSourceId: source.id,
+            });
+            await load();
+        } catch (e: any) {
+            setError(e.message || 'Erro ao criar conexão');
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function linkExisting() {
+        if (!selectedExisting) return;
+        setSaving(true); setError('');
+        try {
+            await api.linkCommercialIntegrationToTrackingSource(selectedExisting, source.id);
+            setSelectedExisting('');
+            await load();
+            onChange();
+        } catch (e: any) {
+            setError(e.message || 'Erro ao vincular');
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function unlink() {
+        if (!linked) return;
+        if (!confirm('Desvincular essa conexão WhatsApp da atribuição de anúncio? O inbox do CRM continua funcionando normalmente, só para de alimentar o Tracking.')) return;
+        setSaving(true);
+        try {
+            await api.linkCommercialIntegrationToTrackingSource(linked.id, null);
+            await load();
+        } catch (e: any) {
+            setError(e.message || 'Erro ao desvincular');
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    if (loading) return null;
+
+    return (
+        <div className="card" style={{ marginTop: 16, padding: 16 }}>
+            <h3 style={{ margin: 0, fontSize: 14, marginBottom: 4 }}>WhatsApp (Evolution) — atribuição de anúncio</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 14 }}>
+                Liga essa fonte a uma conexão WhatsApp (a mesma que já atende o inbox do CRM em Comercial) pra capturar
+                automaticamente qual anúncio gerou cada conversa (Click-to-WhatsApp).
+            </p>
+
+            {error && <p style={{ fontSize: 12, color: 'var(--accent-red)', marginBottom: 10 }}>{error}</p>}
+
+            {linked ? (
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <span className={`badge ${linked.status === 'connected' ? 'badge-green' : linked.status === 'connecting' ? 'badge-yellow' : 'badge-red'}`}>
+                            {linked.status === 'connected' ? 'Conectado' : linked.status === 'connecting' ? 'Aguardando QR' : linked.status}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{linked.name}</span>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={unlink} disabled={saving} style={{ marginLeft: 'auto' }}>
+                            Desvincular
+                        </button>
+                    </div>
+                    {linked.status !== 'connected' && qr?.qrCode && (
+                        <div style={{ textAlign: 'center', padding: 16, background: 'var(--bg-input)', borderRadius: 8 }}>
+                            <img src={qr.qrCode} alt="QR Code WhatsApp" style={{ width: 220, height: 220, borderRadius: 8 }} />
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 10 }}>
+                                Abra o WhatsApp no celular do número desse cliente → Aparelhos conectados → Conectar um aparelho.
+                            </p>
+                        </div>
+                    )}
+                    {linked.status !== 'connected' && !qr?.qrCode && (
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Gerando QR Code…</p>
+                    )}
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {unlinked.length > 0 && (
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <select className="form-select" value={selectedExisting} onChange={e => setSelectedExisting(e.target.value)} style={{ flex: 1 }}>
+                                <option value="">Vincular uma conexão já existente…</option>
+                                {unlinked.map((i: any) => (
+                                    <option key={i.id} value={i.id}>{i.name} ({i.status})</option>
+                                ))}
+                            </select>
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={linkExisting} disabled={!selectedExisting || saving}>
+                                Vincular
+                            </button>
+                        </div>
+                    )}
+                    <button type="button" className="btn btn-primary btn-sm" onClick={createNew} disabled={saving} style={{ alignSelf: 'flex-start' }}>
+                        {saving ? 'Criando…' : 'Criar nova conexão WhatsApp'}
+                    </button>
+                </div>
             )}
         </div>
     );

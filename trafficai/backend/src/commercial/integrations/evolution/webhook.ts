@@ -9,6 +9,7 @@ import crypto from 'crypto';
 import { queryOne } from '../../../database/connection';
 import { logger } from '../../../shared/logger';
 import { persistEvolutionMessage, updateIntegrationConnectionState, type EvolutionMessageEvent } from './persist';
+import { processWhatsAppMessage } from '../../../tracking/whatsapp-lead.service';
 
 const router = Router();
 
@@ -29,8 +30,9 @@ router.post('/evolution/:integrationId', async (req: Request, res: Response): Pr
             user_id: string;
             client_id: string | null;
             credentials: { webhook_secret?: string };
+            tracking_source_id: string | null;
         }>(
-            `SELECT user_id, client_id, credentials FROM comm_integrations
+            `SELECT user_id, client_id, credentials, tracking_source_id FROM comm_integrations
              WHERE id = $1 AND type = 'whatsapp_evolution'`,
             [integrationId]
         );
@@ -62,6 +64,7 @@ router.post('/evolution/:integrationId', async (req: Request, res: Response): Pr
             userId: intg.user_id,
             clientId: intg.client_id,
             integrationId,
+            trackingSourceId: intg.tracking_source_id,
         };
 
         switch (eventType) {
@@ -91,7 +94,10 @@ router.post('/evolution/:integrationId', async (req: Request, res: Response): Pr
 
 // ─── handlers ──────────────────────────────────────────────────────────────
 
-async function handleMessagesUpsert(ctx: { userId: string; clientId: string | null; integrationId: string }, data: any): Promise<void> {
+async function handleMessagesUpsert(
+    ctx: { userId: string; clientId: string | null; integrationId: string; trackingSourceId: string | null },
+    data: any
+): Promise<void> {
     if (!data) return;
 
     // Evolution v2 envia 1 mensagem em data.key/data.message
@@ -107,6 +113,23 @@ async function handleMessagesUpsert(ctx: { userId: string; clientId: string | nu
             await persistEvolutionMessage(ctx, evt);
         } catch (err: any) {
             logger.warn(`Evolution: falha ao persistir msg ${evt.messageId}: ${err.message}`);
+        }
+
+        // Atribuição de anúncio (ctwa_clid) — mesma conexão Evolution que já
+        // atende o inbox do CRM também alimenta o Tracking, quando essa
+        // integração está linkada a uma fonte. processWhatsAppMessage() já
+        // ignora mensagens fromMe e sem ctwa_clid internamente; nunca bloqueia
+        // nem derruba o fluxo do inbox acima em caso de falha.
+        if (ctx.trackingSourceId) {
+            try {
+                const src = await queryOne<any>(
+                    `SELECT * FROM tracking_sources WHERE id = $1 AND is_active = TRUE`,
+                    [ctx.trackingSourceId]
+                );
+                if (src) await processWhatsAppMessage(src, { data: msg });
+            } catch (err: any) {
+                logger.warn('Evolution: captura de atribuição (tracking) falhou', { error: err.message, integrationId: ctx.integrationId });
+            }
         }
     }
 }

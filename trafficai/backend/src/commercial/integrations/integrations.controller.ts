@@ -29,7 +29,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = getUserId(req);
         const rows = await query(
-            `SELECT id, type, name, status, client_id,
+            `SELECT id, type, name, status, client_id, tracking_source_id,
                     config - 'access_token' AS config,   -- nunca expõe credentials
                     last_event_at, last_error, connected_at, created_at
              FROM comm_integrations WHERE user_id = $1
@@ -182,14 +182,24 @@ router.post('/whatsapp/connect', async (req: Request, res: Response): Promise<vo
     try {
         const userId = getUserId(req);
         const {
-            name, clientId,
+            name, clientId, trackingSourceId,
             evolutionBaseUrl, evolutionApiKey,
             webhookEvents,
         } = req.body as {
-            name?: string; clientId?: string;
+            name?: string; clientId?: string; trackingSourceId?: string;
             evolutionBaseUrl?: string; evolutionApiKey?: string;
             webhookEvents?: string[];
         };
+
+        // Se veio trackingSourceId, confirma que é do próprio user antes de linkar
+        // (evita um user linkar attribution numa fonte de outro user).
+        if (trackingSourceId) {
+            const own = await queryOne<{ id: string }>(
+                `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+                [trackingSourceId, userId]
+            );
+            if (!own) return fail(res, 'Fonte de tracking não encontrada', 404);
+        }
 
         const cfg = getEvolutionConfig({ baseUrl: evolutionBaseUrl, apiKey: evolutionApiKey });
 
@@ -211,14 +221,15 @@ router.post('/whatsapp/connect', async (req: Request, res: Response): Promise<vo
 
         const ins = await query<{ id: string }>(
             `INSERT INTO comm_integrations
-             (user_id, client_id, type, name, status, config, credentials)
-             VALUES ($1, $2, 'whatsapp_evolution', $3, 'connecting', $4, $5)
+             (user_id, client_id, type, name, status, config, credentials, tracking_source_id)
+             VALUES ($1, $2, 'whatsapp_evolution', $3, 'connecting', $4, $5, $6)
              RETURNING id`,
             [
                 userId, clientId ?? null,
                 name ?? 'WhatsApp Evolution',
                 initialConfig,
                 credentials,
+                trackingSourceId ?? null,
             ]
         );
         const integrationId = ins[0]!.id;
@@ -300,6 +311,41 @@ router.get('/:id/qr', async (req: Request, res: Response): Promise<void> => {
     } catch (err: any) {
         logger.error('Erro ao buscar QR', { error: err.message });
         fail(res, EvolutionClient.formatError(err), 500);
+    }
+});
+
+// ----- PATCH /commercial/integrations/:id/link-tracking-source -----
+// Body: { trackingSourceId: string | null } — vincula (ou desvincula, se null)
+// essa integração WhatsApp a uma fonte de Tracking, pra capturar atribuição
+// de anúncio (ctwa_clid) na mesma conexão que já atende o inbox do CRM.
+router.patch('/:id/link-tracking-source', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = getUserId(req);
+        const { trackingSourceId } = req.body as { trackingSourceId?: string | null };
+
+        const intg = await queryOne<{ id: string; type: string }>(
+            `SELECT id, type FROM comm_integrations WHERE id = $1 AND user_id = $2`,
+            [req.params.id, userId]
+        );
+        if (!intg) return fail(res, 'Integração não encontrada', 404);
+        if (intg.type !== 'whatsapp_evolution') return fail(res, 'Só integrações WhatsApp podem ser vinculadas ao Tracking', 400);
+
+        if (trackingSourceId) {
+            const own = await queryOne<{ id: string }>(
+                `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+                [trackingSourceId, userId]
+            );
+            if (!own) return fail(res, 'Fonte de tracking não encontrada', 404);
+        }
+
+        await query(
+            `UPDATE comm_integrations SET tracking_source_id = $1, updated_at = NOW() WHERE id = $2`,
+            [trackingSourceId ?? null, req.params.id]
+        );
+        res.json({ success: true, data: { id: req.params.id, tracking_source_id: trackingSourceId ?? null } });
+    } catch (err: any) {
+        logger.error('Erro ao vincular integração ao tracking', { error: err.message });
+        fail(res, 'Erro ao vincular', 500);
     }
 });
 

@@ -964,6 +964,7 @@ class ApiClient {
     async connectCommercialWhatsApp(payload: {
         name?: string;
         clientId?: string;
+        trackingSourceId?: string;
         evolutionBaseUrl?: string;
         evolutionApiKey?: string;
         webhookEvents?: string[];
@@ -976,6 +977,12 @@ class ApiClient {
     async getCommercialIntegrationQr(id: string) {
         return this.request<{ status: string; qrCode: string | null; pairingCode: string | null }>(
             'GET', `/commercial/integrations/${id}/qr`
+        );
+    }
+
+    async linkCommercialIntegrationToTrackingSource(id: string, trackingSourceId: string | null) {
+        return this.request<{ id: string; tracking_source_id: string | null }>(
+            'PATCH', `/commercial/integrations/${id}/link-tracking-source`, { trackingSourceId }
         );
     }
 
