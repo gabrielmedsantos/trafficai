@@ -1208,7 +1208,7 @@ function LeadsTab({ token, password, pipelines, salespeople, pipelineId, salespe
                                     </td>
                                     <td className={styles.right}>
                                         {l.days_to_conversion != null ? (
-                                            <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>
+                                            <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>
                                                 {Number(l.days_to_conversion).toFixed(1).replace('.', ',')} dias
                                             </span>
                                         ) : (
@@ -1218,7 +1218,7 @@ function LeadsTab({ token, password, pipelines, salespeople, pipelineId, salespe
                                     <td className={styles.right}>{fmtDate(l.created_at)}</td>
                                     <td className={styles.right}>
                                         {l.closed_at ? (
-                                            <span style={{ color: 'var(--accent-green)', fontWeight: 500 }}>
+                                            <span style={{ color: 'var(--accent-blue)', fontWeight: 500 }}>
                                                 {fmtDate(l.closed_at)}
                                             </span>
                                         ) : (
@@ -1289,7 +1289,7 @@ const TASK_BUCKETS: { key: TaskRow['bucket']; label: string; color: string }[] =
     { key: 'this_week', label: 'Esta semana', color: 'var(--accent-purple)' },
     { key: 'later', label: 'Mais tarde', color: 'var(--text-secondary)' },
     { key: 'no_date', label: 'Sem prazo', color: 'var(--text-muted)' },
-    { key: 'completed', label: 'Concluídas', color: 'var(--accent-green)' },
+    { key: 'completed', label: 'Concluídas', color: 'var(--accent-blue)' },
 ];
 
 const TASK_ICONS: Record<string, any> = {
@@ -1471,7 +1471,7 @@ function TeamTab({ token, password, period, customFrom, customTo }: {
                                 <div className={styles.teamGoalBar}>
                                     <div className={styles.teamGoalFill} style={{
                                         width: `${Math.min(100, sp.goalProgressPct)}%`,
-                                        background: sp.goalProgressPct >= 100 ? 'var(--accent-green)' : sp.avatarColor,
+                                        background: sp.goalProgressPct >= 100 ? 'var(--accent-blue)' : sp.avatarColor,
                                     }} />
                                 </div>
                                 <div className={styles.teamGoalText}>
@@ -1667,8 +1667,8 @@ function ManageGoalsModalPublic({ token, password, onClose, onSaved }: {
                                                     title={isActive ? 'Desativar vendedor' : 'Ativar vendedor'}
                                                     style={{
                                                         width: 36, height: 20,
-                                                        background: isActive ? 'var(--accent-green)' : 'var(--bg-surface)',
-                                                        border: '1px solid ' + (isActive ? 'var(--accent-green)' : 'var(--border)'),
+                                                        background: isActive ? 'var(--accent-blue)' : 'var(--bg-surface)',
+                                                        border: '1px solid ' + (isActive ? 'var(--accent-blue)' : 'var(--border)'),
                                                         borderRadius: 10,
                                                         position: 'relative',
                                                         cursor: 'pointer',

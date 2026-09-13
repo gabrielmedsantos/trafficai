@@ -19,7 +19,7 @@ interface Integration {
 }
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-    connected: { label: 'Conectado', color: 'var(--accent-green)' },
+    connected: { label: 'Conectado', color: 'var(--accent-blue)' },
     connecting: { label: 'Sincronizando…', color: 'var(--accent-yellow)' },
     error: { label: 'Erro', color: 'var(--accent-red)' },
     disconnected: { label: 'Desconectado', color: 'var(--text-muted)' },
@@ -566,7 +566,7 @@ function WhatsAppConnectModal({ onClose, onConnected }: { onClose: () => void; o
                 {stage === 'connected' && (
                     <div className={styles.modalBody} style={{ textAlign: 'center', padding: 40 }}>
                         <div style={{ fontSize: 48 }}>✅</div>
-                        <h3 style={{ margin: '12px 0 6px', color: 'var(--accent-green)' }}>Conectado!</h3>
+                        <h3 style={{ margin: '12px 0 6px', color: 'var(--accent-blue)' }}>Conectado!</h3>
                         <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                             Suas próximas conversas começam a aparecer no dashboard automaticamente.
                         </p>

@@ -300,10 +300,10 @@ export default function TeamPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 22 }}>
                 {[
                     { label: 'Membros ativos', value: filtered.length },
-                    { label: 'Tarefas concluídas', value: totalDone, color: 'var(--accent-green)' },
+                    { label: 'Tarefas concluídas', value: totalDone, color: 'var(--accent-blue)' },
                     { label: 'Tarefas pendentes', value: totalPending, color: totalPending > 0 ? 'var(--accent-yellow)' : undefined },
                     { label: 'Tempo total', value: fmtSeconds(totalSeconds) },
-                    { label: 'Taxa de conclusão', value: `${completionPct}%`, color: completionPct >= 80 ? 'var(--accent-green)' : completionPct >= 50 ? undefined : 'var(--accent-yellow)' },
+                    { label: 'Taxa de conclusão', value: `${completionPct}%`, color: completionPct >= 80 ? 'var(--accent-blue)' : completionPct >= 50 ? undefined : 'var(--accent-yellow)' },
                 ].map(k => (
                     <div key={k.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
                         <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{k.label}</div>
@@ -596,7 +596,7 @@ export default function TeamPage() {
                                     <div>
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 10 }}>Tarefas</div>
                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                            <ProgressRow label="Concluídas" value={stats.tasks_done} max={stats.tasks_total} color="#10b981" />
+                                            <ProgressRow label="Concluídas" value={stats.tasks_done} max={stats.tasks_total} color="#38bdf8" />
                                             <ProgressRow label="Pendentes" value={stats.tasks_pending} max={stats.tasks_total} color="#f59e0b" />
                                             <ProgressRow label="Puladas" value={stats.tasks_skipped} max={stats.tasks_total} color="var(--text-muted)" />
                                         </div>
@@ -760,7 +760,7 @@ function MemberDetailModal({ stats, onClose, rangeLabel, canEdit, onEdit }: {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <ProgressRow label="Concluídas" value={stats.tasks_done} max={stats.tasks_total} color="var(--accent-green)" />
+                        <ProgressRow label="Concluídas" value={stats.tasks_done} max={stats.tasks_total} color="var(--accent-blue)" />
                         <ProgressRow label="Pendentes" value={stats.tasks_pending} max={stats.tasks_total} color="var(--accent-yellow)" />
                         <ProgressRow label="Puladas" value={stats.tasks_skipped} max={stats.tasks_total} color="var(--text-muted)" />
                     </div>

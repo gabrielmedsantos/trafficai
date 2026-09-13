@@ -525,7 +525,7 @@ export default function ClientesPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
                 {[
                     { label: 'Total Clientes', value: stats.total, icon: Users, color: '#ff6b35', bg: 'rgba(255, 107, 53,.12)' },
-                    { label: 'Ativos', value: stats.ativos, icon: TrendingUp, color: '#10b981', bg: 'rgba(16,185,129,.12)' },
+                    { label: 'Ativos', value: stats.ativos, icon: TrendingUp, color: '#38bdf8', bg: 'rgba(56,189,248,.12)' },
                     { label: 'MRR Total', value: formatBRL(stats.mrr), icon: DollarSign, color: '#3b82f6', bg: 'rgba(59,130,246,.12)' },
                     { label: 'Churn', value: stats.churn, icon: UserMinus, color: '#ef4444', bg: 'rgba(239,68,68,.12)' },
                 ].map(s => (

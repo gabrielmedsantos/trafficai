@@ -100,7 +100,7 @@ function RuleCard({ rule, onEdit, onToggle, onDelete, onRun }: any) {
     const actionLabel = ACTIONS.find(a => a.v === rule.action)?.l || rule.action;
 
     return (
-        <div className="card" style={{ borderLeft: `3px solid ${rule.is_active ? 'var(--accent-green)' : 'var(--text-muted)'}`, padding: 20 }}>
+        <div className="card" style={{ borderLeft: `3px solid ${rule.is_active ? 'var(--accent-blue)' : 'var(--text-muted)'}`, padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 260 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -194,7 +194,7 @@ function RuleModal({ rule, accounts, onClose, onSaved }: any) {
                 </div>
 
                 <div style={{ background: 'var(--bg-input)', padding: 14, borderRadius: 8, marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--accent-green)', fontWeight: 700, marginBottom: 10 }}>ENTÃO</div>
+                    <div style={{ fontSize: 11, textTransform: 'uppercase', color: 'var(--accent-blue)', fontWeight: 700, marginBottom: 10 }}>ENTÃO</div>
                     <select className="form-input" value={form.action} onChange={e => setForm({ ...form, action: e.target.value })}>
                         {ACTIONS.map(a => <option key={a.v} value={a.v}>{a.l}</option>)}
                     </select>

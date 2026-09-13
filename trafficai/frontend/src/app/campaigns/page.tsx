@@ -222,7 +222,7 @@ export default function CampaignsPage() {
                     <h1>Campanhas</h1>
                     <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginTop: '4px' }}>
                         {campaigns.length} campanhas
-                        {activeCount > 0 && <span style={{ color: 'var(--accent-green)', marginLeft: '8px' }}>• {activeCount} ativas</span>}
+                        {activeCount > 0 && <span style={{ color: 'var(--accent-blue)', marginLeft: '8px' }}>• {activeCount} ativas</span>}
                     </p>
                 </div>
             </div>
@@ -401,7 +401,7 @@ export default function CampaignsPage() {
                                             disabled={togglingId === c.id || !['ACTIVE', 'PAUSED'].includes(c.status) || !canManage}
                                             style={{
                                                 width: 36, height: 20, borderRadius: 999, border: 'none', position: 'relative',
-                                                background: c.status === 'ACTIVE' ? 'var(--accent-green, #22c55e)' : 'var(--border)',
+                                                background: c.status === 'ACTIVE' ? 'var(--accent-blue)' : 'var(--border)',
                                                 cursor: togglingId === c.id ? 'wait' : !canManage ? 'not-allowed' : 'pointer',
                                                 opacity: !['ACTIVE', 'PAUSED'].includes(c.status) || !canManage ? 0.4 : 1,
                                                 flexShrink: 0,

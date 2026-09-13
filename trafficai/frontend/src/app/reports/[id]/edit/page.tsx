@@ -352,7 +352,7 @@ export default function EditReportPage() {
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '1px' }}>
                             {c.objective ? (objectiveLabels[c.objective] || c.objective) : 'Sem objetivo'} •
-                            <span style={{ color: c.status === 'ACTIVE' ? '#22c55e' : '#64748b' }}> {c.status === 'ACTIVE' ? 'Ativa' : 'Pausada'}</span>
+                            <span style={{ color: c.status === 'ACTIVE' ? '#38bdf8' : '#64748b' }}> {c.status === 'ACTIVE' ? 'Ativa' : 'Pausada'}</span>
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-muted)', flexShrink: 0 }}>

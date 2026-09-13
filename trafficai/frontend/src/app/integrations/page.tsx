@@ -160,7 +160,7 @@ function IntegrationCard({ icon, color, name, desc, status, action, badge }: {
                     {status === 'loading' ? (
                         <><Loader2 size={12} className="spin" /><span style={{ color: 'var(--text-muted)' }}>Verificando…</span></>
                     ) : status === 'connected' ? (
-                        <><CheckCircle2 size={13} color="var(--accent-green)" /><span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>Conectado</span></>
+                        <><CheckCircle2 size={13} color="var(--accent-blue)" /><span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>Conectado</span></>
                     ) : (
                         <><XCircle size={13} color="var(--text-muted)" /><span style={{ color: 'var(--text-muted)' }}>Desconectado</span></>
                     )}

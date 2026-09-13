@@ -227,7 +227,7 @@ function SourceCard({ source, onOpen, onEdit }: {
     const emqColor = emq >= 7 ? 'var(--accent-green)' : emq >= 4 ? 'var(--accent-yellow)' : 'var(--accent-red)';
     const status = source.status;
     const visual = status ? STATUS_VISUAL[status.state] : null;
-    const dotColor = visual?.color || (source.is_active ? 'var(--accent-green)' : 'var(--text-muted)');
+    const dotColor = visual?.color || (source.is_active ? 'var(--accent-blue)' : 'var(--text-muted)');
 
     return (
         <div className="card" style={{ cursor: 'pointer', padding: 18 }} onClick={onOpen}>
@@ -2630,7 +2630,7 @@ function PayloadJson({ value }: { value: any }) {
                 style={{ position: 'absolute', top: 6, right: 6 }}
                 title={copied ? 'Copiado' : 'Copiar JSON'}
             >
-                {copied ? <Check size={13} color="var(--accent-green)" /> : <Copy size={13} />}
+                {copied ? <Check size={13} color="var(--accent-blue)" /> : <Copy size={13} />}
             </button>
         </div>
     );
@@ -3754,7 +3754,7 @@ function CopyBlock({ value, small, masked }: { value: string; small?: boolean; m
                 className="btn btn-ghost btn-sm btn-icon"
                 title={copied ? 'Copiado!' : 'Copiar'}
             >
-                {copied ? <Check size={13} color="var(--accent-green)" /> : <Copy size={13} />}
+                {copied ? <Check size={13} color="var(--accent-blue)" /> : <Copy size={13} />}
             </button>
         </div>
     );

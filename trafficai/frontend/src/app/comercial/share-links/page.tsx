@@ -154,7 +154,7 @@ export default function ShareLinksPage() {
                                         className={styles.actionBtn}
                                         title="Copiar URL"
                                     >
-                                        {copiedId === link.id ? <Check size={14} style={{ color: 'var(--accent-green)' }} /> : <Copy size={14} />}
+                                        {copiedId === link.id ? <Check size={14} style={{ color: 'var(--accent-blue)' }} /> : <Copy size={14} />}
                                     </button>
                                     <a
                                         href={url}

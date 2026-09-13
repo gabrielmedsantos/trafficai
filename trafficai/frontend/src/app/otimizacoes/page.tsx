@@ -709,7 +709,7 @@ function MeetingModal({ event, log, onClose, onSave }: {
                 <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '12px 14px', background: 'var(--bg-overlay)', borderRadius: 10, border: `1px solid ${completed ? '#10b981' : 'var(--border)'}`, transition: 'all .15s' }}>
                         <input type="checkbox" checked={completed} onChange={e => setCompleted(e.target.checked)}
-                            style={{ width: 16, height: 16, accentColor: '#10b981', cursor: 'pointer' }} />
+                            style={{ width: 16, height: 16, accentColor: '#38bdf8', cursor: 'pointer' }} />
                         <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Reunião realizada</span>
                         {completed && <CheckCircle2 size={15} color="#10b981" style={{ marginLeft: 'auto' }} />}
                     </label>
@@ -947,7 +947,7 @@ function CompletionModal({
                                         type="checkbox"
                                         checked={form.report_sent}
                                         onChange={(e) => onFormChange({ report_sent: e.target.checked })}
-                                        style={{ width: 16, height: 16, accentColor: '#10b981', cursor: 'pointer' }}
+                                        style={{ width: 16, height: 16, accentColor: '#38bdf8', cursor: 'pointer' }}
                                     />
                                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
                                         Relatório enviado ao cliente
@@ -1006,7 +1006,7 @@ function CompletionModal({
                                         type="checkbox"
                                         checked={form.message_sent}
                                         onChange={(e) => onFormChange({ message_sent: e.target.checked })}
-                                        style={{ width: 16, height: 16, accentColor: '#10b981', cursor: 'pointer' }}
+                                        style={{ width: 16, height: 16, accentColor: '#38bdf8', cursor: 'pointer' }}
                                     />
                                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>
                                         Mensagem enviada

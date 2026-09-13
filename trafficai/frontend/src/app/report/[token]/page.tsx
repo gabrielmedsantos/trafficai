@@ -808,7 +808,7 @@ function PublicReportPageInner() {
                       <tr key={i} style={{ borderBottom: i < visibleCampaigns.length - 1 ? `1px solid ${C.border}80` : 'none' }}>
                         <td style={{ padding: '14px 16px', fontSize: 13, fontWeight: 600, color: C.text, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</td>
                         <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 10, background: c.status === 'ACTIVE' ? 'rgba(34,197,94,.13)' : 'rgba(148,163,184,.1)', color: c.status === 'ACTIVE' ? C.green : C.textMuted, border: `1px solid ${c.status === 'ACTIVE' ? 'rgba(34,197,94,.25)' : 'rgba(148,163,184,.2)'}` }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 10, background: c.status === 'ACTIVE' ? 'rgba(56,189,248,.13)' : 'rgba(148,163,184,.1)', color: c.status === 'ACTIVE' ? C.blue : C.textMuted, border: `1px solid ${c.status === 'ACTIVE' ? 'rgba(56,189,248,.25)' : 'rgba(148,163,184,.2)'}` }}>
                             {c.status === 'ACTIVE' ? 'Ativa' : 'Pausada'}
                           </span>
                         </td>
@@ -973,8 +973,8 @@ function KpiCard({ label, value, sub, accent, delta, highlight }: {
 }) {
   return (
     <div className="kpi-card" style={{
-      background: highlight ? `linear-gradient(135deg, ${C.card}, rgba(34,197,94,.06))` : C.card,
-      borderRadius: 12, padding: 20, border: `1px solid ${highlight ? 'rgba(34,197,94,.25)' : C.border}`,
+      background: highlight ? `linear-gradient(135deg, ${C.card}, rgba(56,189,248,.06))` : C.card,
+      borderRadius: 12, padding: 20, border: `1px solid ${highlight ? 'rgba(56,189,248,.25)' : C.border}`,
       position: 'relative', overflow: 'hidden',
     }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, ${accent}55, ${accent})` }} />

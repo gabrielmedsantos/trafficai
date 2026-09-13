@@ -838,7 +838,7 @@ export default function FinanceiroPage() {
                                 aria-label="Ativar lembretes de fatura"
                                 style={{
                                     width: 44, height: 26, borderRadius: 999, border: 'none', flexShrink: 0,
-                                    background: reminderEnabled ? '#10b981' : 'var(--border)',
+                                    background: reminderEnabled ? '#38bdf8' : 'var(--border)',
                                     position: 'relative', cursor: (reminderLoading || reminderSaving) ? 'not-allowed' : 'pointer',
                                     opacity: (reminderLoading || reminderSaving) ? .6 : 1, transition: 'background .15s',
                                 }}

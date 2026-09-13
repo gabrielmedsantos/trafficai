@@ -101,7 +101,7 @@ export default function TeamPage() {
                                 </div>
                                 <div className={styles.goalBar}>
                                     <div className={styles.goalFill}
-                                        style={{ width: `${Math.min(100, sp.goalProgressPct)}%`, background: sp.goalProgressPct >= 100 ? 'var(--accent-green)' : sp.avatarColor }} />
+                                        style={{ width: `${Math.min(100, sp.goalProgressPct)}%`, background: sp.goalProgressPct >= 100 ? 'var(--accent-blue)' : sp.avatarColor }} />
                                 </div>
                                 <div className={styles.goalText}>
                                     {fmtBRL(sp.dealsWonValue)} de {fmtBRL(sp.monthlyGoalValue)}
@@ -300,8 +300,8 @@ function ManageGoalsModal({ clientId, onClose, onSaved }: {
                                                     title={isActive ? 'Desativar vendedor' : 'Ativar vendedor'}
                                                     style={{
                                                         width: 36, height: 20,
-                                                        background: isActive ? 'var(--accent-green)' : 'var(--bg-surface)',
-                                                        border: '1px solid ' + (isActive ? 'var(--accent-green)' : 'var(--border)'),
+                                                        background: isActive ? 'var(--accent-blue)' : 'var(--bg-surface)',
+                                                        border: '1px solid ' + (isActive ? 'var(--accent-blue)' : 'var(--border)'),
                                                         borderRadius: 10,
                                                         position: 'relative',
                                                         cursor: 'pointer',

@@ -891,7 +891,8 @@ export default function DashboardPage() {
                                                     {c.name}
                                                 </td>
                                                 <td>
-                                                    <span className={`badge ${c.status === 'ACTIVE' ? 'badge-green' : 'badge-gray'}`}>
+                                                    <span className={`badge ${c.status === 'ACTIVE' ? '' : 'badge-gray'}`}
+                                                        style={c.status === 'ACTIVE' ? { background: 'rgba(56,189,248,.10)', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,.22)' } : undefined}>
                                                         {c.status === 'ACTIVE' ? 'Ativo' : c.status}
                                                     </span>
                                                 </td>

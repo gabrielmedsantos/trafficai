@@ -123,7 +123,7 @@ export default function GoogleAdsPage() {
                                     return (
                                         <div key={c.id} className="card" style={{
                                             padding: 16, display: 'flex', gap: 12, alignItems: 'center',
-                                            borderLeft: `3px solid ${c.status === 'ENABLED' ? 'var(--accent-green)' : 'var(--text-muted)'}`,
+                                            borderLeft: `3px solid ${c.status === 'ENABLED' ? 'var(--accent-blue)' : 'var(--text-muted)'}`,
                                         }}>
                                             <div style={{ flex: 1 }}>
                                                 <div style={{ fontWeight: 700, fontSize: 14 }}>{c.name}</div>

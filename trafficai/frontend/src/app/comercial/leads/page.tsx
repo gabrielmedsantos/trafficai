@@ -198,7 +198,7 @@ export default function LeadsPage() {
                                     </td>
                                     <td className={styles.right}>
                                         {l.days_to_conversion != null ? (
-                                            <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>
+                                            <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>
                                                 {Number(l.days_to_conversion).toFixed(1).replace('.', ',')} dias
                                             </span>
                                         ) : (
@@ -208,7 +208,7 @@ export default function LeadsPage() {
                                     <td className={styles.right}>{fmtDate(l.created_at)}</td>
                                     <td className={styles.right}>
                                         {l.closed_at ? (
-                                            <span style={{ color: 'var(--accent-green)', fontWeight: 500 }}>
+                                            <span style={{ color: 'var(--accent-blue)', fontWeight: 500 }}>
                                                 {fmtDate(l.closed_at)}
                                             </span>
                                         ) : (

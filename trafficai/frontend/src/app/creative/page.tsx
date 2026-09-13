@@ -167,7 +167,7 @@ function TopCreativesTab() {
                             </ul>
                         </div>
                         <div className="card">
-                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-green)', marginBottom: '12px' }}>
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-blue)', marginBottom: '12px' }}>
                                 <TrendingUp size={16} /> Insights de eficiência
                             </h3>
                             <ul style={{ paddingLeft: '18px', color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7' }}>
@@ -203,7 +203,7 @@ function TopCreativesTab() {
                                         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{ad.ad_name}</div>
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11 }}>
                                             <Stat label="Spend" value={fmtBRL(ad.spend)} />
-                                            <Stat label={ad.action_type_label} value={String(ad.conversions)} accent="var(--accent-green)" />
+                                            <Stat label={ad.action_type_label} value={String(ad.conversions)} accent="var(--accent-blue)" />
                                             <Stat label="CPA" value={ad.cpa > 0 ? fmtBRL(ad.cpa) : '—'} accent="var(--accent-orange)" />
                                             <Stat label="CTR" value={`${ad.ctr.toFixed(2)}%`} />
                                         </div>
@@ -350,7 +350,7 @@ function TabButton({ children, active, onClick, icon }: { children: React.ReactN
 }
 
 function StatCard({ label, value, icon, accent }: { label: string; value: string; icon?: React.ReactNode; accent?: 'green' | 'orange' }) {
-    const color = accent === 'green' ? 'var(--accent-green)' : accent === 'orange' ? 'var(--accent-orange)' : 'var(--text-primary)';
+    const color = accent === 'green' ? 'var(--accent-blue)' : accent === 'orange' ? 'var(--accent-orange)' : 'var(--text-primary)';
     return (
         <div className="stat-card">
             {icon && <div style={{ color: 'var(--text-muted)' }}>{icon}</div>}

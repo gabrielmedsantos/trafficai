@@ -170,12 +170,12 @@ export default function WhatsappReportsPage() {
                         display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap',
                         padding: '9px 14px', borderRadius: 10, cursor: 'pointer',
                         fontSize: 13, fontWeight: 600,
-                        color: onlyActive ? '#10b981' : 'var(--text-muted)',
-                        background: onlyActive ? 'rgba(16,185,129,.12)' : 'var(--bg-input)',
-                        border: `1px solid ${onlyActive ? 'rgba(16,185,129,.3)' : 'var(--border)'}`,
+                        color: onlyActive ? '#38bdf8' : 'var(--text-muted)',
+                        background: onlyActive ? 'rgba(56,189,248,.12)' : 'var(--bg-input)',
+                        border: `1px solid ${onlyActive ? 'rgba(56,189,248,.3)' : 'var(--border)'}`,
                     }}
                 >
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: onlyActive ? '#10b981' : 'var(--text-muted)' }} />
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: onlyActive ? '#38bdf8' : 'var(--text-muted)' }} />
                     Só clientes ativos
                     {totalInactive > 0 && (
                         <span style={{ fontSize: 11, opacity: .8 }}>
@@ -746,7 +746,7 @@ function CopyButton({ text }: { text: string }) {
                 position: 'absolute', top: 8, right: 8,
                 width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 6,
-                color: copied ? 'var(--accent-green)' : 'var(--text-muted)', cursor: 'pointer',
+                color: copied ? 'var(--accent-blue)' : 'var(--text-muted)', cursor: 'pointer',
             }}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
         </button>

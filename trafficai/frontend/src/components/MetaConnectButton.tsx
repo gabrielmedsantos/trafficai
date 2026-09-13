@@ -117,9 +117,9 @@ export function MetaConnectButton({ onConnected, variant = 'primary' }: MetaConn
             ? Math.max(0, Math.floor((new Date(info.token_expires_at).getTime() - Date.now()) / 86400000))
             : null;
         return (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, padding: '8px 14px', background: 'rgba(34,197,94,.10)', border: '1px solid rgba(34,197,94,.25)', borderRadius: 8, fontSize: 13 }}>
-                <CheckCircle2 size={16} color="var(--accent-green)" />
-                <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>Meta Ads conectado</span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, padding: '8px 14px', background: 'rgba(56,189,248,.10)', border: '1px solid rgba(56,189,248,.25)', borderRadius: 8, fontSize: 13 }}>
+                <CheckCircle2 size={16} color="var(--accent-blue)" />
+                <span style={{ color: 'var(--accent-blue)', fontWeight: 600 }}>Meta Ads conectado</span>
                 {daysLeft != null && (
                     <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>
                         · token válido por {daysLeft}d
