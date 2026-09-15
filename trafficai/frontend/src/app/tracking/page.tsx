@@ -356,7 +356,7 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [rotating, setRotating] = useState(false);
 
     // Modal tab navigation
-    type TabKey = 'setup' | 'overview' | 'leads' | 'events' | 'install' | 'crm';
+    type TabKey = 'setup' | 'overview' | 'leads' | 'purchase_reviews' | 'events' | 'install' | 'crm';
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
     // Auth method segmented control (na aba CRM)
@@ -499,6 +499,62 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [leadsLoading, setLeadsLoading] = useState(false);
     const [leadsLoaded, setLeadsLoaded] = useState(false);
     const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+
+    // Revisão de vendas detectadas por mensagem (Pedido:/Valor: ambíguo)
+    const [reviewsFilter, setReviewsFilter] = useState<'pending' | 'all'>('pending');
+    const [reviewsRows, setReviewsRows] = useState<any[]>([]);
+    const [reviewsLoading, setReviewsLoading] = useState(false);
+    const [reviewsLoaded, setReviewsLoaded] = useState(false);
+    const [reviewEdits, setReviewEdits] = useState<Record<string, { value: string; order_id: string }>>({});
+    const [reviewActionId, setReviewActionId] = useState<string | null>(null);
+    const [reviewFeedback, setReviewFeedback] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
+
+    const loadReviews = useCallback(async () => {
+        setReviewsLoading(true);
+        try {
+            const rows = await api.getPurchaseReviews(source.id, reviewsFilter === 'pending' ? 'pending' : undefined);
+            setReviewsRows(rows || []);
+        } catch {
+            setReviewsRows([]);
+        } finally {
+            setReviewsLoading(false);
+        }
+    }, [source.id, reviewsFilter]);
+
+    useEffect(() => {
+        if (activeTab === 'purchase_reviews') loadReviews();
+    }, [activeTab, reviewsFilter, loadReviews]);
+
+    const approveReview = useCallback(async (review: any) => {
+        const edit = reviewEdits[review.id];
+        setReviewActionId(review.id);
+        setReviewFeedback(null);
+        try {
+            await api.approvePurchaseReview(source.id, review.id, {
+                value: edit?.value ? Number(edit.value.replace(',', '.')) : undefined,
+                order_id: edit?.order_id || undefined,
+            });
+            setReviewFeedback({ id: review.id, ok: true, msg: 'Enviado pra Meta.' });
+            loadReviews();
+        } catch (e: any) {
+            setReviewFeedback({ id: review.id, ok: false, msg: e.message || 'Falha ao aprovar' });
+        } finally {
+            setReviewActionId(null);
+        }
+    }, [source.id, reviewEdits, loadReviews]);
+
+    const rejectReview = useCallback(async (review: any) => {
+        setReviewActionId(review.id);
+        setReviewFeedback(null);
+        try {
+            await api.rejectPurchaseReview(source.id, review.id);
+            loadReviews();
+        } catch (e: any) {
+            setReviewFeedback({ id: review.id, ok: false, msg: e.message || 'Falha ao rejeitar' });
+        } finally {
+            setReviewActionId(null);
+        }
+    }, [source.id, loadReviews]);
 
     const loadLeads = useCallback(async (offset = 0) => {
         setLeadsLoading(true);
@@ -1238,6 +1294,115 @@ function SourceDetail({ source, onClose, onEdit }: {
                         leadId={selectedLeadId}
                         onClose={() => setSelectedLeadId(null)}
                     />
+                )}
+                {/* ───────── TAB: REVISÃO DE VENDAS ───────── */}
+                {activeTab === 'purchase_reviews' && (
+                <div className="tab-fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+                        <div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                                Vendas por mensagem
+                            </div>
+                            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Revisão de vendas</h2>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                Vendas detectadas na mensagem de confirmação do WhatsApp ("Pedido:"/"Valor:"). Casos claros já
+                                foram enviados pra Meta automaticamente — aqui ficam só os que precisam de uma conferência.
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            <button type="button" className={`btn btn-sm ${reviewsFilter === 'pending' ? 'btn-primary' : 'btn-ghost'}`}
+                                onClick={() => setReviewsFilter('pending')}>Pendentes</button>
+                            <button type="button" className={`btn btn-sm ${reviewsFilter === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+                                onClick={() => setReviewsFilter('all')}>Todo o histórico</button>
+                        </div>
+                    </div>
+
+                    {reviewsLoading && reviewsRows.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Carregando…</div>
+                    ) : reviewsRows.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                            {reviewsFilter === 'pending' ? 'Nenhuma venda pendente de revisão.' : 'Nenhuma venda detectada por mensagem ainda.'}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {reviewsRows.map((r: any) => {
+                                const edit = reviewEdits[r.id] || { value: r.parsed_value != null ? String(r.parsed_value) : '', order_id: r.parsed_order_id || '' };
+                                const isPending = r.status === 'pending';
+                                const statusLabel: Record<string, string> = {
+                                    pending: 'Aguardando revisão', sent: 'Enviado', rejected: 'Rejeitado',
+                                    duplicate: 'Já registrado (CRM)', failed: 'Falhou',
+                                };
+                                const statusColor: Record<string, string> = {
+                                    pending: 'var(--accent-yellow)', sent: 'var(--accent-blue)', rejected: 'var(--text-muted)',
+                                    duplicate: 'var(--text-muted)', failed: 'var(--accent-red)',
+                                };
+                                const reasonLabel: Record<string, string> = {
+                                    order_id_ambiguous: 'Mais de um número de pedido na mensagem',
+                                    value_unparseable: 'Não deu pra reconhecer o valor',
+                                    value_ambiguous: 'Mais de um valor diferente na mensagem',
+                                    order_id_reused: 'Esse número de pedido já foi usado por outro cliente',
+                                    already_purchased: 'Essa venda já tinha sido registrada (CRM ou outra mensagem)',
+                                };
+                                return (
+                                    <div key={r.id} className="card" style={{ padding: 16, borderLeft: `3px solid ${statusColor[r.status] || 'var(--border)'}` }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                                            <div style={{ flex: 1, minWidth: 220 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                                    <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{r.phone}</span>
+                                                    <span style={{ fontSize: 11, fontWeight: 700, color: statusColor[r.status] }}>{statusLabel[r.status] || r.status}</span>
+                                                </div>
+                                                {r.reason_code && reasonLabel[r.reason_code] && (
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{reasonLabel[r.reason_code]}</div>
+                                                )}
+                                                {r.message_text && (
+                                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', whiteSpace: 'pre-wrap', marginBottom: 8, maxWidth: 480 }}>
+                                                        {r.message_text}
+                                                    </div>
+                                                )}
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtRelative(r.created_at)}</div>
+                                            </div>
+
+                                            {isPending ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 220 }}>
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <input type="text" className="form-input" placeholder="Nº do pedido" style={{ maxWidth: 130 }}
+                                                            value={edit.order_id}
+                                                            onChange={e => setReviewEdits(prev => ({ ...prev, [r.id]: { ...edit, order_id: e.target.value } }))} />
+                                                        <input type="text" className="form-input" placeholder="Valor (R$)" style={{ maxWidth: 110 }}
+                                                            value={edit.value}
+                                                            onChange={e => setReviewEdits(prev => ({ ...prev, [r.id]: { ...edit, value: e.target.value } }))} />
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: 6 }}>
+                                                        <button type="button" className="btn btn-primary btn-sm" style={{ flex: 1 }}
+                                                            disabled={reviewActionId === r.id}
+                                                            onClick={() => approveReview(r)}>
+                                                            {reviewActionId === r.id ? 'Enviando…' : 'Aprovar e enviar'}
+                                                        </button>
+                                                        <button type="button" className="btn btn-ghost btn-sm"
+                                                            disabled={reviewActionId === r.id}
+                                                            onClick={() => rejectReview(r)}>
+                                                            Rejeitar
+                                                        </button>
+                                                    </div>
+                                                    {reviewFeedback && reviewFeedback.id === r.id && (
+                                                        <div style={{ fontSize: 12, color: reviewFeedback.ok ? 'var(--accent-blue)' : 'var(--accent-red)' }}>
+                                                            {reviewFeedback.msg}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-muted)' }}>
+                                                    {r.parsed_order_id && <div>Pedido: <strong>{r.parsed_order_id}</strong></div>}
+                                                    {r.parsed_value != null && <div>Valor: <strong>R$ {Number(r.parsed_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></div>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
                 )}
                 {/* ───────── TAB: INSTALAÇÃO ───────── */}
                 {activeTab === 'install' && (
@@ -3452,12 +3617,13 @@ const TAB_DEFS = [
     { key: 'setup',    label: 'Setup' },
     { key: 'overview', label: 'Performance' },
     { key: 'leads',    label: 'Leads rastreados' },
+    { key: 'purchase_reviews', label: 'Revisão de vendas' },
     { key: 'events',   label: 'Auditoria CAPI' },
     { key: 'install',  label: 'Instalação' },
     { key: 'crm',      label: 'CRM' },
 ] as const;
 
-type ModalTabKey = 'setup' | 'overview' | 'leads' | 'events' | 'install' | 'crm';
+type ModalTabKey = 'setup' | 'overview' | 'leads' | 'purchase_reviews' | 'events' | 'install' | 'crm';
 
 function ModalTabs({
     active,
@@ -3466,7 +3632,7 @@ function ModalTabs({
 }: {
     active: ModalTabKey;
     onChange: (k: ModalTabKey) => void;
-    badges?: { setup?: number; events?: number; crm?: string };
+    badges?: { setup?: number; events?: number; crm?: string; purchase_reviews?: number };
 }) {
     return (
         <div
@@ -3484,6 +3650,7 @@ function ModalTabs({
                 const badge = tab.key === 'setup' ? badges?.setup
                             : tab.key === 'events' ? badges?.events
                             : tab.key === 'crm' ? badges?.crm
+                            : tab.key === 'purchase_reviews' ? badges?.purchase_reviews
                             : undefined;
                 return (
                     <button

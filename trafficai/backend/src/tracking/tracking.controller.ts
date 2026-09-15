@@ -14,6 +14,7 @@ import { normalizeKommoSubdomain } from './crm-adapters/kommo.adapter';
 import { getAdapter, backfillSource } from './crm-sync.service';
 import { retryGoogleEvent, retryFailedGoogleBatch, getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 import { encrypt } from '../shared/encryption';
+import { listPurchaseReviews, approvePurchaseReview, rejectPurchaseReview } from './whatsapp-purchase-detector';
 
 const router = Router();
 router.use(authMiddleware);
@@ -284,6 +285,75 @@ router.get('/sources/:id/whatsapp-leads/:leadId', async (req: Request, res: Resp
         res.json({ success: true, data: { ...lead, journey } });
     } catch (err: any) {
         logger.error('tracking: whatsapp-lead detail falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/purchase-reviews ─────────────────────────────
+// Fila de vendas detectadas por mensagem de WhatsApp que precisam de
+// confirmação humana antes de ir pra Meta (valor/pedido ambíguo, etc.) — mais
+// o histórico de tudo que já foi processado (enviado, rejeitado, duplicado).
+router.get('/sources/:id/purchase-reviews', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { status } = req.query as any;
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const rows = await listPurchaseReviews(id, status || undefined);
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('tracking: purchase-reviews falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /tracking/sources/:id/purchase-reviews/:reviewId/approve ─────────
+// Body opcional: { value?, order_id? } — corrige o que o parser não conseguiu
+// resolver sozinho antes de disparar pra Meta.
+router.post('/sources/:id/purchase-reviews/:reviewId/approve', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, reviewId } = req.params;
+        const { value, order_id } = req.body || {};
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const result = await approvePurchaseReview(id, reviewId, userId, {
+            value: value != null ? Number(value) : undefined,
+            orderId: order_id || undefined,
+        });
+        if (!result.ok) return res.status(400).json({ success: false, error: { message: result.error || 'Falha ao aprovar' } });
+        res.json({ success: true, data: { approved: true } });
+    } catch (err: any) {
+        logger.error('tracking: approve purchase-review falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /tracking/sources/:id/purchase-reviews/:reviewId/reject ──────────
+router.post('/sources/:id/purchase-reviews/:reviewId/reject', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, reviewId } = req.params;
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const result = await rejectPurchaseReview(id, reviewId, userId);
+        if (!result.ok) return res.status(400).json({ success: false, error: { message: 'Revisão não encontrada ou já processada' } });
+        res.json({ success: true, data: { rejected: true } });
+    } catch (err: any) {
+        logger.error('tracking: reject purchase-review falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

@@ -764,6 +764,17 @@ class ApiClient {
     async getTrackingWhatsAppLeadDetail(sourceId: string, leadId: string) {
         return this.request<any>('GET', `/tracking/sources/${sourceId}/whatsapp-leads/${leadId}`);
     }
+    async getPurchaseReviews(sourceId: string, status?: string) {
+        const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+        const res = await this.request<any[]>('GET', `/tracking/sources/${sourceId}/purchase-reviews${qs}`);
+        return res;
+    }
+    async approvePurchaseReview(sourceId: string, reviewId: string, overrides?: { value?: number; order_id?: string }) {
+        return this.request<{ approved: boolean }>('POST', `/tracking/sources/${sourceId}/purchase-reviews/${reviewId}/approve`, overrides || {});
+    }
+    async rejectPurchaseReview(sourceId: string, reviewId: string) {
+        return this.request<{ rejected: boolean }>('POST', `/tracking/sources/${sourceId}/purchase-reviews/${reviewId}/reject`);
+    }
     async getTrackingDashboard(sourceId: string, since?: string, until?: string) {
         const q = new URLSearchParams();
         if (since) q.set('since', since);
