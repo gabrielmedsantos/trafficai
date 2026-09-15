@@ -75,13 +75,20 @@ export async function tryDetectPurchaseMessage(
 
     const leadRows = await query<any>(
         `SELECT ctwa_clid, pixel_id, page_id, name, meta_campaign_id, meta_campaign_name,
-                meta_adset_id, meta_adset_name, ad_source_id, ad_name
+                meta_adset_id, meta_adset_name, ad_source_id, ad_name, purchase_event_id
          FROM tracking_whatsapp_leads
          WHERE source_id = $1 AND phone = ANY($2)
          ORDER BY created_at DESC LIMIT 1`,
         [source.id, candidates]
     );
     const lead = leadRows[0] || null;
+
+    // Essa venda já foi registrada por outro caminho (CRM integrado, ex:
+    // Kommo marcou o negócio como "Ganho") — não manda de novo, senão conta
+    // a mesma venda 2x na Meta.
+    if (lead?.purchase_event_id) {
+        return { matched: true, sent: false, order_id: orderId, value, reason: 'venda já registrada (CRM ou outro canal)' };
+    }
 
     // Sem lead de anúncio prévio, ainda mandamos (decisão do produto: mesmo
     // sem clique atribuível, o valor ajuda a Meta a otimizar por perfil de
