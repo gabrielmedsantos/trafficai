@@ -356,7 +356,7 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [rotating, setRotating] = useState(false);
 
     // Modal tab navigation
-    type TabKey = 'setup' | 'overview' | 'leads' | 'purchase_reviews' | 'events' | 'install' | 'crm';
+    type TabKey = 'setup' | 'overview' | 'leads' | 'purchase_reviews' | 'conversion_rules' | 'events' | 'install' | 'crm';
     const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
     // Auth method segmented control (na aba CRM)
@@ -555,6 +555,83 @@ function SourceDetail({ source, onClose, onEdit }: {
             setReviewActionId(null);
         }
     }, [source.id, loadReviews]);
+
+    // Regras de conversão configuráveis
+    const [rulesRows, setRulesRows] = useState<any[]>([]);
+    const [rulesLoading, setRulesLoading] = useState(false);
+    const [rulesLoaded, setRulesLoaded] = useState(false);
+    const [showRuleForm, setShowRuleForm] = useState(false);
+    const emptyRuleForm = {
+        name: '', trigger_type: 'message_phrase', match_mode: 'contains', event_name: '',
+        trigger_value: '', trigger_phrases: '', message_author_scope: 'both',
+        value_mode: 'fixed', default_value: '', default_currency: 'BRL', mode: 'observation', active: true,
+    };
+    const [ruleForm, setRuleForm] = useState<any>(emptyRuleForm);
+    const [savingRule, setSavingRule] = useState(false);
+    const [ruleFeedback, setRuleFeedback] = useState('');
+
+    const loadRules = useCallback(async () => {
+        setRulesLoading(true);
+        try {
+            const rows = await api.getConversionRules(source.id);
+            setRulesRows(rows || []);
+        } catch { setRulesRows([]); }
+        finally { setRulesLoading(false); }
+    }, [source.id]);
+
+    useEffect(() => {
+        if (activeTab === 'conversion_rules' && !rulesLoaded) { loadRules(); setRulesLoaded(true); }
+    }, [activeTab, rulesLoaded, loadRules]);
+
+    async function saveRule() {
+        if (!ruleForm.name.trim() || !ruleForm.event_name.trim()) return;
+        setSavingRule(true);
+        setRuleFeedback('');
+        try {
+            const payload: any = {
+                name: ruleForm.name.trim(), trigger_type: ruleForm.trigger_type, event_name: ruleForm.event_name.trim(),
+                match_mode: ruleForm.match_mode, message_author_scope: ruleForm.message_author_scope,
+                value_mode: ruleForm.value_mode, mode: ruleForm.mode, active: ruleForm.active,
+                default_currency: ruleForm.default_currency || 'BRL',
+            };
+            if (ruleForm.trigger_type === 'keyword') payload.trigger_value = ruleForm.trigger_value;
+            if (ruleForm.trigger_type === 'message_phrase') {
+                payload.trigger_phrases = ruleForm.trigger_phrases.split(',').map((s: string) => s.trim()).filter(Boolean);
+            }
+            if (ruleForm.value_mode === 'fixed' && ruleForm.default_value) payload.default_value = Number(ruleForm.default_value);
+
+            await api.createConversionRule(source.id, payload);
+            setShowRuleForm(false);
+            setRuleForm(emptyRuleForm);
+            loadRules();
+        } catch (e: any) {
+            setRuleFeedback('Erro: ' + e.message);
+        } finally {
+            setSavingRule(false);
+        }
+    }
+
+    async function toggleRuleActive(rule: any) {
+        try {
+            await api.updateConversionRule(source.id, rule.id, { active: !rule.active });
+            loadRules();
+        } catch (e: any) { alert('Erro: ' + e.message); }
+    }
+
+    async function toggleRuleMode(rule: any) {
+        try {
+            await api.updateConversionRule(source.id, rule.id, { mode: rule.mode === 'production' ? 'observation' : 'production' });
+            loadRules();
+        } catch (e: any) { alert('Erro: ' + e.message); }
+    }
+
+    async function deleteRule(rule: any) {
+        if (!confirm(`Remover a regra "${rule.name}"?`)) return;
+        try {
+            await api.deleteConversionRule(source.id, rule.id);
+            loadRules();
+        } catch (e: any) { alert('Erro: ' + e.message); }
+    }
 
     const loadLeads = useCallback(async (offset = 0) => {
         setLeadsLoading(true);
@@ -775,6 +852,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                     />
                     <GoogleAdsSetup source={detail || source} onChange={load} />
                     <WhatsAppEvolutionSetup source={detail || source} onChange={load} />
+                    <FunnelConfigSetup source={detail || source} />
                 </div>
                 )}
 
@@ -1294,6 +1372,164 @@ function SourceDetail({ source, onClose, onEdit }: {
                         leadId={selectedLeadId}
                         onClose={() => setSelectedLeadId(null)}
                     />
+                )}
+                {/* ───────── TAB: REGRAS DE CONVERSÃO ───────── */}
+                {activeTab === 'conversion_rules' && (
+                <div className="tab-fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+                        <div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                                Motor de conversão
+                            </div>
+                            <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Regras de conversão</h2>
+                            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                Quando uma frase ou palavra-chave bate numa mensagem, dispara um evento do funil pra Meta.
+                                Comece em "Observação" pra testar sem enviar de verdade — só quando estiver confiante, mude pra "Produção".
+                            </p>
+                        </div>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={() => { setShowRuleForm(v => !v); setRuleFeedback(''); }}>
+                            {showRuleForm ? 'Cancelar' : '+ Nova regra'}
+                        </button>
+                    </div>
+
+                    {showRuleForm && (
+                        <div className="card-glass" style={{ padding: 16, marginBottom: 16 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                <div className="form-group">
+                                    <label className="form-label">Nome da regra</label>
+                                    <input type="text" className="form-input" value={ruleForm.name}
+                                        onChange={e => setRuleForm({ ...ruleForm, name: e.target.value })}
+                                        placeholder="Ex: Qualificou no áudio" />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Evento disparado (event_name)</label>
+                                    <input type="text" className="form-input mono" value={ruleForm.event_name}
+                                        onChange={e => setRuleForm({ ...ruleForm, event_name: e.target.value })}
+                                        placeholder="Ex: Contact (Qualificado)" />
+                                </div>
+                            </div>
+
+                            <div className="form-group" style={{ marginBottom: 10 }}>
+                                <label className="form-label">Tipo de gatilho</label>
+                                <select className="form-select" value={ruleForm.trigger_type}
+                                    onChange={e => setRuleForm({ ...ruleForm, trigger_type: e.target.value })}>
+                                    <option value="message_phrase">Frase(s) na mensagem</option>
+                                    <option value="keyword">Palavra-chave única</option>
+                                </select>
+                            </div>
+
+                            {ruleForm.trigger_type === 'keyword' ? (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Palavra-chave</label>
+                                        <input type="text" className="form-input" value={ruleForm.trigger_value}
+                                            onChange={e => setRuleForm({ ...ruleForm, trigger_value: e.target.value })} />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Modo de comparação</label>
+                                        <select className="form-select" value={ruleForm.match_mode}
+                                            onChange={e => setRuleForm({ ...ruleForm, match_mode: e.target.value })}>
+                                            <option value="contains">Contém</option>
+                                            <option value="exact">Exata</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="form-group" style={{ marginBottom: 10 }}>
+                                    <label className="form-label">Frases-gatilho (separadas por vírgula)</label>
+                                    <input type="text" className="form-input" value={ruleForm.trigger_phrases}
+                                        onChange={e => setRuleForm({ ...ruleForm, trigger_phrases: e.target.value })}
+                                        placeholder="qualificado, tem interesse real, quer fechar" />
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                                        Basta UMA delas aparecer na mensagem (sem diferenciar maiúscula/acento).
+                                    </div>
+                                </div>
+                            )}
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                <div className="form-group">
+                                    <label className="form-label">Quem precisa mandar</label>
+                                    <select className="form-select" value={ruleForm.message_author_scope}
+                                        onChange={e => setRuleForm({ ...ruleForm, message_author_scope: e.target.value })}>
+                                        <option value="both">Qualquer um</option>
+                                        <option value="contact">Só o cliente</option>
+                                        <option value="team">Só o atendente</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Valor do evento</label>
+                                    <select className="form-select" value={ruleForm.value_mode}
+                                        onChange={e => setRuleForm({ ...ruleForm, value_mode: e.target.value })}>
+                                        <option value="fixed">Sem valor / valor fixo</option>
+                                        <option value="message_extracted">Extrair da mensagem</option>
+                                    </select>
+                                </div>
+                                {ruleForm.value_mode === 'fixed' && (
+                                    <div className="form-group">
+                                        <label className="form-label">Valor fixo (R$, opcional)</label>
+                                        <input type="text" className="form-input" value={ruleForm.default_value}
+                                            onChange={e => setRuleForm({ ...ruleForm, default_value: e.target.value })} />
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                                    <input type="checkbox" checked={ruleForm.mode === 'observation'}
+                                        onChange={e => setRuleForm({ ...ruleForm, mode: e.target.checked ? 'observation' : 'production' })} />
+                                    Começar em modo Observação (não envia pra Meta, só audita)
+                                </label>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <button type="button" className="btn btn-primary btn-sm" disabled={savingRule} onClick={saveRule}>
+                                    {savingRule ? 'Salvando…' : 'Criar regra'}
+                                </button>
+                                {ruleFeedback && <span style={{ fontSize: 12, color: 'var(--accent-red)' }}>{ruleFeedback}</span>}
+                            </div>
+                        </div>
+                    )}
+
+                    {rulesLoading && rulesRows.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Carregando…</div>
+                    ) : rulesRows.length === 0 ? (
+                        <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Nenhuma regra criada ainda.</div>
+                    ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {rulesRows.map((r: any) => (
+                                <div key={r.id} className="card" style={{ padding: 14, borderLeft: `3px solid ${r.active ? 'var(--accent-blue)' : 'var(--text-muted)'}` }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                                        <div>
+                                            <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 2 }}>{r.name}</div>
+                                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                                Dispara <span className="mono">{r.event_name}</span> quando{' '}
+                                                {r.trigger_type === 'keyword'
+                                                    ? <>a mensagem {r.match_mode === 'exact' ? 'for exatamente' : 'contiver'} "<strong>{r.trigger_value}</strong>"</>
+                                                    : <>a mensagem contiver alguma dessas frases: <strong>{(r.trigger_phrases || []).join(', ')}</strong></>}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                            <span className="badge" style={{
+                                                background: r.mode === 'production' ? 'rgba(56,189,248,.10)' : 'rgba(250,204,21,.10)',
+                                                color: r.mode === 'production' ? 'var(--accent-blue)' : 'var(--accent-yellow)',
+                                                borderColor: r.mode === 'production' ? 'rgba(56,189,248,.22)' : 'rgba(250,204,21,.22)',
+                                            }}>
+                                                {r.mode === 'production' ? 'Produção' : 'Observação'}
+                                            </span>
+                                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => toggleRuleMode(r)}>
+                                                {r.mode === 'production' ? 'Voltar pra observação' : 'Ativar produção'}
+                                            </button>
+                                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => toggleRuleActive(r)}>
+                                                {r.active ? 'Desativar' : 'Ativar'}
+                                            </button>
+                                            <button type="button" className="btn btn-ghost btn-xs" onClick={() => deleteRule(r)}>Remover</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
                 )}
                 {/* ───────── TAB: REVISÃO DE VENDAS ───────── */}
                 {activeTab === 'purchase_reviews' && (
@@ -3383,6 +3619,121 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
     );
 }
 
+function FunnelConfigSetup({ source }: { source: any }) {
+    const [stages, setStages] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [feedback, setFeedback] = useState('');
+    const [newEventName, setNewEventName] = useState('');
+    const [newLabel, setNewLabel] = useState('');
+
+    useEffect(() => {
+        let mounted = true;
+        api.getFunnelConfiguration(source.id).then(rows => {
+            if (mounted) setStages(rows || []);
+        }).catch(() => {}).finally(() => { if (mounted) setLoading(false); });
+        return () => { mounted = false; };
+    }, [source.id]);
+
+    function updateStage(index: number, patch: Partial<any>) {
+        setStages(prev => prev.map((s, i) => i === index ? { ...s, ...patch } : s));
+    }
+
+    function moveStage(index: number, dir: -1 | 1) {
+        setStages(prev => {
+            const next = [...prev];
+            const target = index + dir;
+            if (target < 0 || target >= next.length) return prev;
+            [next[index], next[target]] = [next[target]!, next[index]!];
+            return next;
+        });
+    }
+
+    function removeStage(index: number) {
+        setStages(prev => prev.filter((_, i) => i !== index));
+    }
+
+    function addStage() {
+        if (!newEventName.trim() || !newLabel.trim()) return;
+        setStages(prev => [...prev, {
+            event_name: newEventName.trim(), label: newLabel.trim(),
+            position: prev.length + 1, visible: true,
+        }]);
+        setNewEventName(''); setNewLabel('');
+    }
+
+    async function save() {
+        setSaving(true);
+        setFeedback('');
+        try {
+            const payload = stages.map((s, i) => ({
+                event_name: s.event_name, label: s.label, position: i + 1, visible: s.visible,
+                default_value: s.default_value ? Number(s.default_value) : null,
+                default_currency: s.default_currency || null,
+                default_content_name: s.default_content_name || null,
+            }));
+            const updated = await api.updateFunnelConfiguration(source.id, payload);
+            setStages(updated);
+            setFeedback('Funil salvo.');
+        } catch (e: any) {
+            setFeedback('Erro: ' + e.message);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    if (loading) return null;
+
+    return (
+        <div className="card" style={{ marginTop: 16, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <h3 style={{ margin: 0, fontSize: 14 }}>Funil de conversão</h3>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, marginBottom: 14 }}>
+                Estágios do funil dessa fonte — nome exibido, ordem e visibilidade. O <span className="mono">event_name</span> é
+                o valor que precisa bater com o evento mandado pelo CRM/webhook ou disparado por uma regra de conversão.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+                {stages.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <button type="button" className="btn btn-ghost btn-xs" disabled={i === 0} onClick={() => moveStage(i, -1)}>↑</button>
+                            <button type="button" className="btn btn-ghost btn-xs" disabled={i === stages.length - 1} onClick={() => moveStage(i, 1)}>↓</button>
+                        </div>
+                        <input type="text" className="form-input" style={{ flex: 1, minWidth: 120 }} placeholder="Label exibido"
+                            value={s.label} onChange={e => updateStage(i, { label: e.target.value })} />
+                        <input type="text" className="form-input mono" style={{ maxWidth: 160 }} placeholder="event_name"
+                            value={s.event_name} onChange={e => updateStage(i, { event_name: e.target.value })} />
+                        <input type="text" className="form-input" style={{ maxWidth: 100 }} placeholder="Valor padrão"
+                            value={s.default_value ?? ''} onChange={e => updateStage(i, { default_value: e.target.value })} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, whiteSpace: 'nowrap' }}>
+                            <input type="checkbox" checked={s.visible} onChange={e => updateStage(i, { visible: e.target.checked })} />
+                            Visível
+                        </label>
+                        <button type="button" className="btn btn-ghost btn-xs" onClick={() => removeStage(i)}>Remover</button>
+                    </div>
+                ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+                <input type="text" className="form-input" placeholder="Label do novo estágio" value={newLabel}
+                    onChange={e => setNewLabel(e.target.value)} />
+                <input type="text" className="form-input mono" placeholder="event_name" value={newEventName}
+                    onChange={e => setNewEventName(e.target.value)} />
+                <button type="button" className="btn btn-ghost btn-sm" onClick={addStage}>+ Adicionar estágio</button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button type="button" className="btn btn-primary btn-sm" disabled={saving} onClick={save}>
+                    {saving ? 'Salvando…' : 'Salvar funil'}
+                </button>
+                {feedback && <span style={{ fontSize: 12, color: feedback.startsWith('Erro') ? 'var(--accent-red)' : 'var(--accent-blue)' }}>{feedback}</span>}
+            </div>
+        </div>
+    );
+}
+
 function SetupChecklist({
     source, stats, onGoTo, onOpenEdit, onRunTest, testing, testResult,
 }: {
@@ -3619,13 +3970,14 @@ const TAB_DEFS = [
     { key: 'setup',    label: 'Setup' },
     { key: 'overview', label: 'Performance' },
     { key: 'leads',    label: 'Leads rastreados' },
+    { key: 'conversion_rules', label: 'Regras de conversão' },
     { key: 'purchase_reviews', label: 'Revisão de vendas' },
     { key: 'events',   label: 'Auditoria CAPI' },
     { key: 'install',  label: 'Instalação' },
     { key: 'crm',      label: 'CRM' },
 ] as const;
 
-type ModalTabKey = 'setup' | 'overview' | 'leads' | 'purchase_reviews' | 'events' | 'install' | 'crm';
+type ModalTabKey = 'setup' | 'overview' | 'leads' | 'purchase_reviews' | 'conversion_rules' | 'events' | 'install' | 'crm';
 
 function ModalTabs({
     active,

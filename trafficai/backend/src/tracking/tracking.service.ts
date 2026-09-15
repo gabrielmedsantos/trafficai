@@ -139,6 +139,41 @@ export async function resolveCampaignByMetaId(
     return rows[0]?.id || null;
 }
 
+// Eventos que carregam order_id/contents no payload Meta — hoje só Purchase.
+// Portado de conversionEventMetadata/buildCatalogCustomDataDefaults do
+// RastrackDash; qualquer evento fora dessa lista fica exatamente como já
+// estava (sem preencher esses campos), zero mudança de comportamento.
+const EVENTS_WITH_ORDER_METADATA = new Set(['Purchase']);
+
+/**
+ * Preenche order_id/contents/content_type/num_items quando o evento é do
+ * tipo que carrega pedido e o caller ainda não informou esses campos —
+ * nunca sobrescreve o que já veio em custom_data.
+ */
+function buildCapiCustomDataDefaults(
+    eventName: string, eventId: string, customData: Record<string, any>, value: number | undefined
+): Partial<Record<string, any>> {
+    if (!EVENTS_WITH_ORDER_METADATA.has(eventName)) return {};
+    const defaults: Record<string, any> = {};
+
+    if (!customData.order_id) defaults.order_id = eventId;
+
+    if (!customData.contents || !Array.isArray(customData.contents) || customData.contents.length === 0) {
+        defaults.contents = [{
+            id: eventId,
+            quantity: 1,
+            ...(typeof value === 'number' ? { item_price: value } : {}),
+        }];
+    }
+    if (!customData.content_type) defaults.content_type = 'product';
+    if (customData.num_items == null) {
+        const contents = defaults.contents || customData.contents || [];
+        defaults.num_items = contents.reduce((total: number, item: any) => total + (item.quantity ?? 1), 0);
+    }
+
+    return defaults;
+}
+
 /**
  * Monta o objeto user_data com PII hashado, no formato esperado pela Meta CAPI.
  */
@@ -320,6 +355,33 @@ export async function trackEvent(
     // pra ficar disponível em conversões offline e relatórios.
     if (event.user_data?.gclid) customData.gclid = event.user_data.gclid;
 
+    // Payload mais rico pra eventos de pedido (order_id/contents/content_type/
+    // num_items) — mesmo padrão do RastrackDash (buildCatalogCustomDataDefaults),
+    // só populado quando o caller não já mandou esses campos.
+    const capiDefaults = buildCapiCustomDataDefaults(event.event_name, eventId, customData, event.value);
+    Object.assign(customData, capiDefaults);
+
+    // Primeira compra vs recompra — só pra relatório interno, NUNCA vai no
+    // payload da Meta (confirmado que o RastrackDash também não manda isso
+    // pra CAPI, é local deles também).
+    let purchaseKind: 'first_purchase' | 'repurchase' | null = null;
+    if (event.event_name === 'Purchase' && event.user_data?.phone) {
+        try {
+            const phoneHash = (userData.ph as string[] | undefined)?.[0];
+            if (phoneHash) {
+                const priorCount = await query<{ count: string }>(
+                    `SELECT COUNT(*)::text AS count FROM tracking_events
+                     WHERE source_id = $1 AND event_name = 'Purchase'
+                       AND user_data_hashed->'ph'->>0 = $2`,
+                    [source.id, phoneHash]
+                );
+                purchaseKind = Number(priorCount[0]?.count || 0) === 0 ? 'first_purchase' : 'repurchase';
+            }
+        } catch (e: any) {
+            logger.warn('tracking: falha ao calcular purchase_kind', { error: e.message, source: source.id });
+        }
+    }
+
     const payload: Record<string, any> = {
         event_name: event.event_name,
         event_time: eventTime,
@@ -404,7 +466,8 @@ export async function trackEvent(
                 gclid, session_id,
                 emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id,
                 gbraid, wbraid, google_status, google_response, google_error, google_conversion_action_id,
-                campaign_id, meta_campaign_id, meta_campaign_name, meta_adset_id, meta_adset_name, meta_ad_id, meta_ad_name
+                campaign_id, meta_campaign_id, meta_campaign_name, meta_adset_id, meta_adset_name, meta_ad_id, meta_ad_name,
+                order_id, content_type, contents, num_items, purchase_kind
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,
                 $7,$8,$9,$10,
@@ -413,7 +476,8 @@ export async function trackEvent(
                 $22,$23,
                 $24,$25,$26,$27,$28,
                 $29,$30,$31,$32,$33,$34,
-                $35,$36,$37,$38,$39,$40,$41
+                $35,$36,$37,$38,$39,$40,$41,
+                $42,$43,$44,$45,$46
             )`,
             [
                 source.id,
@@ -457,6 +521,11 @@ export async function trackEvent(
                 event.campaign?.meta_adset_name || null,
                 event.campaign?.meta_ad_id || null,
                 event.campaign?.meta_ad_name || null,
+                customData.order_id || null,
+                customData.content_type || null,
+                customData.contents ? JSON.stringify(customData.contents) : null,
+                customData.num_items ?? null,
+                purchaseKind,
             ]
         );
     } catch (dbErr: any) {

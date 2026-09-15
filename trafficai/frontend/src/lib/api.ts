@@ -775,6 +775,27 @@ class ApiClient {
     async rejectPurchaseReview(sourceId: string, reviewId: string) {
         return this.request<{ rejected: boolean }>('POST', `/tracking/sources/${sourceId}/purchase-reviews/${reviewId}/reject`);
     }
+    async getFunnelConfiguration(sourceId: string) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/funnel`);
+    }
+    async updateFunnelConfiguration(sourceId: string, stages: any[]) {
+        return this.request<any[]>('PUT', `/tracking/sources/${sourceId}/funnel`, { stages });
+    }
+    async getConversionRules(sourceId: string) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/conversion-rules`);
+    }
+    async createConversionRule(sourceId: string, input: any) {
+        return this.request<any>('POST', `/tracking/sources/${sourceId}/conversion-rules`, input);
+    }
+    async updateConversionRule(sourceId: string, ruleId: string, input: any) {
+        return this.request<any>('PUT', `/tracking/sources/${sourceId}/conversion-rules/${ruleId}`, input);
+    }
+    async deleteConversionRule(sourceId: string, ruleId: string) {
+        return this.request<{ deleted: boolean }>('DELETE', `/tracking/sources/${sourceId}/conversion-rules/${ruleId}`);
+    }
+    async getRuleExecutions(sourceId: string, ruleId: string) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/conversion-rules/${ruleId}/executions`);
+    }
     async getTrackingDashboard(sourceId: string, since?: string, until?: string) {
         const q = new URLSearchParams();
         if (since) q.set('since', since);

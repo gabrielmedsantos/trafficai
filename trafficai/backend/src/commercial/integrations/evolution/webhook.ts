@@ -11,6 +11,7 @@ import { logger } from '../../../shared/logger';
 import { persistEvolutionMessage, updateIntegrationConnectionState, type EvolutionMessageEvent } from './persist';
 import { processWhatsAppMessage } from '../../../tracking/whatsapp-lead.service';
 import { tryDetectPurchaseMessage } from '../../../tracking/whatsapp-purchase-detector';
+import { runConversionRulesForMessage } from '../../../tracking/conversion-rules/rule-runner';
 
 const router = Router();
 
@@ -137,6 +138,14 @@ async function handleMessagesUpsert(
                         // "Valor:"); qualquer outro texto passa direto sem efeito.
                         await tryDetectPurchaseMessage(src, evt.contactPhone, evt.content);
                     }
+                    // Motor de regras configurável (fase 2) — roda em paralelo ao
+                    // detector fixo acima, pras regras que o cliente cadastrar
+                    // (qualificação por frase, eventos customizados). Nunca
+                    // interfere no fluxo de Lead/Purchase já existente.
+                    await runConversionRulesForMessage(
+                        src, evt.contactPhone, evt.content, evt.direction, evt.messageId,
+                        evt.sentAt || new Date()
+                    );
                 }
             } catch (err: any) {
                 logger.warn('Evolution: captura de atribuição (tracking) falhou', { error: err.message, integrationId: ctx.integrationId });

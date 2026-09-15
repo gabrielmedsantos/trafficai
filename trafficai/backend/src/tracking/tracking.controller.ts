@@ -15,6 +15,10 @@ import { getAdapter, backfillSource } from './crm-sync.service';
 import { retryGoogleEvent, retryFailedGoogleBatch, getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 import { encrypt } from '../shared/encryption';
 import { listPurchaseReviews, approvePurchaseReview, rejectPurchaseReview } from './whatsapp-purchase-detector';
+import { getFunnelConfiguration, updateFunnelConfiguration, FunnelStageInput } from './funnel-configuration.service';
+import {
+    listConversionRules, createConversionRule, updateConversionRule, deleteConversionRule, listRuleExecutions,
+} from './conversion-rules/conversion-rules.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -354,6 +358,140 @@ router.post('/sources/:id/purchase-reviews/:reviewId/reject', async (req: Reques
         res.json({ success: true, data: { rejected: true } });
     } catch (err: any) {
         logger.error('tracking: reject purchase-review falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/funnel ───────────────────────────────────────
+router.get('/sources/:id/funnel', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const stages = await getFunnelConfiguration(id);
+        res.json({ success: true, data: stages });
+    } catch (err: any) {
+        logger.error('tracking: get funnel falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── PUT /tracking/sources/:id/funnel ───────────────────────────────────────
+// Body: { stages: [{ event_name, label, position, visible, default_value?, default_currency?, default_content_name? }] }
+router.put('/sources/:id/funnel', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { stages } = req.body || {};
+        const own = await query<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        if (!Array.isArray(stages) || stages.length === 0) {
+            return res.status(400).json({ success: false, error: { message: 'Informe ao menos um estágio' } });
+        }
+        for (const s of stages as FunnelStageInput[]) {
+            if (!s.event_name?.trim() || !s.label?.trim()) {
+                return res.status(400).json({ success: false, error: { message: 'Cada estágio precisa de event_name e label' } });
+            }
+        }
+
+        const updated = await updateFunnelConfiguration(id, stages);
+        res.json({ success: true, data: updated });
+    } catch (err: any) {
+        logger.error('tracking: update funnel falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/conversion-rules ─────────────────────────────
+router.get('/sources/:id/conversion-rules', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const rules = await listConversionRules(id);
+        res.json({ success: true, data: rules });
+    } catch (err: any) {
+        logger.error('tracking: list conversion-rules falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /tracking/sources/:id/conversion-rules ────────────────────────────
+router.post('/sources/:id/conversion-rules', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const { name, trigger_type, event_name } = req.body || {};
+        if (!name?.trim() || !trigger_type || !event_name?.trim()) {
+            return res.status(400).json({ success: false, error: { message: 'Informe nome, tipo de gatilho e evento' } });
+        }
+        const rule = await createConversionRule(id, req.body);
+        res.json({ success: true, data: rule });
+    } catch (err: any) {
+        logger.error('tracking: create conversion-rule falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── PUT /tracking/sources/:id/conversion-rules/:ruleId ─────────────────────
+router.put('/sources/:id/conversion-rules/:ruleId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, ruleId } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const rule = await updateConversionRule(id, ruleId, req.body || {});
+        if (!rule) return res.status(404).json({ success: false, error: { message: 'Regra não encontrada' } });
+        res.json({ success: true, data: rule });
+    } catch (err: any) {
+        logger.error('tracking: update conversion-rule falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── DELETE /tracking/sources/:id/conversion-rules/:ruleId ──────────────────
+router.delete('/sources/:id/conversion-rules/:ruleId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, ruleId } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const ok = await deleteConversionRule(id, ruleId);
+        if (!ok) return res.status(404).json({ success: false, error: { message: 'Regra não encontrada' } });
+        res.json({ success: true, data: { deleted: true } });
+    } catch (err: any) {
+        logger.error('tracking: delete conversion-rule falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/conversion-rules/:ruleId/executions ──────────
+router.get('/sources/:id/conversion-rules/:ruleId/executions', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, ruleId } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const executions = await listRuleExecutions(id, ruleId);
+        res.json({ success: true, data: executions });
+    } catch (err: any) {
+        logger.error('tracking: list rule-executions falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
