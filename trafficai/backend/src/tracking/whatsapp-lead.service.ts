@@ -11,6 +11,7 @@ import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { trackEvent, TrackingEventInput, resolveCampaignByMetaId } from './tracking.service';
 import { decryptMaybe } from '../shared/encryption';
+import { buildPhoneCandidates } from '../shared/phone';
 
 const META_VERSION = 'v20.0';
 
@@ -336,13 +337,8 @@ export async function findWhatsAppLeadByPhone(
     campaign_id: string | null; meta_campaign_id: string | null; meta_campaign_name: string | null;
     meta_adset_id: string | null; meta_adset_name: string | null; ad_source_id: string | null; ad_name: string | null;
 } | null> {
-    const digitsOnly = String(phone).replace(/\D/g, '');
-    // Tenta match exato primeiro, depois match com/sem DDI 55
-    const candidates = [digitsOnly];
-    if (digitsOnly.startsWith('55') && digitsOnly.length >= 12) candidates.push(digitsOnly.slice(2));
-    if (!digitsOnly.startsWith('55') && (digitsOnly.length === 10 || digitsOnly.length === 11)) {
-        candidates.push('55' + digitsOnly);
-    }
+    const candidates = buildPhoneCandidates(phone);
+    if (candidates.length === 0) return null;
 
     const rows = await query<any>(
         `SELECT ctwa_clid, pixel_id, page_id,
@@ -372,12 +368,7 @@ export async function findWhatsAppLeadByPhone(
 export async function recordPurchaseForWhatsAppLead(
     sourceId: string, phone: string, value: number, kommoLeadId: string | null, purchaseEventId: string
 ): Promise<void> {
-    const digitsOnly = String(phone).replace(/\D/g, '');
-    const candidates = [digitsOnly];
-    if (digitsOnly.startsWith('55') && digitsOnly.length >= 12) candidates.push(digitsOnly.slice(2));
-    if (!digitsOnly.startsWith('55') && (digitsOnly.length === 10 || digitsOnly.length === 11)) {
-        candidates.push('55' + digitsOnly);
-    }
+    const candidates = buildPhoneCandidates(phone);
     await query(
         `UPDATE tracking_whatsapp_leads
          SET purchase_event_id = $1, purchase_value = $2, purchase_at = NOW(),

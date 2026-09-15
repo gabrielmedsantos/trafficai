@@ -337,7 +337,7 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 logger.info('webhook Kommo recebido', { source: source.id, event_query: req.query.event, ...summary });
             } catch { /* ignore */ }
 
-            const normalized = normalizeKommoPayload(b, String(req.query.event || ''));
+            const normalized = await normalizeKommoPayload(b, String(req.query.event || ''), source);
             if (normalized) b = normalized;
 
             // Fallback: se webhook Kommo chegou sem phone (Salesbot pode omitir
@@ -540,7 +540,7 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
 //
 // O nome do evento vem via query string (?event=Lead|Contact|Schedule|Purchase)
 // ou é inferido pelo tipo de operação (add=Lead, status=Contact por default).
-function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | null {
+async function normalizeKommoPayload(body: any, eventHintFromQuery: string, source: any): Promise<any | null> {
     try {
         // Diagnóstico leve — loga o primeiro contact pra ver estrutura
         try {
@@ -655,11 +655,23 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
             extractField(lead, ['ad_id', 'adid', 'source_id', 'ad source id']) ||
             extractField(contact, ['ad_id', 'adid', 'source_id']);
 
-        // Evento: vem da query (?event=Purchase) OU inferido
-        // - Se tem price > 0 e status mudou → Purchase
-        // - Se veio de leads[add] → Lead
-        // - Caso contrário → Contact (qualificação)
+        // Evento: vem da query (?event=Purchase) OU classificado pelo nome real
+        // do estágio no Kommo (mesma regra que o cron diário já usa —
+        // KommoAdapter.classifyStatus — pra não ter dois critérios diferentes
+        // dizendo coisas diferentes sobre o mesmo estágio). Só cai no heurístico
+        // antigo (add→Lead, price>0→Purchase, senão Contact) quando a
+        // classificação por estágio não reconhece nada.
         let eventName = eventHintFromQuery.trim();
+        if (!eventName && lead.pipeline_id && lead.status_id
+            && source.crm_type === 'kommo' && source.crm_subdomain && source.crm_access_token) {
+            try {
+                const adapter = new KommoAdapter(source.crm_subdomain, source.crm_access_token);
+                const classified = await adapter.classifyStatus(Number(lead.pipeline_id), Number(lead.status_id));
+                if (classified) eventName = classified;
+            } catch (e: any) {
+                logger.warn('Kommo: falha ao classificar estágio via API', { source: source.id, error: e.message });
+            }
+        }
         if (!eventName) {
             const price = Number(lead.price || 0);
             if (leads.add && leadBlocks.length > 0) eventName = 'Lead';
@@ -670,7 +682,10 @@ function normalizeKommoPayload(body: any, eventHintFromQuery: string): any | nul
         return {
             event: eventName,
             external_id: `kommo-${lead.id}`,
-            event_id: `kommo-${lead.id}-${eventName}-${Date.now()}`,
+            // Estável (sem timestamp) — deixa o dedupe de trackEvent() barrar
+            // disparos repetidos do mesmo lead+evento (Kommo às vezes manda o
+            // mesmo webhook mais de uma vez pra uma única mudança de estágio).
+            event_id: `kommo-${lead.id}-${eventName}`,
             value: Number(lead.price || 0) || undefined,
             currency: lead.price ? 'BRL' : undefined,
             user: {

@@ -35,6 +35,18 @@ export interface ExtractedUserData {
     external_id: string;
 }
 
+// Regexes compartilhadas entre findWonStatuses/findLeadStages (varrem o
+// pipeline inteiro) e classifyStatus (classifica 1 status já conhecido, via
+// webhook nativo) — extraídas aqui pra nunca divergir entre os dois usos.
+const WON_STATUS_RE = /venda|fechad|vendid|ganho|won|sold|success|sucesso/i;
+// Só nomes que indicam a CAPTURA INICIAL do lead — evita pegar estágios de
+// "engajamento" como "Contato inicial" (que é depois que o vendedor JÁ
+// conversou, não é o momento de Lead pra Meta).
+const LEAD_STAGE_RE = /(^|\s|_)(qualif|leads?\s*(de\s*)?entrada|leads?\s*novo|novo\s*lead|prospec)/i;
+// Estágios "padrão" do Kommo: 142=won, 143=lost. 143 nunca vira evento;
+// 142 é tratado à parte (sempre Purchase, sem precisar checar o nome).
+const KOMMO_TERMINAL_STATUS_IDS = new Set([142, 143]);
+
 export class KommoAdapter {
     private client: AxiosInstance;
     private subdomain: string;
@@ -102,10 +114,9 @@ export class KommoAdapter {
     async findWonStatuses(): Promise<WonStatus[]> {
         const pipelines = await this.listPipelines();
         const won: WonStatus[] = [];
-        const re = /venda|fechad|vendid|ganho|won|sold|success|sucesso/i;
         for (const p of pipelines) {
             for (const s of p.statuses) {
-                if (s.id === 142 || re.test(s.name)) {
+                if (s.id === 142 || WON_STATUS_RE.test(s.name)) {
                     won.push({
                         pipeline_id: p.id,
                         pipeline_name: p.name,
@@ -125,21 +136,14 @@ export class KommoAdapter {
     async findLeadStages(explicitStageIds?: number[]): Promise<WonStatus[]> {
         const pipelines = await this.listPipelines();
         const stages: WonStatus[] = [];
-        // Regex mais preciso: só nomes que indicam a CAPTURA INICIAL do lead.
-        // Evita pegar estágios de "engajamento" como "Contato inicial" (que é
-        // depois que o vendedor JÁ conversou — não é o momento de Lead pra Meta).
-        // Aceita: "leads de entrada", "lead qualificado", "novo lead", "prospect".
-        const re = /(^|\s|_)(qualif|leads?\s*(de\s*)?entrada|leads?\s*novo|novo\s*lead|prospec)/i;
-        // Estágios "padrão" do Kommo: 142=won, 143=lost. Nunca considerar como Lead.
-        const excludedIds = new Set([142, 143]);
         for (const p of pipelines) {
             for (const s of p.statuses) {
-                if (excludedIds.has(s.id)) continue;
+                if (KOMMO_TERMINAL_STATUS_IDS.has(s.id)) continue;
                 const matchExplicit = explicitStageIds && explicitStageIds.length > 0
                     ? explicitStageIds.includes(s.id)
                     : false;
                 const matchAuto = !explicitStageIds || explicitStageIds.length === 0
-                    ? re.test(s.name)
+                    ? LEAD_STAGE_RE.test(s.name)
                     : false;
                 if (matchExplicit || matchAuto) {
                     stages.push({
@@ -152,6 +156,27 @@ export class KommoAdapter {
             }
         }
         return stages;
+    }
+
+    /**
+     * Classifica UM status específico (pipeline_id + status_id), sem listar
+     * o pipeline inteiro pra fora — usado pelo webhook nativo do Kommo
+     * (leads[status]), que já manda o par pipeline_id/status_id direto, pra
+     * saber na hora se essa mudança de estágio dispara Lead, Purchase, ou
+     * nenhum evento (estágio "do meio" do funil, sem mapeamento).
+     */
+    async classifyStatus(pipelineId: number, statusId: number): Promise<'Purchase' | 'Lead' | null> {
+        if (statusId === 142) return 'Purchase';
+        if (KOMMO_TERMINAL_STATUS_IDS.has(statusId)) return null; // 143 = lost, nunca vira evento
+
+        const pipelines = await this.listPipelines();
+        const pipeline = pipelines.find(p => p.id === pipelineId);
+        const status = pipeline?.statuses.find(s => s.id === statusId);
+        if (!status) return null;
+
+        if (WON_STATUS_RE.test(status.name)) return 'Purchase';
+        if (LEAD_STAGE_RE.test(status.name)) return 'Lead';
+        return null;
     }
 
     /** Lista leads de um status específico (paginado). Page size reduzido pra

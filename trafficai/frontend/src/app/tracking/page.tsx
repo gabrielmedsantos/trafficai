@@ -1852,6 +1852,16 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     ação <strong>Enviar um webhook</strong> com a URL correspondente.
                                 </span>
                             </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                                <span>
+                                    <strong>Mais simples:</strong> se não quiser configurar um Salesbot por estágio, cadastre <strong>1 único
+                                    webhook nativo</strong> no Kommo (Configurações → Webhooks → Mudança de status do lead) usando a URL
+                                    base <span className="mono">{webhookUrl}?key={detail.webhook_secret}</span> sem o <span className="mono">&event=</span>.
+                                    A gente detecta Lead/Venda automaticamente pelo nome real do estágio no seu funil — só recomendamos as
+                                    URLs por estágio acima se quiser controle explícito sobre exatamente quais estágios disparam evento.
+                                </span>
+                            </div>
                         </div>
                     )}
 

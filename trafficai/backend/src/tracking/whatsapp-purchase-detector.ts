@@ -17,6 +17,7 @@ import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { trackEvent, TrackingEventInput } from './tracking.service';
 import { recordPurchaseForWhatsAppLead } from './whatsapp-lead.service';
+import { buildPhoneCandidates } from '../shared/phone';
 
 // Template padrão que o atendente copia/cola e preenche:
 //   ✅ Compra confirmada!
@@ -46,16 +47,6 @@ function parseBRLValue(raw: string): number | null {
     return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function phoneCandidates(phone: string): string[] {
-    const digitsOnly = phone.replace(/\D/g, '');
-    const candidates = [digitsOnly];
-    if (digitsOnly.startsWith('55') && digitsOnly.length >= 12) candidates.push(digitsOnly.slice(2));
-    if (!digitsOnly.startsWith('55') && (digitsOnly.length === 10 || digitsOnly.length === 11)) {
-        candidates.push('55' + digitsOnly);
-    }
-    return candidates;
-}
-
 async function findLeadByPhone(sourceId: string, phone: string): Promise<any | null> {
     const rows = await query<any>(
         `SELECT id, ctwa_clid, pixel_id, page_id, name, meta_campaign_id, meta_campaign_name,
@@ -63,7 +54,7 @@ async function findLeadByPhone(sourceId: string, phone: string): Promise<any | n
          FROM tracking_whatsapp_leads
          WHERE source_id = $1 AND phone = ANY($2)
          ORDER BY created_at DESC LIMIT 1`,
-        [sourceId, phoneCandidates(phone)]
+        [sourceId, buildPhoneCandidates(phone)]
     );
     return rows[0] || null;
 }
