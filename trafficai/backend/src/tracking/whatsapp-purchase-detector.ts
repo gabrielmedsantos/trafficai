@@ -23,9 +23,12 @@ const VALOR_RE = /valor\s*:?\s*r?\$?\s*([\d.,]+)/i;
 
 function parseBRLValue(raw: string): number | null {
     const cleaned = raw.trim();
+    // Vírgula é sempre decimal em pt-BR. Sem vírgula, qualquer ponto é
+    // separador de milhar (nunca decimal) — "1.500" é 1500 reais, não 1,5.
+    // Sem essa distinção, "R$ 1.500" (pedido de mil e quinhentos) virava 1.5.
     const normalized = cleaned.includes(',')
         ? cleaned.replace(/\./g, '').replace(',', '.')
-        : cleaned;
+        : cleaned.replace(/\./g, '');
     const n = parseFloat(normalized);
     return Number.isFinite(n) && n > 0 ? n : null;
 }
