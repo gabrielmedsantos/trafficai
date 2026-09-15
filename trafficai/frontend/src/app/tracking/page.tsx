@@ -1305,8 +1305,9 @@ function SourceDetail({ source, onClose, onEdit }: {
                             </div>
                             <h2 style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>Revisão de vendas</h2>
                             <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                                Vendas detectadas na mensagem de confirmação do WhatsApp ("Pedido:"/"Valor:"). Casos claros já
-                                foram enviados pra Meta automaticamente — aqui ficam só os que precisam de uma conferência.
+                                Vendas detectadas na mensagem de confirmação do WhatsApp ("Pedido:"/"Valor:"). Só vai pra Meta
+                                quem tem atribuição de anúncio real — casos claros já foram enviados automaticamente, aqui
+                                ficam só os que precisam de uma conferência.
                             </p>
                         </div>
                         <div style={{ display: 'flex', gap: 6 }}>
@@ -1330,11 +1331,11 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 const isPending = r.status === 'pending';
                                 const statusLabel: Record<string, string> = {
                                     pending: 'Aguardando revisão', sent: 'Enviado', rejected: 'Rejeitado',
-                                    duplicate: 'Já registrado (CRM)', failed: 'Falhou',
+                                    duplicate: 'Já registrado (CRM)', failed: 'Falhou', skipped: 'Sem atribuição',
                                 };
                                 const statusColor: Record<string, string> = {
                                     pending: 'var(--accent-yellow)', sent: 'var(--accent-blue)', rejected: 'var(--text-muted)',
-                                    duplicate: 'var(--text-muted)', failed: 'var(--accent-red)',
+                                    duplicate: 'var(--text-muted)', failed: 'var(--accent-red)', skipped: 'var(--text-muted)',
                                 };
                                 const reasonLabel: Record<string, string> = {
                                     order_id_ambiguous: 'Mais de um número de pedido na mensagem',
@@ -1342,6 +1343,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     value_ambiguous: 'Mais de um valor diferente na mensagem',
                                     order_id_reused: 'Esse número de pedido já foi usado por outro cliente',
                                     already_purchased: 'Essa venda já tinha sido registrada (CRM ou outra mensagem)',
+                                    no_attribution: 'Não veio de um clique em anúncio rastreado — não enviado pra Meta',
                                 };
                                 return (
                                     <div key={r.id} className="card" style={{ padding: 16, borderLeft: `3px solid ${statusColor[r.status] || 'var(--border)'}` }}>

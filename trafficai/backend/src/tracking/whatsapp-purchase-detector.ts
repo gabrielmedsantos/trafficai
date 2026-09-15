@@ -171,6 +171,20 @@ export async function tryDetectPurchaseMessage(
         return { matched: true, sent: false, reason: 'venda já registrada (CRM ou outro canal)' };
     }
 
+    // Só mandamos Purchase pra Meta quando dá pra atribuir a um clique de
+    // anúncio real (lead com ctwa_clid resolvido). Sem isso o valor não ajuda
+    // a otimizar campanha nenhuma e só polui a métrica — decisão de produto,
+    // não é ambíguo, então não vai pra revisão humana, só fica registrado.
+    // Cobre tanto quem nunca veio de anúncio quanto conversas anteriores à
+    // conexão do WhatsApp nativo (sem histórico de clique capturado).
+    if (!lead?.ctwa_clid) {
+        await insertReview({
+            sourceId: source.id, whatsappLeadId, phone: digitsOnly, messageText,
+            orderId: orderIds[0] || null, value: null, status: 'skipped', reasonCode: 'no_attribution',
+        });
+        return { matched: true, sent: false, reason: 'sem atribuição de anúncio — não enviado' };
+    }
+
     // Mais de um "Pedido:" com valores diferentes na mesma mensagem — não dá
     // pra saber qual é o certo sem um humano olhar.
     if (orderIds.length > 1) {
