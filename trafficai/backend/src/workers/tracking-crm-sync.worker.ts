@@ -16,6 +16,7 @@
 import cron from 'node-cron';
 import { query } from '../database/connection';
 import { backfillSource } from '../tracking/crm-sync.service';
+import { recordDiagnosticEvent } from '../tracking/diagnostics.service';
 import { logger } from '../shared/logger';
 
 export interface CrmSyncResult {
@@ -31,8 +32,8 @@ export interface CrmSyncResult {
  * Roda o auto-sync pra todas as fontes elegíveis (CRM configurado + ativa + token).
  */
 export async function runCrmAutoSync(): Promise<CrmSyncResult> {
-    const sources = await query<{ id: string; name: string }>(
-        `SELECT id, name FROM tracking_sources
+    const sources = await query<{ id: string; name: string; user_id: string }>(
+        `SELECT id, name, user_id FROM tracking_sources
          WHERE is_active = true
            AND crm_type IS NOT NULL
            AND crm_access_token IS NOT NULL
@@ -71,6 +72,12 @@ export async function runCrmAutoSync(): Promise<CrmSyncResult> {
         } catch (err: any) {
             total.failed++;
             logger.warn(`CRM auto-sync falhou pra [${s.name}]`, { error: err.message, source_id: s.id });
+            recordDiagnosticEvent({
+                userId: s.user_id, sourceId: s.id, severity: 'error',
+                eventType: 'crm_auto_sync_failed',
+                title: `Sync diário do CRM falhou — ${s.name}`,
+                message: err.message,
+            });
         }
     }
 

@@ -12,6 +12,7 @@ import { persistEvolutionMessage, updateIntegrationConnectionState, type Evoluti
 import { processWhatsAppMessage } from '../../../tracking/whatsapp-lead.service';
 import { tryDetectPurchaseMessage } from '../../../tracking/whatsapp-purchase-detector';
 import { runConversionRulesForMessage } from '../../../tracking/conversion-rules/rule-runner';
+import { recordDiagnosticEvent } from '../../../tracking/diagnostics.service';
 
 const router = Router();
 
@@ -149,6 +150,12 @@ async function handleMessagesUpsert(
                 }
             } catch (err: any) {
                 logger.warn('Evolution: captura de atribuição (tracking) falhou', { error: err.message, integrationId: ctx.integrationId });
+                recordDiagnosticEvent({
+                    userId: ctx.userId, sourceId: ctx.trackingSourceId, severity: 'warning',
+                    eventType: 'evolution_attribution_failed',
+                    title: 'Falha ao processar mensagem do WhatsApp (Evolution)',
+                    message: err.message,
+                });
             }
         }
     }

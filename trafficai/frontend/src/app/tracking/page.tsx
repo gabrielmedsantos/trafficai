@@ -95,6 +95,7 @@ export default function TrackingPage() {
     const [selected, setSelected] = useState<Source | null>(null);
     const [editing, setEditing] = useState<Source | null>(null);
     const [showCreate, setShowCreate] = useState(false);
+    const [showDiagnostics, setShowDiagnostics] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -137,6 +138,7 @@ export default function TrackingPage() {
                             onChange={e => {
                                 const s = sources.find(x => x.id === e.target.value);
                                 setSelected(s || null);
+                                setShowDiagnostics(false);
                             }}
                         >
                             <option value="">Ver todas as fontes…</option>
@@ -147,6 +149,13 @@ export default function TrackingPage() {
                     )}
                     <button
                         type="button"
+                        className={`btn btn-sm ${showDiagnostics ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => { setShowDiagnostics(v => !v); setSelected(null); }}
+                    >
+                        <Activity size={14} /> Diagnóstico
+                    </button>
+                    <button
+                        type="button"
                         className="btn btn-primary btn-sm"
                         onClick={() => setShowCreate(true)}
                     >
@@ -155,7 +164,9 @@ export default function TrackingPage() {
                 </div>
             </div>
 
-            {loading ? (
+            {showDiagnostics ? (
+                <DiagnosticsCenter sources={sources} onClose={() => setShowDiagnostics(false)} />
+            ) : loading ? (
                 <div className="loading-spinner"><div className="spinner" /></div>
             ) : sources.length === 0 ? (
                 <div className="card">
@@ -212,6 +223,151 @@ export default function TrackingPage() {
                     onAccountsRefresh={load}
                 />
             )}
+        </div>
+    );
+}
+
+// ─── Central de Diagnóstico ─────────────────────────────────────────────────
+// Trilha unificada de falhas/avisos de todas as fontes: envio Meta, sync de
+// CRM, motor de regras, webhooks. Antes disso só existia em log de servidor.
+
+function DiagnosticsCenter({ sources, onClose }: { sources: Source[]; onClose: () => void }) {
+    const [range, setRange] = useState<'7d' | '14d' | '30d'>('7d');
+    const [summary, setSummary] = useState<any>(null);
+    const [events, setEvents] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [filterSource, setFilterSource] = useState('');
+    const [filterSeverity, setFilterSeverity] = useState('');
+    const [search, setSearch] = useState('');
+
+    function rangeDates(): { since: string; until: string } {
+        const days = range === '7d' ? 7 : range === '14d' ? 14 : 30;
+        const end = new Date();
+        const start = new Date(end.getTime() - days * 86400000);
+        return { since: start.toISOString().split('T')[0], until: end.toISOString().split('T')[0] };
+    }
+
+    const load = useCallback(async () => {
+        setLoading(true);
+        try {
+            const { since, until } = rangeDates();
+            const [s, e] = await Promise.all([
+                api.getDiagnosticsSummary({ since, until }).catch(() => null),
+                api.getDiagnostics({
+                    since, until, limit: 200,
+                    source_id: filterSource || undefined,
+                    severity: filterSeverity || undefined,
+                    search: search.trim() || undefined,
+                }).catch(() => []),
+            ]);
+            setSummary(s);
+            setEvents(e || []);
+        } finally { setLoading(false); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [range, filterSource, filterSeverity, search]);
+
+    useEffect(() => { load(); }, [load]);
+
+    const statusMeta: Record<string, { label: string; color: string }> = {
+        healthy: { label: 'Saudável', color: 'var(--accent-blue)' },
+        warning: { label: 'Atenção', color: 'var(--accent-yellow)' },
+        critical: { label: 'Crítico', color: 'var(--accent-red)' },
+    };
+    const severityMeta: Record<string, { label: string; color: string }> = {
+        info: { label: 'Info', color: 'var(--text-muted)' },
+        warning: { label: 'Aviso', color: 'var(--accent-yellow)' },
+        error: { label: 'Erro', color: 'var(--accent-red)' },
+        critical: { label: 'Crítico', color: 'var(--accent-red)' },
+    };
+
+    return (
+        <div className="fade-in">
+            <div className="card-glass" style={{ padding: 16, marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+                    <div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>
+                            Central de Diagnóstico
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>O que deu errado {range === '7d' ? 'nos últimos 7 dias' : range === '14d' ? 'nos últimos 14 dias' : 'nos últimos 30 dias'}</h2>
+                            {summary && (
+                                <span className="badge" style={{
+                                    background: `${statusMeta[summary.status]?.color}1A`,
+                                    color: statusMeta[summary.status]?.color,
+                                    borderColor: `${statusMeta[summary.status]?.color}40`,
+                                }}>
+                                    {statusMeta[summary.status]?.label || summary.status}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                        {(['7d', '14d', '30d'] as const).map(r => (
+                            <button key={r} type="button" className={`btn btn-sm ${range === r ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setRange(r)}>
+                                {r === '7d' ? '7 dias' : r === '14d' ? '14 dias' : '30 dias'}
+                            </button>
+                        ))}
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>Fechar</button>
+                    </div>
+                </div>
+
+                {summary && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+                        <MiniKpi label="Total de eventos" value={String(summary.total)} />
+                        <MiniKpi label="Críticos" value={String(summary.critical)} color={summary.critical > 0 ? 'var(--accent-red)' : undefined} />
+                        <MiniKpi label="Erros" value={String(summary.errors)} color={summary.errors > 0 ? 'var(--accent-red)' : undefined} />
+                        <MiniKpi label="Avisos" value={String(summary.warnings)} color={summary.warnings > 0 ? 'var(--accent-yellow)' : undefined} />
+                    </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                    <select className="form-select" style={{ maxWidth: 200 }} value={filterSource} onChange={e => setFilterSource(e.target.value)}>
+                        <option value="">Todas as fontes</option>
+                        {sources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <select className="form-select" style={{ maxWidth: 160 }} value={filterSeverity} onChange={e => setFilterSeverity(e.target.value)}>
+                        <option value="">Toda severidade</option>
+                        <option value="critical">Crítico</option>
+                        <option value="error">Erro</option>
+                        <option value="warning">Aviso</option>
+                        <option value="info">Info</option>
+                    </select>
+                    <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                        <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                        <input type="text" className="form-input" style={{ paddingLeft: 28 }} placeholder="Buscar por título, mensagem, código de erro…"
+                            value={search} onChange={e => setSearch(e.target.value)} />
+                    </div>
+                </div>
+
+                {loading && events.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>Carregando…</div>
+                ) : events.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+                        Nenhum evento no período — tudo funcionando normalmente.
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {events.map((e: any) => (
+                            <div key={e.id} className="card" style={{ padding: 12, borderLeft: `3px solid ${severityMeta[e.severity]?.color || 'var(--border)'}` }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                                            <span style={{ fontSize: 11, fontWeight: 700, color: severityMeta[e.severity]?.color }}>
+                                                {severityMeta[e.severity]?.label || e.severity}
+                                            </span>
+                                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }} className="mono">{e.event_type}</span>
+                                            {e.source_name && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>· {e.source_name}</span>}
+                                        </div>
+                                        <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 2 }}>{e.title}</div>
+                                        {e.message && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{e.message}</div>}
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{fmtRelative(e.occurred_at)}</div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
@@ -1070,6 +1226,46 @@ function SourceDetail({ source, onClose, onEdit }: {
                                         value={`R$ ${Number(dash.kpis.revenue_minus_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
                                         color={dash.kpis.revenue_minus_spend >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
                                     />
+                                </div>
+                            )}
+
+                            {/* Primeira compra vs recompra, receita paga vs orgânica, taxa de rastreamento */}
+                            {(dash.kpis.sales_count > 0 || dash.kpis.tracking_rate != null) && (
+                                <div style={{ marginBottom: 16 }}>
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+                                        Aquisição x recorrência
+                                    </div>
+                                    {dash.kpis.sales_count > 0 && (
+                                        <>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
+                                                <SubKpi
+                                                    label="Primeira compra"
+                                                    value={`${dash.kpis.first_purchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.first_purchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                                    color="var(--accent-blue)"
+                                                />
+                                                <SubKpi
+                                                    label="Recompra"
+                                                    value={`${dash.kpis.repurchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.repurchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                                />
+                                                {dash.source?.has_account_link && dash.kpis.ad_spend > 0 && (
+                                                    <SubKpi
+                                                        label="ROAS aquisição"
+                                                        value={`${dash.kpis.roas_acquisition.toFixed(2)}x`}
+                                                        color="var(--accent-blue)"
+                                                    />
+                                                )}
+                                            </div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: dash.kpis.tracking_rate != null ? 8 : 0 }}>
+                                                <SubKpi label="Receita via anúncio" value={`R$ ${Number(dash.kpis.paid_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} color="var(--accent-blue)" />
+                                                <SubKpi label="Receita orgânica" value={`R$ ${Number(dash.kpis.organic_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} />
+                                            </div>
+                                        </>
+                                    )}
+                                    {dash.kpis.tracking_rate != null && (
+                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                            <SubKpi label="Taxa de rastreamento" value={`${dash.kpis.tracking_rate.toFixed(0)}%`} />
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

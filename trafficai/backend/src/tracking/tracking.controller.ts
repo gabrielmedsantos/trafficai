@@ -19,6 +19,7 @@ import { getFunnelConfiguration, updateFunnelConfiguration, FunnelStageInput } f
 import {
     listConversionRules, createConversionRule, updateConversionRule, deleteConversionRule, listRuleExecutions,
 } from './conversion-rules/conversion-rules.service';
+import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -66,6 +67,47 @@ router.get('/crm-schema', async (req: Request, res: Response) => {
         },
     };
     res.json({ success: true, data: schema });
+});
+
+// ─── GET /tracking/diagnostics/summary ──────────────────────────────────────
+// Central de Diagnóstico — status geral (saudável/atenção/crítico) de TODAS
+// as fontes do usuário no período. Não é por fonte porque o objetivo é dar
+// uma visão "o que deu errado hoje" de uma vez só.
+router.get('/diagnostics/summary', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { since, until } = req.query as any;
+        const untilDate = until ? new Date(until + 'T23:59:59') : new Date();
+        const sinceDate = since ? new Date(since + 'T00:00:00') : new Date(untilDate.getTime() - 7 * 86400000);
+
+        const summary = await getDiagnosticsSummary(userId, sinceDate, untilDate);
+        res.json({ success: true, data: summary });
+    } catch (err: any) {
+        logger.error('tracking: diagnostics summary falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/diagnostics ───────────────────────────────────────────────
+// Query: source_id?, severity?, event_type?, search?, since?, until?, limit?
+router.get('/diagnostics', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const q = req.query as any;
+        const events = await listDiagnosticEvents(userId, {
+            sourceId: q.source_id || undefined,
+            severity: q.severity || undefined,
+            eventType: q.event_type || undefined,
+            search: q.search || undefined,
+            since: q.since ? new Date(q.since + 'T00:00:00') : undefined,
+            until: q.until ? new Date(q.until + 'T23:59:59') : undefined,
+            limit: q.limit ? Number(q.limit) : undefined,
+        });
+        res.json({ success: true, data: events });
+    } catch (err: any) {
+        logger.error('tracking: list diagnostics falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
 });
 
 // ─── GET /tracking/sources ──────────────────────────────────────────────────
@@ -1372,6 +1414,12 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                 COUNT(*) FILTER (WHERE event_name = 'Schedule') AS scheduled,
                 COUNT(*) FILTER (WHERE event_name = 'Purchase') AS sales_count,
                 COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase'), 0) AS sales_value,
+                COUNT(*) FILTER (WHERE event_name = 'Purchase' AND purchase_kind = 'first_purchase') AS first_purchase_count,
+                COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase' AND purchase_kind = 'first_purchase'), 0) AS first_purchase_value,
+                COUNT(*) FILTER (WHERE event_name = 'Purchase' AND purchase_kind = 'repurchase') AS repurchase_count,
+                COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase' AND purchase_kind = 'repurchase'), 0) AS repurchase_value,
+                COUNT(*) FILTER (WHERE event_name = 'Purchase' AND campaign_id IS NOT NULL) AS paid_sales_count,
+                COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase' AND campaign_id IS NOT NULL), 0) AS paid_revenue,
                 COUNT(*) FILTER (WHERE meta_status = 'sent') AS events_sent,
                 COUNT(*) FILTER (WHERE meta_status = 'failed') AS events_failed,
                 COALESCE(AVG(emq_score), 0)::float AS avg_emq
@@ -1385,6 +1433,12 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         const qualifiedNum = Number(t.qualified) || 0;
         const salesCount = Number(t.sales_count) || 0;
         const salesValue = Number(t.sales_value) || 0;
+        const firstPurchaseCount = Number(t.first_purchase_count) || 0;
+        const firstPurchaseValue = Number(t.first_purchase_value) || 0;
+        const repurchaseCount = Number(t.repurchase_count) || 0;
+        const repurchaseValue = Number(t.repurchase_value) || 0;
+        const paidRevenue = Number(t.paid_revenue) || 0;
+        const organicRevenue = salesValue - paidRevenue;
 
         // Ad spend (se conta Meta vinculada)
         let adSpend = 0;
@@ -1417,11 +1471,18 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
             conversationsMeta = Number(convQ[0]?.total) || 0;
         }
         const convRealQ = await query<any>(
-            `SELECT COUNT(*) AS total FROM tracking_whatsapp_leads
+            `SELECT COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE ctwa_clid IS NOT NULL) AS attributed
+             FROM tracking_whatsapp_leads
              WHERE source_id = $1 AND created_at BETWEEN $2 AND $3`,
             [id, startDate.toISOString(), endDate.toISOString()]
         );
         const conversationsReal = Number(convRealQ[0]?.total) || 0;
+        // Taxa de rastreamento: das conversas reais recebidas, quantas o
+        // sistema conseguiu atribuir a um clique de anúncio (ctwa_clid) —
+        // mede qualidade do rastreamento, não qualidade do tráfego.
+        const conversationsAttributed = Number(convRealQ[0]?.attributed) || 0;
+        const trackingRate = conversationsReal > 0 ? (conversationsAttributed / conversationsReal) * 100 : null;
 
         // Indicadores derivados
         const cpl = leadsNum > 0 ? adSpend / leadsNum : 0;
@@ -1431,6 +1492,11 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         const roiPct = adSpend > 0 ? ((salesValue - adSpend) / adSpend) * 100 : 0;
         const revenueMinusSpend = salesValue - adSpend;
         const roas = adSpend > 0 ? salesValue / adSpend : 0;
+        // roas = "com recompra" (receita total / spend, já era assim). Adiciona
+        // roas_acquisition = só primeira compra / spend — separa retorno de
+        // AQUISIÇÃO (o que o anúncio realmente conquistou) de recompra de
+        // cliente já existente, que o anúncio não influenciou.
+        const roasAcquisition = adSpend > 0 ? firstPurchaseValue / adSpend : 0;
         const avgTicket = salesCount > 0 ? salesValue / salesCount : 0;
 
         // Breakdown diário (eventos)
@@ -1590,6 +1656,7 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                     revenue_minus_spend: revenueMinusSpend,
                     roi_pct: roiPct,
                     roas,
+                    roas_acquisition: roasAcquisition,
                     cpl, cpa,
                     conversion_rate: conversionRate,
                     qualified_rate: qualifiedRate,
@@ -1597,6 +1664,13 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                     events_sent: Number(t.events_sent) || 0,
                     events_failed: Number(t.events_failed) || 0,
                     avg_emq: t.avg_emq || 0,
+                    first_purchase_count: firstPurchaseCount,
+                    first_purchase_value: firstPurchaseValue,
+                    repurchase_count: repurchaseCount,
+                    repurchase_value: repurchaseValue,
+                    paid_revenue: paidRevenue,
+                    organic_revenue: organicRevenue,
+                    tracking_rate: trackingRate,
                 },
                 daily,
                 by_campaign: byCampaignOut,

@@ -13,6 +13,7 @@ import { query } from '../database/connection';
 import { logger } from '../shared/logger';
 import { getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 import { encrypt, decryptMaybe } from '../shared/encryption';
+import { recordDiagnosticEvent } from './diagnostics.service';
 
 const META_VERSION = 'v19.0';
 const META_BASE = `https://graph.facebook.com/${META_VERSION}`;
@@ -537,6 +538,13 @@ export async function trackEvent(
             source: source.id,
             event: event.event_name,
             error: metaResult.error,
+        });
+        recordDiagnosticEvent({
+            userId: source.user_id, sourceId: source.id, severity: 'error',
+            eventType: 'meta_capi_send_failed',
+            title: `Falha ao enviar ${event.event_name} pra Meta`,
+            message: metaResult.error || undefined,
+            summaryPayload: { event_name: event.event_name, event_id: eventId },
         });
     }
 

@@ -796,6 +796,21 @@ class ApiClient {
     async getRuleExecutions(sourceId: string, ruleId: string) {
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/conversion-rules/${ruleId}/executions`);
     }
+    async getDiagnosticsSummary(params?: { since?: string; until?: string }) {
+        const q = new URLSearchParams();
+        if (params?.since) q.set('since', params.since);
+        if (params?.until) q.set('until', params.until);
+        const qs = q.toString();
+        return this.request<any>('GET', `/tracking/diagnostics/summary${qs ? '?' + qs : ''}`);
+    }
+    async getDiagnostics(params?: { source_id?: string; severity?: string; event_type?: string; search?: string; since?: string; until?: string; limit?: number }) {
+        const q = new URLSearchParams();
+        if (params) {
+            Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)); });
+        }
+        const qs = q.toString();
+        return this.request<any[]>('GET', `/tracking/diagnostics${qs ? '?' + qs : ''}`);
+    }
     async getTrackingDashboard(sourceId: string, since?: string, until?: string) {
         const q = new URLSearchParams();
         if (since) q.set('since', since);

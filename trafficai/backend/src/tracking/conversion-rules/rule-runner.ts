@@ -19,6 +19,7 @@ import { evaluateRule, ConversionRule, RuleOccurrence } from './conversion-decis
 import { getActiveMessageRules } from './conversion-rules.service';
 import { trackEvent, TrackingEventInput } from '../tracking.service';
 import { findWhatsAppLeadByPhone } from '../whatsapp-lead.service';
+import { recordDiagnosticEvent } from '../diagnostics.service';
 
 export async function runConversionRulesForMessage(
     source: any, phone: string, messageText: string | null,
@@ -34,6 +35,12 @@ export async function runConversionRulesForMessage(
             await runOneRule(source, rule, occurrence);
         } catch (err: any) {
             logger.warn('conversion-rules: falha ao rodar regra', { rule: rule.id, error: err.message });
+            recordDiagnosticEvent({
+                userId: source.user_id, sourceId: source.id, severity: 'error',
+                eventType: 'conversion_rule_failed',
+                title: `Regra "${rule.name}" falhou ao processar mensagem`,
+                message: err.message,
+            });
         }
     }
 }

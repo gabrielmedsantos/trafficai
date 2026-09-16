@@ -25,6 +25,7 @@ import { query, queryOne } from '../../../database/connection';
 import { logger } from '../../../shared/logger';
 import { persistEvolutionMessage, type EvolutionMessageEvent } from '../evolution/persist';
 import { processCloudApiMessage } from '../../../tracking/whatsapp-lead.service';
+import { recordDiagnosticEvent } from '../../../tracking/diagnostics.service';
 
 const router = Router();
 
@@ -147,6 +148,12 @@ async function handleMessagesValue(value: any): Promise<void> {
                 if (src) await processCloudApiMessage(src, msg, contactName, value);
             } catch (err: any) {
                 logger.warn('whatsapp-cloud: captura de atribuição falhou', { error: err.message });
+                recordDiagnosticEvent({
+                    userId: intg.user_id, sourceId: intg.tracking_source_id, severity: 'warning',
+                    eventType: 'cloud_api_attribution_failed',
+                    title: 'Falha ao processar mensagem do WhatsApp (Cloud API)',
+                    message: err.message,
+                });
             }
         }
     }
