@@ -36,7 +36,7 @@ router.get('/config', (_req: Request, res: Response) => {
             graphApiVersion: META_API_VERSION,
             configId: META_ADS_SIGNUP_CONFIG_ID || null,
             // Scopes usados quando SEM config_id (fallback pra plain FB.login)
-            scope: 'ads_management,ads_read,business_management,pages_show_list,pages_read_engagement,instagram_basic,read_insights',
+            scope: 'ads_management,ads_read,business_management,pages_show_list,pages_read_engagement,instagram_basic',
         },
     });
 });
