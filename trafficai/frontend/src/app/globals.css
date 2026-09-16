@@ -29,7 +29,7 @@
   /* ── Borders ── */
   --border:        rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.11);
-  --border-focus:  rgba(211, 241, 0, 0.45);   /* lime focus ring */
+  --border-focus:  rgba(14, 165, 233, 0.45);   /* azul focus ring */
 
   /* ── Text (alto contraste 16:1 sobre bg-base) ── */
   --text:           #f1f3f5;       /* primary 16:1 */
@@ -38,12 +38,12 @@
   --text-muted:     #7a8290;       /* muted ~4.8:1 (AA) */
   --text-subtle:    #555c68;       /* subtle 3:1 */
 
-  /* ── Brand — Electric Lime (novo, alinhado com padrão SaaS moderno) ── */
-  --primary:        #d3f100;       /* lime elétrico, alto contraste sobre preto */
-  --primary-hover:  #e3fa2e;
-  --primary-active: #b8d600;
-  --primary-soft:   rgba(211, 241, 0, 0.14);
-  --primary-ring:   rgba(211, 241, 0, 0.35);
+  /* ── Brand — Electric Blue ── */
+  --primary:        #0ea5e9;       /* azul elétrico, alto contraste sobre preto */
+  --primary-hover:  #38bdf8;
+  --primary-active: #0284c7;
+  --primary-soft:   rgba(14, 165, 233, 0.14);
+  --primary-ring:   rgba(14, 165, 233, 0.35);
   /* Legado laranja mantido como accent secundário */
   --primary-orange: #ff6b35;
 
@@ -205,12 +205,12 @@ a:hover { color: var(--primary-hover); }
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: var(--primary);
+  background: var(--accent-blue);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #fff;
+  color: #0a0d14;
 }
 
 .sidebar-brand-name {
