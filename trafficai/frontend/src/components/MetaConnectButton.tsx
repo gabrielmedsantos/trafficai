@@ -65,24 +65,32 @@ export function MetaConnectButton({ onConnected, variant = 'primary' }: MetaConn
             await loadFbSdk(cfg.appId, cfg.graphApiVersion);
 
             // FB.login promisificado
+            // Sem config_id usamos response_type "token" (fluxo implícito): o SDK já
+            // devolve o access_token direto no client, sem precisar bater redirect_uri
+            // no backend — o popup do JS SDK usa uma redirect_uri interna dinâmica
+            // (origin + hash aleatório por sessão) que não dá pra reconstruir no server.
             const authResp: any = await new Promise((resolve) => {
-                const loginOpts: any = { response_type: 'code', return_scopes: true };
+                const loginOpts: any = { return_scopes: true };
                 if (cfg.configId) {
+                    loginOpts.response_type = 'code';
                     loginOpts.config_id = cfg.configId;
                     loginOpts.override_default_response_type = true;
                 } else {
+                    loginOpts.response_type = 'token';
                     loginOpts.scope = cfg.scope;
                 }
                 window.FB.login(resolve, loginOpts);
             });
 
-            if (!authResp || !authResp.authResponse || !authResp.authResponse.code) {
+            const code = authResp?.authResponse?.code;
+            const accessToken = authResp?.authResponse?.accessToken;
+            if (!code && !accessToken) {
                 throw new Error(authResp?.status === 'unknown'
                     ? 'Você cancelou o login'
-                    : 'FB.login não retornou code — cancelou ou fechou o popup?');
+                    : 'FB.login não retornou credencial — cancelou ou fechou o popup?');
             }
 
-            const result = await api.metaSignupExchange(authResp.authResponse.code);
+            const result = await api.metaSignupExchange(code, undefined, accessToken);
             setStatus('connected');
             setInfo({
                 meta_user_id: result.meta_user_id,

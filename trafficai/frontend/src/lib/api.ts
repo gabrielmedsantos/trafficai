@@ -258,11 +258,11 @@ class ApiClient {
         if (!json.success) throw new Error(json.error?.message || 'Falha config Meta');
         return json.data as { appId: string; graphApiVersion: string; configId: string | null; scope: string };
     }
-    async metaSignupExchange(code: string, redirectUri?: string) {
+    async metaSignupExchange(code?: string, redirectUri?: string, accessToken?: string) {
         return this.request<{
             connected: boolean; meta_user_id: string; meta_user_name: string | null;
             token_expires_at: string; message: string;
-        }>('POST', '/meta-signup/exchange', { code, redirect_uri: redirectUri });
+        }>('POST', '/meta-signup/exchange', { code, redirect_uri: redirectUri, access_token: accessToken });
     }
     async metaSignupStatus() {
         return this.request<{ connected: boolean; expired: boolean; meta_user_id: string | null; token_expires_at: string | null }>('GET', '/meta-signup/status');

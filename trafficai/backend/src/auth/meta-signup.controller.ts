@@ -58,31 +58,35 @@ router.post('/exchange', async (req: Request, res: Response, next: NextFunction)
         if (!META_APP_ID || !META_APP_SECRET) {
             throw new AppError('META_APP_ID/SECRET não configurados no servidor', 503);
         }
-        const { code, redirect_uri } = req.body;
-        if (!code) throw new ValidationError('code é obrigatório');
+        const { code, redirect_uri, access_token } = req.body;
+        if (!code && !access_token) throw new ValidationError('code ou access_token é obrigatório');
         const userId = req.user!.userId;
 
-        // Se veio code do Embedded Signup (config_id flow), redirect_uri deve ser vazio
-        // ou o exato usado no client. Se veio de OAuth padrão, precisa bater.
-        const params: any = {
-            client_id: META_APP_ID,
-            client_secret: META_APP_SECRET,
-            code,
-        };
-        if (redirect_uri) params.redirect_uri = redirect_uri;
-
-        // 1) Short-lived (User) token — endpoint OAuth padrão
+        // 1) Short-lived (User) token.
+        // Fluxo implícito (response_type=token, sem config_id): o client já manda o
+        // access_token direto — não tem code/redirect_uri pra validar.
+        // Fluxo code (config_id/Embedded Signup): troca code por token no endpoint OAuth padrão.
         let shortToken: string;
-        try {
-            const r = await axios.get(`${META_GRAPH_URL}/oauth/access_token`, {
-                params, timeout: 20000,
-            });
-            shortToken = r.data.access_token;
-            if (!shortToken) throw new Error('Meta não retornou access_token');
-        } catch (err: any) {
-            const detail = err.response?.data?.error?.message || err.message;
-            logger.warn('meta-signup: code exchange falhou', { userId, detail });
-            throw new AppError(`Meta code exchange falhou: ${detail}`, 400);
+        if (access_token) {
+            shortToken = access_token;
+        } else {
+            const params: any = {
+                client_id: META_APP_ID,
+                client_secret: META_APP_SECRET,
+                code,
+            };
+            if (redirect_uri) params.redirect_uri = redirect_uri;
+            try {
+                const r = await axios.get(`${META_GRAPH_URL}/oauth/access_token`, {
+                    params, timeout: 20000,
+                });
+                shortToken = r.data.access_token;
+                if (!shortToken) throw new Error('Meta não retornou access_token');
+            } catch (err: any) {
+                const detail = err.response?.data?.error?.message || err.message;
+                logger.warn('meta-signup: code exchange falhou', { userId, detail });
+                throw new AppError(`Meta code exchange falhou: ${detail}`, 400);
+            }
         }
 
         // 2) Long-lived (60d) token via fb_exchange_token
