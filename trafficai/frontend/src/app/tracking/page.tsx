@@ -4385,15 +4385,15 @@ function BigKpi({ icon, label, value, hint, color }: {
 function SubKpi({ label, value, color }: { label: string; value: string; color?: string }) {
     return (
         <div style={{
-            padding: '8px 10px',
+            padding: '10px 12px',
             background: 'var(--bg-tertiary)',
             border: '1px solid var(--border)',
             borderRadius: 6,
         }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>
                 {label}
             </div>
-            <div className="num" style={{ fontSize: 14, fontWeight: 600, color: color || 'var(--text-primary)', marginTop: 1 }}>
+            <div className="num" style={{ fontSize: 17, fontWeight: 600, color: color || 'var(--text-primary)', marginTop: 2 }}>
                 {value}
             </div>
         </div>
