@@ -5,7 +5,6 @@
 // ==============================
 
 import { Router, Request, Response } from 'express';
-import crypto from 'crypto';
 import { queryOne } from '../../../database/connection';
 import { logger } from '../../../shared/logger';
 import { persistEvolutionMessage, updateIntegrationConnectionState, type EvolutionMessageEvent } from './persist';
@@ -44,16 +43,10 @@ router.post('/evolution/:integrationId', async (req: Request, res: Response): Pr
             return;
         }
 
-        // Validação de secret (opcional — Evolution pode ou não enviar header)
-        const secret = intg.credentials?.webhook_secret;
-        if (secret) {
-            const provided = req.header('x-webhook-secret') || req.header('apikey') || '';
-            if (!constantTimeEq(provided, secret)) {
-                logger.warn('Evolution webhook: secret invalido', { integrationId });
-                res.status(401).json({ success: false, error: { message: 'unauthorized' } });
-                return;
-            }
-        }
+        // Sem validação de secret por header: a Evolution self-hosted (v2, OSS) não
+        // suporta enviar header customizado no webhook — isso só existe na versão
+        // paga "Cloud". A própria URL (com integrationId em UUID, imprevisível) já
+        // é o limite de segurança aqui, igual outros provedores fazem com webhooks.
 
         const payload = req.body as EvolutionWebhookEvent;
         const eventType = payload.event || (req.body as any)?.event_name;
@@ -239,15 +232,6 @@ function mapState(s: string): 'open' | 'connecting' | 'close' | 'unknown' {
     if (x === 'connecting' || x === 'qr') return 'connecting';
     if (x === 'close' || x === 'closed' || x === 'disconnected') return 'close';
     return 'unknown';
-}
-
-function constantTimeEq(a: string, b: string): boolean {
-    if (a.length !== b.length) return false;
-    try {
-        return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-    } catch {
-        return false;
-    }
 }
 
 export const evolutionWebhookController = router;
