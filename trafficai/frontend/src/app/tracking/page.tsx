@@ -1144,14 +1144,14 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     icon={<MessageCircle size={14} />}
                                     label="Conversas Meta"
                                     value={dash.kpis.conversations_meta.toLocaleString('pt-BR')}
-                                    hint="Registradas pela Meta"
+                                    hint={dash.kpis.cost_per_meta_conversation != null ? `R$ ${dash.kpis.cost_per_meta_conversation.toFixed(2)}/conversa` : 'Registradas pela Meta'}
                                     color="var(--accent-blue)"
                                 />
                                 <BigKpi
                                     icon={<MessageCircle size={14} />}
                                     label="Conversas reais"
                                     value={dash.kpis.conversations_real.toLocaleString('pt-BR')}
-                                    hint="Identificadas no WhatsApp"
+                                    hint={dash.kpis.cost_per_real_conversation != null ? `R$ ${dash.kpis.cost_per_real_conversation.toFixed(2)}/conversa` : 'Identificadas no WhatsApp'}
                                     color="var(--accent-green)"
                                 />
                                 <BigKpi
@@ -1177,7 +1177,9 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     icon={<UserCheck size={14} />}
                                     label="Qualificados"
                                     value={dash.kpis.qualified.toLocaleString('pt-BR')}
-                                    hint={dash.kpis.disqualified > 0 ? `${dash.kpis.disqualified} desqualificados` : undefined}
+                                    hint={dash.kpis.cost_per_qualified_lead != null
+                                        ? `R$ ${dash.kpis.cost_per_qualified_lead.toFixed(2)}/qualificado`
+                                        : (dash.kpis.disqualified > 0 ? `${dash.kpis.disqualified} desqualificados` : undefined)}
                                     color="var(--accent-green)"
                                 />
                                 <BigKpi
@@ -1229,45 +1231,34 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </div>
                             )}
 
-                            {/* Primeira compra vs recompra, receita paga vs orgânica, taxa de rastreamento */}
-                            {(dash.kpis.sales_count > 0 || dash.kpis.tracking_rate != null) && (
-                                <div style={{ marginBottom: 16 }}>
-                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
-                                        Aquisição x recorrência
-                                    </div>
-                                    {dash.kpis.sales_count > 0 && (
-                                        <>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
-                                                <SubKpi
-                                                    label="Primeira compra"
-                                                    value={`${dash.kpis.first_purchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.first_purchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
-                                                    color="var(--accent-blue)"
-                                                />
-                                                <SubKpi
-                                                    label="Recompra"
-                                                    value={`${dash.kpis.repurchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.repurchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
-                                                />
-                                                {dash.source?.has_account_link && dash.kpis.ad_spend > 0 && (
-                                                    <SubKpi
-                                                        label="ROAS aquisição"
-                                                        value={`${dash.kpis.roas_acquisition.toFixed(2)}x`}
-                                                        color="var(--accent-blue)"
-                                                    />
-                                                )}
-                                            </div>
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: dash.kpis.tracking_rate != null ? 8 : 0 }}>
-                                                <SubKpi label="Receita via anúncio" value={`R$ ${Number(dash.kpis.paid_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} color="var(--accent-blue)" />
-                                                <SubKpi label="Receita orgânica" value={`R$ ${Number(dash.kpis.organic_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} />
-                                            </div>
-                                        </>
-                                    )}
-                                    {dash.kpis.tracking_rate != null && (
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                                            <SubKpi label="Taxa de rastreamento" value={`${dash.kpis.tracking_rate.toFixed(0)}%`} />
-                                        </div>
-                                    )}
+                            {/* Primeira compra vs recompra, receita paga vs orgânica, taxa de rastreamento —
+                                sempre visível (mostra zero em vez de sumir) pra não parecer que o recurso não existe. */}
+                            <div style={{ marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+                                    Aquisição x recorrência
                                 </div>
-                            )}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 8 }}>
+                                    <SubKpi
+                                        label="Primeira compra"
+                                        value={`${dash.kpis.first_purchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.first_purchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                        color="var(--accent-blue)"
+                                    />
+                                    <SubKpi
+                                        label="Recompra"
+                                        value={`${dash.kpis.repurchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.repurchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                    />
+                                    <SubKpi
+                                        label="ROAS aquisição"
+                                        value={dash.source?.has_account_link && dash.kpis.ad_spend > 0 ? `${dash.kpis.roas_acquisition.toFixed(2)}x` : '—'}
+                                        color="var(--accent-blue)"
+                                    />
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                                    <SubKpi label="Receita via anúncio" value={`R$ ${Number(dash.kpis.paid_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} color="var(--accent-blue)" />
+                                    <SubKpi label="Receita orgânica" value={`R$ ${Number(dash.kpis.organic_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} />
+                                    <SubKpi label="Taxa de rastreamento" value={dash.kpis.tracking_rate != null ? `${dash.kpis.tracking_rate.toFixed(0)}%` : '—'} />
+                                </div>
+                            </div>
 
                             {/* Chart diário */}
                             {dash.daily && dash.daily.length > 0 && (

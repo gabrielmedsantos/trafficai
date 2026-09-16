@@ -1484,6 +1484,13 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
         const conversationsAttributed = Number(convRealQ[0]?.attributed) || 0;
         const trackingRate = conversationsReal > 0 ? (conversationsAttributed / conversationsReal) * 100 : null;
 
+        // Custo por conversa (Meta e real) e por lead qualificado — mesmas
+        // métricas do RastrackDash, cada uma só quando o denominador > 0
+        // (evita divisão por zero virando Infinity no front).
+        const costPerMetaConversation = conversationsMeta > 0 ? adSpend / conversationsMeta : null;
+        const costPerRealConversation = conversationsReal > 0 ? adSpend / conversationsReal : null;
+        const costPerQualifiedLead = qualifiedNum > 0 ? adSpend / qualifiedNum : null;
+
         // Indicadores derivados
         const cpl = leadsNum > 0 ? adSpend / leadsNum : 0;
         const cpa = salesCount > 0 ? adSpend / salesCount : 0;
@@ -1671,6 +1678,9 @@ router.get('/sources/:id/dashboard', async (req: Request, res: Response) => {
                     paid_revenue: paidRevenue,
                     organic_revenue: organicRevenue,
                     tracking_rate: trackingRate,
+                    cost_per_meta_conversation: costPerMetaConversation,
+                    cost_per_real_conversation: costPerRealConversation,
+                    cost_per_qualified_lead: costPerQualifiedLead,
                 },
                 daily,
                 by_campaign: byCampaignOut,
