@@ -1036,7 +1036,7 @@ export class MetaService {
         { type: 'lead',                                 label: 'Leads' },
         { type: 'complete_registration',                label: 'Cadastros' },
         // Messaging (WhatsApp / Messenger)
-        { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas iniciadas' },
+        { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
         { type: 'onsite_conversion.total_messaging_connection',        label: 'Conexões de mensagem' },
         { type: 'onsite_conversion.messaging_first_reply',             label: 'Primeiras respostas' },
         // Engagement
@@ -1058,13 +1058,13 @@ export class MetaService {
     private static OBJECTIVE_PRIORITY: Record<string, { type: string; label: string }[]> = {
         // Messaging (WhatsApp / Messenger) — Resultados = "Conversas iniciadas"
         OUTCOME_ENGAGEMENT: [
-            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas iniciadas' },
+            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
             { type: 'onsite_conversion.total_messaging_connection',        label: 'Conexões de mensagem' },
             { type: 'onsite_conversion.messaging_first_reply',             label: 'Primeiras respostas' },
             { type: 'post_engagement',  label: 'Engajamentos' },
         ],
         MESSAGES: [
-            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas iniciadas' },
+            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
             { type: 'onsite_conversion.total_messaging_connection',        label: 'Conexões de mensagem' },
         ],
         // Lead-gen
