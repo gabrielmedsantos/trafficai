@@ -205,7 +205,7 @@ export async function updateIntegrationConnectionState(
     const status = state === 'open' ? 'connected' : state === 'connecting' ? 'connecting' : 'disconnected';
     await query(
         `UPDATE comm_integrations
-         SET status = $1, connected_at = CASE WHEN $1 = 'connected' THEN NOW() ELSE connected_at END,
+         SET status = $1::text, connected_at = CASE WHEN $1::text = 'connected' THEN NOW() ELSE connected_at END,
              last_event_at = NOW(),
              config = config || $2::jsonb,
              updated_at = NOW()
