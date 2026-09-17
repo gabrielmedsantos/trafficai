@@ -49,6 +49,8 @@ export class EvolutionClient {
             'CONNECTION_UPDATE',
             'CONTACTS_UPSERT',
             'CHATS_UPSERT',
+            'LABELS_ASSOCIATION',
+            'LABELS_EDIT',
         ];
 
         const { data } = await this.http.post('/instance/create', {

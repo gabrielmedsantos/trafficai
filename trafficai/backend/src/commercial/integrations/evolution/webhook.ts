@@ -76,6 +76,17 @@ router.post('/evolution/:integrationId', async (req: Request, res: Response): Pr
             case 'CONTACTS_UPSERT':
                 // No-op por enquanto (já capturamos nome do push da mensagem)
                 break;
+            case 'labels.association':
+            case 'LABELS_ASSOCIATION':
+            case 'labels.edit':
+            case 'LABELS_EDIT':
+                // Gatilho por label (Regras de conversão) ainda não implementado —
+                // logamos o payload cru pra descobrir o formato real da Evolution
+                // antes de escrever o parser. Ver rule-runner.ts / conversion-decision.engine.ts.
+                logger.info('Evolution webhook: evento de label recebido (ainda nao processado)', {
+                    integrationId, eventType, payload: JSON.stringify(payload.data),
+                });
+                break;
             default:
                 logger.debug('Evolution webhook event ignorado', { event: eventType });
         }
