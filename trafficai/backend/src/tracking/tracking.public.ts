@@ -20,6 +20,7 @@ import { clampEventTime } from './crm-sync.service';
 import { processWhatsAppMessage, findWhatsAppLeadByPhone, recordPurchaseForWhatsAppLead } from './whatsapp-lead.service';
 import { resolveClickAttribution, enrichClickWithContact } from './attribution-resolver';
 import { KommoAdapter } from './crm-adapters/kommo.adapter';
+import { DataCrazyAdapter } from './crm-adapters/datacrazy.adapter';
 
 const router = Router();
 
@@ -304,6 +305,13 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 authenticated = true;
             }
 
+            // (4) body.key=<secret> — alguns builders de automação (DataCrazy, etc.)
+            // não deixam configurar header/query de forma confiável, mas sempre
+            // deixam editar o corpo JSON livremente. Aceita a senha ali também.
+            if (!authenticated && req.body && typeof req.body.key === 'string' && safeEq(req.body.key, secret)) {
+                authenticated = true;
+            }
+
             // Dev bypass
             if (!authenticated && process.env.NODE_ENV !== 'production' && req.query.dev === '1') {
                 authenticated = true;
@@ -366,6 +374,46 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 } catch (e: any) {
                     logger.warn('Kommo fallback API falhou', { leadId: kommoLeadId, error: e.message });
                 }
+            }
+        }
+
+        // ── DataCrazy: automação manda só IDs (leadId/businessId/stageId) ──
+        // A DataCrazy não deixa customizar o JSON com dados do lead direto na
+        // automação (só IDs) — buscamos telefone/nome via lead e o valor da
+        // venda via business (endpoint separado, `total`) usando a API key já
+        // salva na fonte.
+        if (source.crm_type === 'datacrazy' && source.crm_access_token && (b.leadId || b.businessId)) {
+            try {
+                const adapter = new DataCrazyAdapter(source.crm_access_token);
+                let businessTotal: number | undefined;
+                let leadId = b.leadId;
+
+                if (b.businessId) {
+                    const business = await adapter.fetchBusiness(b.businessId);
+                    businessTotal = business?.total ? Number(business.total) : undefined;
+                    leadId = leadId || business?.leadId;
+                }
+
+                if (leadId) {
+                    const lead = await adapter.fetchLead(leadId);
+                    const extracted = adapter.extractUserData(lead);
+                    b.user = {
+                        ...(b.user || {}),
+                        phone: b.user?.phone || b.phone || extracted.phone,
+                        email: b.user?.email || b.email || extracted.email,
+                        first_name: b.user?.first_name || b.first_name || extracted.first_name,
+                        last_name: b.user?.last_name || b.last_name || extracted.last_name,
+                    };
+                    b.external_id = b.external_id || extracted.external_id;
+                }
+                if (businessTotal != null && !b.value) b.value = businessTotal;
+
+                logger.info('DataCrazy: lead/negócio enriquecido via API', {
+                    source: source.id, leadId, businessId: b.businessId,
+                    has_phone: !!b.user?.phone, has_value: !!b.value,
+                });
+            } catch (e: any) {
+                logger.warn('DataCrazy fallback API falhou', { leadId: b.leadId, businessId: b.businessId, error: e.message });
             }
         }
 

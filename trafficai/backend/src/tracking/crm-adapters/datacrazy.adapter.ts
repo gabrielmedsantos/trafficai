@@ -163,6 +163,21 @@ export class DataCrazyAdapter {
     }
 
     /**
+     * Busca 1 negócio (business/deal) pelo ID — é onde fica o valor da venda
+     * (campo `total`), diferente do lead (que só tem dados de contato).
+     * Endpoint confirmado: GET /businesses/{id} -> { total, leadId, stageId, ... }.
+     */
+    async fetchBusiness(businessId: string): Promise<{ total?: number; leadId?: string; stageId?: string } | null> {
+        try {
+            const r = await this.client.get(`/businesses/${businessId}`);
+            return r.data.data || r.data;
+        } catch (e: any) {
+            if (e.response?.status === 404) return null;
+            throw new Error(`DataCrazy fetchBusiness (${businessId}): ${e.message}`);
+        }
+    }
+
+    /**
      * Extrai dados do lead DataCrazy pra Meta CAPI.
      * Diferente do Kommo: campos de contato vêm direto no lead (não em custom_fields).
      */
