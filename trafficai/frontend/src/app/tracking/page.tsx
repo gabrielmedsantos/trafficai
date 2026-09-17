@@ -725,6 +725,8 @@ function SourceDetail({ source, onClose, onEdit }: {
     const [ruleForm, setRuleForm] = useState<any>(emptyRuleForm);
     const [savingRule, setSavingRule] = useState(false);
     const [ruleFeedback, setRuleFeedback] = useState('');
+    const [availableLabels, setAvailableLabels] = useState<string[]>([]);
+    const [labelsLoaded, setLabelsLoaded] = useState(false);
 
     const loadRules = useCallback(async () => {
         setRulesLoading(true);
@@ -739,6 +741,13 @@ function SourceDetail({ source, onClose, onEdit }: {
         if (activeTab === 'conversion_rules' && !rulesLoaded) { loadRules(); setRulesLoaded(true); }
     }, [activeTab, rulesLoaded, loadRules]);
 
+    useEffect(() => {
+        if (ruleForm.trigger_type === 'whatsapp_label' && !labelsLoaded) {
+            api.getWhatsAppLabels(source.id).then(l => setAvailableLabels(l || [])).catch(() => setAvailableLabels([]));
+            setLabelsLoaded(true);
+        }
+    }, [ruleForm.trigger_type, labelsLoaded, source.id]);
+
     async function saveRule() {
         if (!ruleForm.name.trim() || !ruleForm.event_name.trim()) return;
         setSavingRule(true);
@@ -751,7 +760,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                 default_currency: ruleForm.default_currency || 'BRL',
             };
             if (ruleForm.trigger_type === 'keyword') payload.trigger_value = ruleForm.trigger_value;
-            if (ruleForm.trigger_type === 'message_phrase') {
+            if (ruleForm.trigger_type === 'message_phrase' || ruleForm.trigger_type === 'whatsapp_label') {
                 payload.trigger_phrases = ruleForm.trigger_phrases.split(',').map((s: string) => s.trim()).filter(Boolean);
             }
             if (ruleForm.value_mode === 'fixed' && ruleForm.default_value) payload.default_value = Number(ruleForm.default_value);
@@ -1605,10 +1614,44 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     onChange={e => setRuleForm({ ...ruleForm, trigger_type: e.target.value })}>
                                     <option value="message_phrase">Frase(s) na mensagem</option>
                                     <option value="keyword">Palavra-chave única</option>
+                                    <option value="whatsapp_label">Etiqueta do WhatsApp</option>
                                 </select>
                             </div>
 
-                            {ruleForm.trigger_type === 'keyword' ? (
+                            {ruleForm.trigger_type === 'whatsapp_label' ? (
+                                <div className="form-group" style={{ marginBottom: 10 }}>
+                                    <label className="form-label">Etiqueta(s) que disparam o evento</label>
+                                    {availableLabels.length === 0 ? (
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                            Nenhuma etiqueta encontrada ainda — aplique alguma etiqueta numa conversa pelo
+                                            WhatsApp do celular (a lista atualiza sozinha depois disso).
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                            {availableLabels.map(label => {
+                                                const selected: string[] = ruleForm.trigger_phrases
+                                                    ? ruleForm.trigger_phrases.split(',').map((s: string) => s.trim()).filter(Boolean)
+                                                    : [];
+                                                const checked = selected.includes(label);
+                                                return (
+                                                    <label key={label} className={`badge ${checked ? 'badge-blue' : ''}`}
+                                                        style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 10px' }}>
+                                                        <input type="checkbox" checked={checked} style={{ margin: 0 }}
+                                                            onChange={() => {
+                                                                const next = checked ? selected.filter(s => s !== label) : [...selected, label];
+                                                                setRuleForm({ ...ruleForm, trigger_phrases: next.join(',') });
+                                                            }} />
+                                                        {label}
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                                        Basta UMA delas ser aplicada na conversa.
+                                    </div>
+                                </div>
+                            ) : ruleForm.trigger_type === 'keyword' ? (
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
                                     <div className="form-group">
                                         <label className="form-label">Palavra-chave</label>
@@ -1636,22 +1679,26 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </div>
                             )}
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
-                                <div className="form-group">
-                                    <label className="form-label">Quem precisa mandar</label>
-                                    <select className="form-select" value={ruleForm.message_author_scope}
-                                        onChange={e => setRuleForm({ ...ruleForm, message_author_scope: e.target.value })}>
-                                        <option value="both">Qualquer um</option>
-                                        <option value="contact">Só o cliente</option>
-                                        <option value="team">Só o atendente</option>
-                                    </select>
-                                </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: ruleForm.trigger_type === 'whatsapp_label' ? '1fr 1fr' : '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                                {ruleForm.trigger_type !== 'whatsapp_label' && (
+                                    <div className="form-group">
+                                        <label className="form-label">Quem precisa mandar</label>
+                                        <select className="form-select" value={ruleForm.message_author_scope}
+                                            onChange={e => setRuleForm({ ...ruleForm, message_author_scope: e.target.value })}>
+                                            <option value="both">Qualquer um</option>
+                                            <option value="contact">Só o cliente</option>
+                                            <option value="team">Só o atendente</option>
+                                        </select>
+                                    </div>
+                                )}
                                 <div className="form-group">
                                     <label className="form-label">Valor do evento</label>
                                     <select className="form-select" value={ruleForm.value_mode}
                                         onChange={e => setRuleForm({ ...ruleForm, value_mode: e.target.value })}>
                                         <option value="fixed">Sem valor / valor fixo</option>
-                                        <option value="message_extracted">Extrair da mensagem</option>
+                                        {ruleForm.trigger_type !== 'whatsapp_label' && (
+                                            <option value="message_extracted">Extrair da mensagem</option>
+                                        )}
                                     </select>
                                 </div>
                                 {ruleForm.value_mode === 'fixed' && (
@@ -1695,7 +1742,9 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                 Dispara <span className="mono">{r.event_name}</span> quando{' '}
                                                 {r.trigger_type === 'keyword'
                                                     ? <>a mensagem {r.match_mode === 'exact' ? 'for exatamente' : 'contiver'} "<strong>{r.trigger_value}</strong>"</>
-                                                    : <>a mensagem contiver alguma dessas frases: <strong>{(r.trigger_phrases || []).join(', ')}</strong></>}
+                                                    : r.trigger_type === 'whatsapp_label'
+                                                        ? <>a conversa receber a etiqueta: <strong>{(r.trigger_phrases || []).join(', ')}</strong></>
+                                                        : <>a mensagem contiver alguma dessas frases: <strong>{(r.trigger_phrases || []).join(', ')}</strong></>}
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

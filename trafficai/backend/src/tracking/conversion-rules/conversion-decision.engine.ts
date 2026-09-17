@@ -38,6 +38,7 @@ export interface RuleOccurrence {
     direction: MessageDirection;
     externalExecutionKey: string;
     occurredAt: Date;
+    labelName?: string | null; // presente só em ocorrências de trigger_type='whatsapp_label'
 }
 
 export interface RuleDecision {
@@ -53,6 +54,9 @@ export function evaluateRule(rule: ConversionRule, occurrence: RuleOccurrence): 
         ({ outcome: 'ignored', rule, matchedTriggerPhrase: null, value: null, reasonCode });
 
     if (!rule.active) return ignore('rule_inactive');
+    if (rule.trigger_type === 'whatsapp_label') {
+        return evaluateLabelRule(rule, occurrence, ignore);
+    }
     if (rule.trigger_type !== 'keyword' && rule.trigger_type !== 'message_phrase') {
         return ignore('trigger_type_not_supported_yet');
     }
@@ -89,4 +93,29 @@ export function evaluateRule(rule: ConversionRule, occurrence: RuleOccurrence): 
     }
 
     return { outcome: 'eligible', rule, matchedTriggerPhrase, value, reasonCode: 'matched' };
+}
+
+// Gatilho por label do WhatsApp/CRM: compara o nome da etiqueta aplicada
+// contra as etiquetas configuradas na regra (trigger_phrases). Não depende
+// de texto de mensagem nem de author_scope — é um evento de etiquetagem,
+// não uma mensagem. value_mode='message_extracted' não se aplica aqui
+// (não existe mensagem pra extrair valor) — sempre usa default_value.
+function evaluateLabelRule(
+    rule: ConversionRule, occurrence: RuleOccurrence, ignore: (reasonCode: string) => RuleDecision
+): RuleDecision {
+    if (!occurrence.labelName) return ignore('empty_label');
+    const phrases = rule.trigger_phrases || [];
+    if (phrases.length === 0) return ignore('rule_missing_trigger_phrases');
+
+    const label = normalizeTriggerText(occurrence.labelName);
+    const matched = phrases.find(p => {
+        const norm = normalizeTriggerText(p);
+        return rule.match_mode === 'exact' ? label === norm : label.includes(norm);
+    });
+    if (!matched) return ignore('trigger_missing');
+
+    return {
+        outcome: 'eligible', rule, matchedTriggerPhrase: matched,
+        value: rule.default_value ?? null, reasonCode: 'matched',
+    };
 }

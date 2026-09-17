@@ -793,6 +793,9 @@ class ApiClient {
     async deleteConversionRule(sourceId: string, ruleId: string) {
         return this.request<{ deleted: boolean }>('DELETE', `/tracking/sources/${sourceId}/conversion-rules/${ruleId}`);
     }
+    async getWhatsAppLabels(sourceId: string) {
+        return this.request<string[]>('GET', `/tracking/sources/${sourceId}/whatsapp-labels`);
+    }
     async getRuleExecutions(sourceId: string, ruleId: string) {
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/conversion-rules/${ruleId}/executions`);
     }

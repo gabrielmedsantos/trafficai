@@ -36,6 +36,14 @@ export async function getActiveMessageRules(sourceId: string): Promise<Conversio
     );
 }
 
+export async function getActiveLabelRules(sourceId: string): Promise<ConversionRule[]> {
+    return query<ConversionRule>(
+        `SELECT * FROM tracking_conversion_rules
+         WHERE source_id = $1 AND active = TRUE AND trigger_type = 'whatsapp_label'`,
+        [sourceId]
+    );
+}
+
 export async function createConversionRule(sourceId: string, input: ConversionRuleInput): Promise<ConversionRule> {
     const rows = await query<ConversionRule>(
         `INSERT INTO tracking_conversion_rules

@@ -538,6 +538,30 @@ router.get('/sources/:id/conversion-rules/:ruleId/executions', async (req: Reque
     }
 });
 
+// ─── GET /tracking/sources/:id/whatsapp-labels ───────────────────────────────
+// Labels sincronizadas da conexão Evolution vinculada a essa fonte — usado
+// pelo seletor de "Nova regra" (trigger_type='whatsapp_label').
+router.get('/sources/:id/whatsapp-labels', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const own = await query<any>(`SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`, [id, userId]);
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const labels = await query<{ name: string }>(
+            `SELECT DISTINCT el.name FROM evolution_labels el
+             JOIN comm_integrations ci ON ci.id = el.integration_id
+             WHERE ci.tracking_source_id = $1 AND el.deleted = FALSE
+             ORDER BY el.name`,
+            [id]
+        );
+        res.json({ success: true, data: labels.map(l => l.name) });
+    } catch (err: any) {
+        logger.error('tracking: list whatsapp-labels falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
 // ─── POST /tracking/sources ─────────────────────────────────────────────────
 router.post('/sources', async (req: Request, res: Response) => {
     try {

@@ -16,7 +16,7 @@
 import { query } from '../../database/connection';
 import { logger } from '../../shared/logger';
 import { evaluateRule, ConversionRule, RuleOccurrence } from './conversion-decision.engine';
-import { getActiveMessageRules } from './conversion-rules.service';
+import { getActiveMessageRules, getActiveLabelRules } from './conversion-rules.service';
 import { trackEvent, TrackingEventInput } from '../tracking.service';
 import { findWhatsAppLeadByPhone } from '../whatsapp-lead.service';
 import { recordDiagnosticEvent } from '../diagnostics.service';
@@ -30,6 +30,27 @@ export async function runConversionRulesForMessage(
     if (rules.length === 0) return;
 
     const occurrence: RuleOccurrence = { phone, messageText, direction, externalExecutionKey, occurredAt };
+    await runRulesForOccurrence(source, rules, occurrence);
+}
+
+// Gatilho por label do WhatsApp/CRM (ex: "Lead Qualificado", "Compra Aprovada")
+// — chamado quando uma etiqueta é aplicada a uma conversa (evolution/webhook.ts,
+// evento labels.association). phone já deve estar resolvido (não é o @lid cru);
+// quem não conseguir resolver telefone não chama essa função (loga diagnóstico
+// à parte, ver resolveLidToPhone em evolution/persist.ts).
+export async function runConversionRulesForLabel(
+    source: any, phone: string, labelName: string, externalExecutionKey: string, occurredAt: Date = new Date()
+): Promise<void> {
+    const rules = await getActiveLabelRules(source.id);
+    if (rules.length === 0) return;
+
+    const occurrence: RuleOccurrence = {
+        phone, messageText: null, direction: 'in', externalExecutionKey, occurredAt, labelName,
+    };
+    await runRulesForOccurrence(source, rules, occurrence);
+}
+
+async function runRulesForOccurrence(source: any, rules: ConversionRule[], occurrence: RuleOccurrence): Promise<void> {
     for (const rule of rules) {
         try {
             await runOneRule(source, rule, occurrence);
@@ -38,7 +59,7 @@ export async function runConversionRulesForMessage(
             recordDiagnosticEvent({
                 userId: source.user_id, sourceId: source.id, severity: 'error',
                 eventType: 'conversion_rule_failed',
-                title: `Regra "${rule.name}" falhou ao processar mensagem`,
+                title: `Regra "${rule.name}" falhou ao processar ocorrência`,
                 message: err.message,
             });
         }

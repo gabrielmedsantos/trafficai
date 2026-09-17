@@ -26,6 +26,8 @@ export interface EvolutionMessageEvent {
     sentAt: Date;
     /** Payload original (debug) */
     raw: Record<string, unknown>;
+    /** Presente quando o telefone veio de remoteJidAlt/participantAlt (chat original era @lid) */
+    resolvedFromLid?: string;
 }
 
 interface PersistContext {
@@ -196,6 +198,59 @@ async function updateConversationState(conv: ConversationRow, evt: EvolutionMess
 }
 
 // ----- Connection update helpers -----
+
+// ----- Labels (gatilho "whatsapp_label" do motor de regras) -----
+
+export async function upsertEvolutionLabel(
+    integrationId: string, labelId: string, name: string, color: number | null, deleted: boolean
+): Promise<void> {
+    await query(
+        `INSERT INTO evolution_labels (integration_id, label_id, name, color, deleted, updated_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (integration_id, label_id)
+         DO UPDATE SET name = $3, color = $4, deleted = $5, updated_at = NOW()`,
+        [integrationId, labelId, name, color, deleted]
+    );
+}
+
+export async function getEvolutionLabelName(integrationId: string, labelId: string): Promise<string | null> {
+    const row = await queryOne<{ name: string }>(
+        `SELECT name FROM evolution_labels WHERE integration_id = $1 AND label_id = $2 AND deleted = FALSE`,
+        [integrationId, labelId]
+    );
+    return row?.name ?? null;
+}
+
+/** Só populado quando a Evolution expõe remoteJidAlt/participantAlt junto de um @lid (nem sempre disponível). */
+export async function upsertLidPhoneMapping(integrationId: string, lid: string, phone: string): Promise<void> {
+    await query(
+        `INSERT INTO evolution_lid_phone_map (integration_id, lid, phone, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (integration_id, lid) DO UPDATE SET phone = $3, updated_at = NOW()`,
+        [integrationId, lid, phone]
+    );
+}
+
+/**
+ * Resolve um JID de chat pra telefone. Formatos clássicos (@s.whatsapp.net/@c.us)
+ * resolvem direto; @lid só resolve se já vimos o mapeamento antes (via mensagem
+ * com remoteJidAlt) — sem isso, retorna null (chamador deve logar diagnóstico,
+ * não é bug nosso, é limitação do WhatsApp/Baileys em expor o telefone real).
+ */
+export async function resolveChatIdToPhone(integrationId: string, chatId: string): Promise<string | null> {
+    if (chatId.endsWith('@s.whatsapp.net') || chatId.endsWith('@c.us')) {
+        return chatId.split('@')[0]!.split(':')[0]!;
+    }
+    if (chatId.endsWith('@lid')) {
+        const lid = chatId.split('@')[0]!;
+        const row = await queryOne<{ phone: string }>(
+            `SELECT phone FROM evolution_lid_phone_map WHERE integration_id = $1 AND lid = $2`,
+            [integrationId, lid]
+        );
+        return row?.phone ?? null;
+    }
+    return null;
+}
 
 export async function updateIntegrationConnectionState(
     integrationId: string,
