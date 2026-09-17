@@ -12,6 +12,7 @@ import crypto from 'crypto';
 import { KommoClient } from './kommo/client';
 import { syncKommoIntegration } from './kommo/sync';
 import { EvolutionClient } from './evolution/client';
+import { UazapiClient } from './uazapi/client';
 
 const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
 const META_GRAPH_URL = `https://graph.facebook.com/${META_API_VERSION}`;
@@ -279,6 +280,84 @@ function resolveEvolutionForIntegration(credentials: any): { baseUrl: string; ap
     return { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey };
 }
 
+function getUazapiConfig(): { baseUrl: string; adminToken: string; webhookBase: string } {
+    const baseUrl = process.env.UAZAPI_BASE_URL;
+    const adminToken = process.env.UAZAPI_ADMIN_TOKEN;
+    const webhookBase = (process.env.PUBLIC_API_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001').replace(/\/$/, '');
+    if (!baseUrl || !adminToken) {
+        throw new Error('Configure a Uazapi: defina UAZAPI_BASE_URL e UAZAPI_ADMIN_TOKEN no .env do backend.');
+    }
+    return { baseUrl, adminToken, webhookBase };
+}
+
+// POST /commercial/integrations/whatsapp/uazapi/connect
+// Provedor extra (pago) além da Evolution — usado quando a Evolution não
+// consegue resolver os contatos @lid do cliente pra telefone (ver conversa
+// sobre atribuição de leads @lid). Body: { name?, clientId?, trackingSourceId? }
+router.post('/whatsapp/uazapi/connect', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = getUserId(req);
+        const { name, clientId, trackingSourceId } = req.body as {
+            name?: string; clientId?: string; trackingSourceId?: string;
+        };
+
+        if (trackingSourceId) {
+            const own = await queryOne<{ id: string }>(
+                `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+                [trackingSourceId, userId]
+            );
+            if (!own) return fail(res, 'Fonte de tracking não encontrada', 404);
+        }
+
+        const cfg = getUazapiConfig();
+        const uaz = new UazapiClient(cfg.baseUrl, cfg.adminToken);
+
+        // Cria registro primeiro pra usar o id como nome da instância na Uazapi
+        const ins = await query<{ id: string }>(
+            `INSERT INTO comm_integrations
+             (user_id, client_id, type, name, status, config, credentials, tracking_source_id)
+             VALUES ($1, $2, 'whatsapp_uazapi', $3, 'connecting', '{}'::jsonb, '{}'::jsonb, $4)
+             RETURNING id`,
+            [userId, clientId ?? null, name ?? 'WhatsApp Uazapi', trackingSourceId ?? null]
+        );
+        const integrationId = ins[0]!.id;
+        const instanceName = `comm-${integrationId}`;
+
+        try {
+            const created = await uaz.createInstance(instanceName);
+            const webhookUrl = `${cfg.webhookBase}/api/v1/commercial/webhooks/uazapi/${integrationId}`;
+            await uaz.configureWebhook(created.token, webhookUrl);
+            const connected = await uaz.connect(created.token);
+
+            await query(
+                `UPDATE comm_integrations
+                 SET config = $1::jsonb, credentials = $2::jsonb
+                 WHERE id = $3`,
+                [
+                    JSON.stringify({ instanceId: created.instanceId, instanceName }),
+                    JSON.stringify({ instance_token: created.token }),
+                    integrationId,
+                ]
+            );
+
+            res.json({
+                success: true,
+                data: {
+                    integrationId,
+                    qrCode: connected.qrCode,
+                    message: 'Instância criada. Abra o WhatsApp e escaneie o QR Code.',
+                },
+            });
+        } catch (err: any) {
+            await query(`DELETE FROM comm_integrations WHERE id = $1`, [integrationId]);
+            return fail(res, 'Falha ao criar instância na Uazapi: ' + UazapiClient.formatError(err), 500);
+        }
+    } catch (err: any) {
+        logger.error('Erro ao conectar WhatsApp (Uazapi)', { error: err.message });
+        fail(res, err.message, 500);
+    }
+});
+
 // GET /commercial/integrations/:id/qr — busca QR atualizado (polling do frontend)
 router.get('/:id/qr', async (req: Request, res: Response): Promise<void> => {
     try {
@@ -292,9 +371,27 @@ router.get('/:id/qr', async (req: Request, res: Response): Promise<void> => {
             [req.params.id]
         );
         if (!intg || intg.user_id !== userId) return fail(res, 'Integração não encontrada', 404);
-        if (intg.type !== 'whatsapp_evolution') return fail(res, 'Não é integração WhatsApp', 400);
+        if (intg.type !== 'whatsapp_evolution' && intg.type !== 'whatsapp_uazapi') {
+            return fail(res, 'Não é integração WhatsApp', 400);
+        }
         if (intg.status === 'connected') {
             return res.json({ success: true, data: { status: 'connected', qrCode: null } }) as unknown as void;
+        }
+
+        if (intg.type === 'whatsapp_uazapi') {
+            const token = (intg.credentials as any)?.instance_token;
+            if (!token) return fail(res, 'instance_token ausente', 500);
+            const uaz = new UazapiClient(getUazapiConfig().baseUrl, getUazapiConfig().adminToken);
+            const status = await uaz.getStatus(token);
+            res.json({
+                success: true,
+                data: {
+                    status: status.status === 'open' ? 'connected' : status.status === 'connecting' ? 'connecting' : 'disconnected',
+                    qrCode: status.qrCode,
+                    pairingCode: null,
+                },
+            });
+            return;
         }
 
         const ev = resolveEvolutionForIntegration(intg.credentials);
@@ -420,7 +517,9 @@ router.patch('/:id/link-tracking-source', async (req: Request, res: Response): P
             [req.params.id, userId]
         );
         if (!intg) return fail(res, 'Integração não encontrada', 404);
-        if (intg.type !== 'whatsapp_evolution') return fail(res, 'Só integrações WhatsApp podem ser vinculadas ao Tracking', 400);
+        if (intg.type !== 'whatsapp_evolution' && intg.type !== 'whatsapp_uazapi') {
+            return fail(res, 'Só integrações WhatsApp podem ser vinculadas ao Tracking', 400);
+        }
 
         if (trackingSourceId) {
             const own = await queryOne<{ id: string }>(
@@ -446,23 +545,28 @@ router.patch('/:id/link-tracking-source', async (req: Request, res: Response): P
 router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = getUserId(req);
-        const intg = await queryOne<{ id: string; type: string; config: any }>(
-            `SELECT id, type, config FROM comm_integrations WHERE id = $1 AND user_id = $2`,
+        const intg = await queryOne<{ id: string; type: string; config: any; credentials: any }>(
+            `SELECT id, type, config, credentials FROM comm_integrations WHERE id = $1 AND user_id = $2`,
             [req.params.id, userId]
         );
         if (!intg) return fail(res, 'Integração não encontrada', 404);
 
-        // Limpa instância no Evolution antes de remover do banco
+        // Limpa instância no provedor antes de remover do banco
         if (intg.type === 'whatsapp_evolution' && intg.config?.instanceName) {
             try {
-                const fullIntg = await queryOne<{ credentials: any }>(
-                    `SELECT credentials FROM comm_integrations WHERE id = $1`, [intg.id]
-                );
-                const ev = resolveEvolutionForIntegration(fullIntg?.credentials);
+                const ev = resolveEvolutionForIntegration(intg.credentials);
                 const evo = new EvolutionClient(ev.baseUrl, ev.apiKey);
                 await evo.deleteInstance(intg.config.instanceName);
             } catch (err: any) {
                 logger.warn('Erro ao deletar instância Evolution (continuando)', { error: err.message });
+            }
+        } else if (intg.type === 'whatsapp_uazapi' && intg.credentials?.instance_token) {
+            try {
+                const cfg = getUazapiConfig();
+                const uaz = new UazapiClient(cfg.baseUrl, cfg.adminToken);
+                await uaz.deleteInstance(intg.credentials.instance_token);
+            } catch (err: any) {
+                logger.warn('Erro ao deletar instância Uazapi (continuando)', { error: err.message });
             }
         }
 

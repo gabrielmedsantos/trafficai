@@ -173,6 +173,65 @@ export async function processCloudApiMessage(
     });
 }
 
+/**
+ * Processa uma mensagem do Uazapi (uazapiGO — provedor extra além da
+ * Evolution). Formato de webhook confirmado contra conta real e cruzado com
+ * o adapter de referência do RastrackDash — os campos de atribuição de
+ * anúncio variam de posição dependendo de como o Uazapi encapsula a mensagem
+ * bruta do Baileys por baixo, daí a busca em múltiplos caminhos.
+ */
+export async function processUazapiMessage(source: any, body: any): Promise<WhatsAppProcessResult> {
+    if (!body) return { lead_created: false, meta_sent: false, reason: 'payload vazio' };
+
+    const message = body.message && typeof body.message === 'object' ? body.message : null;
+    const content = message?.content && typeof message.content === 'object' ? message.content : null;
+
+    // Mensagem do próprio atendente não interessa aqui (fromMe/wasSentByApi)
+    if (body.fromMe === true || body.wasSentByApi === true || message?.fromMe === true) {
+        return { lead_created: false, meta_sent: false, reason: 'fromMe' };
+    }
+
+    const chat = body.chat && typeof body.chat === 'object' ? body.chat : null;
+    const contact = body.contact && typeof body.contact === 'object' ? body.contact : null;
+    const rawPhone =
+        body.phone || body.from || body.sender || contact?.phone || chat?.phone ||
+        message?.chatid || chat?.wa_chatid || '';
+    const phone = String(rawPhone).split('@')[0]!.replace(/\D/g, '');
+    if (!phone) return { lead_created: false, meta_sent: false, reason: 'sem telefone' };
+
+    // externalAdReply pode vir aninhado em 3 lugares diferentes dependendo de
+    // como o Uazapi encapsula o payload bruto do Baileys — mesma estrutura de
+    // campo (sourceId/sourceUrl/title/thumbnailUrl/ctwaClid) da Evolution.
+    const adReply =
+        content?.contextInfo?.externalAdReply ||
+        message?.contextInfo?.externalAdReply ||
+        body.contextInfo?.externalAdReply ||
+        body.referral || null;
+
+    const ctwaClid = body.ctwa_clid || body.ctwaClid || adReply?.ctwaClid || adReply?.ctwa_clid;
+    if (!ctwaClid) {
+        return { lead_created: false, meta_sent: false, phone, reason: 'sem ctwa_clid (não veio de anúncio)' };
+    }
+
+    const messageText =
+        (typeof body.message === 'string' ? body.message : null) ||
+        message?.text || message?.body || message?.conversation ||
+        body.text || body.messageText || null;
+
+    return processExtractedLead(source, {
+        phone,
+        name: String(body.name || body.contactName || body.pushName || contact?.name || chat?.wa_name || '').trim() || null,
+        ctwaClid,
+        adSourceId: adReply?.sourceId || adReply?.sourceID || adReply?.source_id || null,
+        adSourceUrl: adReply?.sourceUrl || adReply?.source_url || null,
+        adTitle: adReply?.title || adReply?.headline || null,
+        adThumbUrl: adReply?.thumbnailUrl || adReply?.thumbnail_url || null,
+        messageText,
+        instanceName: 'uazapi',
+        rawPayload: body,
+    });
+}
+
 interface ExtractedLeadInput {
     phone: string;
     name: string | null;

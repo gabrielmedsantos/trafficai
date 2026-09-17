@@ -1029,6 +1029,16 @@ class ApiClient {
         );
     }
 
+    async connectCommercialWhatsAppUazapi(payload: {
+        name?: string;
+        clientId?: string;
+        trackingSourceId?: string;
+    } = {}) {
+        return this.request<{ integrationId: string; qrCode: string | null; message: string }>(
+            'POST', '/commercial/integrations/whatsapp/uazapi/connect', payload
+        );
+    }
+
     async getCommercialIntegrationQr(id: string) {
         return this.request<{ status: string; qrCode: string | null; pairingCode: string | null }>(
             'GET', `/commercial/integrations/${id}/qr`

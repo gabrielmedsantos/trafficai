@@ -3729,11 +3729,12 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
     const [qr, setQr] = useState<{ status: string; qrCode: string | null; pairingCode: string | null } | null>(null);
     const [selectedExisting, setSelectedExisting] = useState('');
     const [error, setError] = useState('');
+    const [provider, setProvider] = useState<'whatsapp_evolution' | 'whatsapp_uazapi'>('whatsapp_evolution');
 
     const load = useCallback(async () => {
         try {
             const all = await api.listCommercialIntegrations();
-            setIntegrations((all || []).filter((i: any) => i.type === 'whatsapp_evolution'));
+            setIntegrations((all || []).filter((i: any) => i.type === 'whatsapp_evolution' || i.type === 'whatsapp_uazapi'));
         } catch { setIntegrations([]); }
         finally { setLoading(false); }
     }, []);
@@ -3764,10 +3765,17 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
     async function createNew() {
         setSaving(true); setError('');
         try {
-            await api.connectCommercialWhatsApp({
-                name: `WhatsApp — ${source.name}`,
-                trackingSourceId: source.id,
-            });
+            if (provider === 'whatsapp_uazapi') {
+                await api.connectCommercialWhatsAppUazapi({
+                    name: `WhatsApp (Uazapi) — ${source.name}`,
+                    trackingSourceId: source.id,
+                });
+            } else {
+                await api.connectCommercialWhatsApp({
+                    name: `WhatsApp — ${source.name}`,
+                    trackingSourceId: source.id,
+                });
+            }
             await load();
         } catch (e: any) {
             setError(e.message || 'Erro ao criar conexão');
@@ -3824,6 +3832,9 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
                             {linked.status === 'connected' ? 'Conectado' : linked.status === 'connecting' ? 'Aguardando QR' : linked.status}
                         </span>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>{linked.name}</span>
+                        <span className="badge" style={{ fontSize: 10 }}>
+                            {linked.type === 'whatsapp_uazapi' ? 'Uazapi' : 'Evolution'}
+                        </span>
                         <button type="button" className="btn btn-ghost btn-sm" onClick={unlink} disabled={saving} style={{ marginLeft: 'auto' }}>
                             Desvincular
                         </button>
@@ -3855,12 +3866,21 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
                             </button>
                         </div>
                     )}
+                    <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: 11 }}>Provedor da conexão</label>
+                        <select className="form-select" value={provider} onChange={e => setProvider(e.target.value as any)} style={{ maxWidth: 320 }}>
+                            <option value="whatsapp_evolution">Evolution (padrão, sem custo extra)</option>
+                            <option value="whatsapp_uazapi">Uazapi (extra, pago — resolve mais contatos @lid)</option>
+                        </select>
+                    </div>
                     <button type="button" className="btn btn-primary btn-sm" onClick={createNew} disabled={saving} style={{ alignSelf: 'flex-start' }}>
                         {saving ? 'Criando…' : 'Criar nova conexão WhatsApp (QR Code)'}
                     </button>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Aqui é só WhatsApp Web (Evolution). Se o número do cliente usa a API oficial da Meta, conecte em
+                        Aqui é só WhatsApp Web (Evolution ou Uazapi). Se o número do cliente usa a API oficial da Meta, conecte em
                         Comercial → Integrações (o atendimento passa a rodar por lá) e volte aqui só pra vincular à atribuição.
+                        A Uazapi é uma opção paga à parte — use quando muitos contatos do cliente não aparecerem com telefone
+                        (formato <span className="mono">@lid</span> do WhatsApp) na Evolution.
                     </p>
                 </div>
             )}
