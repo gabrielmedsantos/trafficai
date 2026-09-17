@@ -2046,7 +2046,7 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     URLs por estágio do pipeline
                                 </div>
                                 <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                                    1 URL por Salesbot do Kommo
+                                    1 URL por automação/estágio
                                 </span>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 6 }}>
@@ -2084,23 +2084,37 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     </div>
                                 ))}
                             </div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
-                                <span>
-                                    No Kommo: <strong>Leads → Funis → Automação → Adicionar Salesbot</strong> · gatilho "Mudança de status" ·
-                                    ação <strong>Enviar um webhook</strong> com a URL correspondente.
-                                </span>
-                            </div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
-                                <span>
-                                    <strong>Mais simples:</strong> se não quiser configurar um Salesbot por estágio, cadastre <strong>1 único
-                                    webhook nativo</strong> no Kommo (Configurações → Webhooks → Mudança de status do lead) usando a URL
-                                    base <span className="mono">{webhookUrl}?key={detail.webhook_secret}</span> sem o <span className="mono">&event=</span>.
-                                    A gente detecta Lead/Venda automaticamente pelo nome real do estágio no seu funil — só recomendamos as
-                                    URLs por estágio acima se quiser controle explícito sobre exatamente quais estágios disparam evento.
-                                </span>
-                            </div>
+                            {source.crm_type === 'datacrazy' ? (
+                                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                    <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                                    <span>
+                                        Na DataCrazy: <strong>Automações → Nova automação</strong> · gatilho "Negócio movido pra etapa X" ·
+                                        ação <strong>HTTP → Requisição HTTP com comunicação via JSON</strong> · cole a URL correspondente ao
+                                        estágio e configure o corpo JSON com <span className="mono">{'{"phone": "...", "email": "...", "first_name": "...", "value": "..."}'}</span> usando
+                                        as variáveis do lead que a DataCrazy oferecer nesse campo (telefone e valor são os essenciais).
+                                    </span>
+                                </div>
+                            ) : (
+                                <>
+                                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 10, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                        <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                                        <span>
+                                            No Kommo: <strong>Leads → Funis → Automação → Adicionar Salesbot</strong> · gatilho "Mudança de status" ·
+                                            ação <strong>Enviar um webhook</strong> com a URL correspondente.
+                                        </span>
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, padding: '8px 10px', background: 'var(--bg-surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                        <CircleAlert size={13} style={{ marginTop: 1, flexShrink: 0, color: 'var(--text-muted)' }} />
+                                        <span>
+                                            <strong>Mais simples:</strong> se não quiser configurar um Salesbot por estágio, cadastre <strong>1 único
+                                            webhook nativo</strong> no Kommo (Configurações → Webhooks → Mudança de status do lead) usando a URL
+                                            base <span className="mono">{webhookUrl}?key={detail.webhook_secret}</span> sem o <span className="mono">&event=</span>.
+                                            A gente detecta Lead/Venda automaticamente pelo nome real do estágio no seu funil — só recomendamos as
+                                            URLs por estágio acima se quiser controle explícito sobre exatamente quais estágios disparam evento.
+                                        </span>
+                                    </div>
+                                </>
+                            )}
                         </div>
                     )}
 
