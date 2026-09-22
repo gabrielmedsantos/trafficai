@@ -314,7 +314,13 @@ async function processExtractedLead(source: any, input: ExtractedLeadInput): Pro
         return { lead_created: false, meta_sent: false, phone, ctwa_clid: ctwaClid, reason: 'race: lead já criado por outro processo' };
     }
 
-    // Envia Lead pra Meta (event standard — substitui o antigo LeadSubmitted custom)
+    // Envia Lead pra Meta. IMPORTANTE: pra action_source='business_messaging'
+    // (mensagens WhatsApp), a Meta só aceita 6 nomes de evento —
+    // LeadSubmitted, QualifiedLead, ViewContent, AddToCart, InitiateCheckout,
+    // Purchase. O evento padrão "Lead" NÃO é válido nesse contexto e é
+    // rejeitado com "Invalid parameter" (confirmado em produção — 100% dos
+    // Lead via WhatsApp falhavam silenciosamente desde que essa troca foi
+    // feita). LeadSubmitted é o equivalente correto.
     let metaSent = false;
     let metaError: string | null = null;
 
@@ -323,7 +329,7 @@ async function processExtractedLead(source: any, input: ExtractedLeadInput): Pro
 
     if (effectivePixel && source.access_token) {
         const event: TrackingEventInput = {
-            event_name: 'Lead',
+            event_name: 'LeadSubmitted',
             event_id: leadEventId,
             event_time: Math.floor(Date.now() / 1000),
             action_source: 'business_messaging',
