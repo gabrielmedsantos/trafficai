@@ -156,18 +156,23 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color } = req.body;
+        const {
+            name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color,
+            legal_name, cnpj, address, neighborhood, zip_code, city_state,
+        } = req.body;
 
         if (!name) {
             return res.status(400).json({ success: false, error: { message: 'Nome é obrigatório' } });
         }
 
         const rows = await query<any>(
-            `INSERT INTO clients (user_id, name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            `INSERT INTO clients (user_id, name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color,
+                                   legal_name, cnpj, address, neighborhood, zip_code, city_state)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
              RETURNING *`,
             [userId, name, email || null, phone || null, company || null, status || 'ativo', plan || null,
-             monthly_value || 0, contract_start || null, contract_end || null, notes || null, avatar_color || '#6366f1']
+             monthly_value || 0, contract_start || null, contract_end || null, notes || null, avatar_color || '#6366f1',
+             legal_name || null, cnpj || null, address || null, neighborhood || null, zip_code || null, city_state || null]
         );
 
         res.status(201).json({ success: true, data: rows[0] });
