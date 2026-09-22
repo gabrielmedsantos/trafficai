@@ -65,15 +65,25 @@ async function resolveAdMetadata(adId: string, accessToken: string): Promise<Res
             {
                 params: {
                     access_token: accessToken,
-                    fields: 'name,tracking_specs,campaign{id,name},adset{id,name}',
+                    fields: 'name,tracking_specs,campaign{id,name},adset{id,name},creative{object_story_spec,effective_object_story_id}',
                 },
                 timeout: 10000,
             }
         );
         const found = findDatasetAndPage(r.data);
+
+        // page_id É OBRIGATÓRIO pra Meta aceitar eventos business_messaging/whatsapp
+        // (error_subcode 2804116 sem ele) — tracking_specs raramente carrega page
+        // pra anúncios de Click-to-WhatsApp; o campo confiável é o da própria
+        // criação do anúncio (object_story_spec.page_id) ou o prefixo do post
+        // (effective_object_story_id = "{page_id}_{post_id}").
+        const creative = r.data?.creative;
+        const pageFromCreative = creative?.object_story_spec?.page_id
+            || (creative?.effective_object_story_id ? String(creative.effective_object_story_id).split('_')[0] : null);
+
         return {
             pixel: found.dataset[0] || null,
-            page: found.page[0] || null,
+            page: pageFromCreative || found.page[0] || null,
             ad_name: r.data?.name || null,
             campaign_id: r.data?.campaign?.id || null,
             campaign_name: r.data?.campaign?.name || null,
@@ -271,8 +281,22 @@ async function processExtractedLead(source: any, input: ExtractedLeadInput): Pro
     let metaAdsetId: string | null = null;
     let metaAdsetName: string | null = null;
     let campaignId: string | null = null;
-    if (adSourceId && source.access_token) {
-        const resolved = await resolveAdMetadata(adSourceId, decryptMaybe(source.access_token)!);
+    // resolveAdMetadata precisa de escopo ads_read pra ler o anúncio/página —
+    // o access_token da FONTE costuma ser o token de CAPI do Pixel (Events
+    // Manager → gerar token), que só tem permissão pra ENVIAR eventos, não
+    // pra ler Ads. Usa o token de Ads do usuário (Cadastro Incorporado, tem
+    // ads_read) quando disponível; cai pro token da fonte só como fallback.
+    let adsReadToken: string | null | undefined = decryptMaybe(source.access_token);
+    if (source.user_id) {
+        try {
+            const { authRepository } = await import('../auth/auth.repository');
+            const user = await authRepository.findById(source.user_id);
+            if (user?.access_token) adsReadToken = user.access_token;
+        } catch { /* fallback pro token da fonte */ }
+    }
+
+    if (adSourceId && adsReadToken) {
+        const resolved = await resolveAdMetadata(adSourceId, adsReadToken);
         pixelId = resolved.pixel;
         pageId = resolved.page;
         adName = resolved.ad_name;
