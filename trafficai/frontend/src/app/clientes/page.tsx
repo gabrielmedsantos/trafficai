@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Plus, Search, Edit2, Trash2, X, Building2, Mail, Phone,
     TrendingUp, Users, DollarSign, UserMinus, ChevronDown,
@@ -174,6 +174,7 @@ export default function ClientesPage() {
     const [generatingLoading, setGeneratingLoading] = useState(false);
     const [generateError, setGenerateError] = useState('');
     const [generatedHistory, setGeneratedHistory] = useState<{ id: string; filename: string; generated_at: string }[]>([]);
+    const generateModalRef = useRef<HTMLDivElement>(null);
 
     // Meetings (compartilhado com drawer único)
     const [meetingStatsMap, setMeetingStatsMap] = useState<Record<string, { this_month: number; last_month: number; risk: 'low' | 'medium' | 'high'; total_completed: number }>>({});
@@ -565,15 +566,20 @@ export default function ClientesPage() {
         return `${d}/${m}/${y}`;
     }
 
+    function failGenerate(message: string) {
+        setGenerateError(message);
+        generateModalRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     async function handleGenerateContract() {
         if (!contractsClient || !generatingFor) return;
         const f = generateForm;
         if (!f.legal_name || !f.cnpj || !f.address || !f.neighborhood || !f.zip_code || !f.city_state) {
-            setGenerateError('Preencha os dados do CONTRATANTE (razão social, CNPJ, endereço, bairro, CEP, cidade)');
+            failGenerate('Preencha os dados do CONTRATANTE (razão social, CNPJ, endereço, bairro, CEP, cidade)');
             return;
         }
         if (!f.project_name || !f.first_payment_date || !f.due_day || !f.contract_term_months || !f.signature_date || !f.signature_city) {
-            setGenerateError('Preencha todos os campos do contrato');
+            failGenerate('Preencha todos os campos do contrato');
             return;
         }
         setGeneratingLoading(true); setGenerateError('');
@@ -588,10 +594,10 @@ export default function ClientesPage() {
                 }),
             });
             const json = await res.json();
-            if (!json.success) { setGenerateError(json.error?.message || 'Erro ao gerar contrato'); return; }
+            if (!json.success) { failGenerate(json.error?.message || 'Erro ao gerar contrato'); return; }
             await fetchGeneratedHistory(generatingFor.id);
             await downloadGeneratedContract(json.data.id, json.data.filename);
-        } catch { setGenerateError('Erro de conexão'); } finally { setGeneratingLoading(false); }
+        } catch { failGenerate('Erro de conexão'); } finally { setGeneratingLoading(false); }
     }
 
     async function downloadGeneratedContract(id: string, filename: string) {
@@ -1408,7 +1414,7 @@ export default function ClientesPage() {
             {/* ─── Gerar Contrato (PDF) Modal ─── */}
             {showGenerateModal && generatingFor && contractsClient && (
                 <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 105, padding: 20 }}>
-                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', padding: 32 }}>
+                    <div ref={generateModalRef} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', padding: 32 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>
                                 Gerar Contrato (PDF)
