@@ -4595,6 +4595,8 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
     const [loadingSchema, setLoadingSchema] = useState(mode === 'create');
     const [discoveredPixels, setDiscoveredPixels] = useState<{ pixel_id: string; pixel_name: string; business_name: string | null }[]>([]);
     const [selectedPixel, setSelectedPixel] = useState('');
+    const [pixelSearch, setPixelSearch] = useState('');
+    const [pixelDropdownOpen, setPixelDropdownOpen] = useState(false);
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -4857,22 +4859,65 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
 
                 <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0 14px' }} />
 
-                {discoveredPixels.length > 0 && (
-                    <div className="form-group">
-                        <label className="form-label">Pixels descobertos (Cadastro Incorporado)</label>
-                        <select className="form-select" value={selectedPixel} onChange={e => pickDiscoveredPixel(e.target.value)}>
-                            <option value="">Escolher um pixel já conectado…</option>
-                            {discoveredPixels.map(p => (
-                                <option key={p.pixel_id} value={p.pixel_id}>
-                                    {p.pixel_name} ({p.pixel_id}){p.business_name ? ` · ${p.business_name}` : ''}
-                                </option>
-                            ))}
-                        </select>
-                        <span className="form-hint">
-                            Escolhendo aqui, usa o token da sua conta de Ads conectada — não precisa colar token separado do pixel.
-                        </span>
-                    </div>
-                )}
+                {discoveredPixels.length > 0 && (() => {
+                    const q = pixelSearch.trim().toLowerCase();
+                    const filtered = !q ? discoveredPixels : discoveredPixels.filter(p =>
+                        p.pixel_name.toLowerCase().includes(q) ||
+                        p.pixel_id.includes(q) ||
+                        (p.business_name || '').toLowerCase().includes(q)
+                    );
+                    const selected = discoveredPixels.find(p => p.pixel_id === selectedPixel);
+                    const selectedLabel = selected
+                        ? `${selected.pixel_name} (${selected.pixel_id})${selected.business_name ? ` · ${selected.business_name}` : ''}`
+                        : '';
+                    return (
+                        <div className="form-group" style={{ position: 'relative' }}>
+                            <label className="form-label">Pixels descobertos (Cadastro Incorporado)</label>
+                            <input
+                                type="text"
+                                className="form-input"
+                                value={pixelDropdownOpen ? pixelSearch : selectedLabel}
+                                onChange={e => { setPixelSearch(e.target.value); setPixelDropdownOpen(true); }}
+                                onFocus={() => { setPixelSearch(''); setPixelDropdownOpen(true); }}
+                                onBlur={() => setTimeout(() => setPixelDropdownOpen(false), 150)}
+                                placeholder="Buscar pixel por nome, ID ou negócio…"
+                            />
+                            {pixelDropdownOpen && (
+                                <div style={{
+                                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
+                                    maxHeight: 260, overflowY: 'auto', background: 'var(--bg-surface)',
+                                    border: '1px solid var(--border)', borderRadius: 8, marginTop: 4,
+                                    boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+                                }}>
+                                    <div
+                                        onMouseDown={() => { pickDiscoveredPixel(''); setPixelSearch(''); setPixelDropdownOpen(false); }}
+                                        style={{ padding: '8px 12px', fontSize: 12.5, cursor: 'pointer', color: 'var(--text-muted)' }}
+                                    >
+                                        Escolher um pixel já conectado…
+                                    </div>
+                                    {filtered.length === 0 ? (
+                                        <div style={{ padding: '8px 12px', fontSize: 12.5, color: 'var(--text-muted)' }}>
+                                            Nenhum pixel encontrado.
+                                        </div>
+                                    ) : filtered.map(p => (
+                                        <div
+                                            key={p.pixel_id}
+                                            onMouseDown={() => { pickDiscoveredPixel(p.pixel_id); setPixelSearch(''); setPixelDropdownOpen(false); }}
+                                            style={{ padding: '8px 12px', fontSize: 12.5, cursor: 'pointer' }}
+                                            onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-input)')}
+                                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                        >
+                                            {p.pixel_name} ({p.pixel_id}){p.business_name ? ` · ${p.business_name}` : ''}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <span className="form-hint">
+                                Escolhendo aqui, usa o token da sua conta de Ads conectada — não precisa colar token separado do pixel.
+                            </span>
+                        </div>
+                    );
+                })()}
 
                 <div className="form-group">
                     <label className="form-label">Pixel ID (Conjunto de Dados)</label>
