@@ -6,6 +6,7 @@ import {
     TrendingUp, Users, DollarSign, UserMinus, ChevronDown,
     FileText, Percent, CheckCircle, PauseCircle, XCircle,
     AlertCircle, CheckCircle2, ExternalLink, Link, Calendar, Video,
+    PenTool, Clock, Copy,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -163,6 +164,11 @@ export default function ClientesPage() {
     const [deleteContractId, setDeleteContractId] = useState<string | null>(null);
     const [contractError, setContractError] = useState('');
 
+    // Assinatura eletrônica (ZapSign) — último PDF gerado + status de assinatura, por contrato
+    interface SignatureInfo { generatedContractId: string; filename: string; signature: { id: string; sign_url: string; status: string; signed_at: string | null } | null; }
+    const [signatureByContract, setSignatureByContract] = useState<Record<string, SignatureInfo | null>>({});
+    const [sendingSignatureId, setSendingSignatureId] = useState<string | null>(null);
+
     // Geração de contrato (PDF) — direto a partir dos dados já salvos no cadastro do cliente
     const [quickGeneratingId, setQuickGeneratingId] = useState<string | null>(null);
 
@@ -247,9 +253,48 @@ export default function ClientesPage() {
                 headers: { Authorization: `Bearer ${token()}` },
             });
             const json = await res.json();
-            if (json.success) setContracts(json.data);
+            if (json.success) {
+                setContracts(json.data);
+                const entries = await Promise.all((json.data as Contract[]).map(async (c) => {
+                    try {
+                        const r = await fetch(`${API}/clients/${clientId}/contracts/${c.id}/latest-signature`, {
+                            headers: { Authorization: `Bearer ${token()}` },
+                        });
+                        const j = await r.json();
+                        return [c.id, j.success ? j.data : null] as const;
+                    } catch { return [c.id, null] as const; }
+                }));
+                setSignatureByContract(Object.fromEntries(entries));
+            }
         } catch { /* ignore */ } finally { setLoadingContracts(false); }
     }, []);
+
+    async function handleSendForSignature(generatedContractId: string, clientId: string, contractId: string) {
+        setSendingSignatureId(generatedContractId);
+        try {
+            const res = await fetch(`${API}/clients/generated-contracts/${generatedContractId}/send-for-signature`, {
+                method: 'POST', headers: { Authorization: `Bearer ${token()}` },
+            });
+            const json = await res.json();
+            if (!json.success) { alert(json.error?.message || 'Erro ao enviar pra assinatura'); return; }
+            await fetchContracts(clientId);
+        } catch { alert('Erro de conexão ao enviar pra assinatura'); }
+        finally { setSendingSignatureId(null); }
+    }
+
+    async function downloadSignedContract(signatureId: string, filename: string) {
+        try {
+            const res = await fetch(`${API}/clients/contract-signatures/${signatureId}/download-signed`, {
+                headers: { Authorization: `Bearer ${token()}` },
+            });
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `Assinado - ${filename}`;
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+        } catch { /* ignore */ }
+    }
 
     // Stats
     const stats = {
@@ -567,6 +612,7 @@ export default function ClientesPage() {
             const json = await res.json();
             if (!json.success) { alert(json.error?.message || 'Erro ao gerar contrato'); return; }
             await downloadGeneratedContract(json.data.id, json.data.filename);
+            await fetchContracts(contractsClient.id);
         } catch { alert('Erro de conexão ao gerar contrato'); } finally { setQuickGeneratingId(null); }
     }
 
@@ -1031,6 +1077,48 @@ export default function ClientesPage() {
                                                     <FileText size={11} /> {quickGeneratingId === c.id ? 'Gerando...' : 'Gerar contrato (PDF)'}
                                                 </button>
                                             </div>
+                                            {(() => {
+                                                const sig = signatureByContract[c.id];
+                                                if (!sig) return null;
+                                                if (!sig.signature) {
+                                                    return (
+                                                        <div style={{ marginTop: 8 }}>
+                                                            <button onClick={() => handleSendForSignature(sig.generatedContractId, contractsClient!.id, c.id)} disabled={sendingSignatureId === sig.generatedContractId}
+                                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, background: 'rgba(168,85,247,.10)', border: '1px solid rgba(168,85,247,.25)', color: '#c084fc', cursor: sendingSignatureId === sig.generatedContractId ? 'not-allowed' : 'pointer', opacity: sendingSignatureId === sig.generatedContractId ? .6 : 1 }}>
+                                                                <PenTool size={11} /> {sendingSignatureId === sig.generatedContractId ? 'Enviando...' : 'Enviar para assinatura'}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+                                                if (sig.signature.status === 'signed') {
+                                                    return (
+                                                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#10b981' }}>
+                                                                <CheckCircle2 size={12} /> Assinado {sig.signature.signed_at ? `em ${new Date(sig.signature.signed_at).toLocaleDateString('pt-BR')}` : ''}
+                                                            </span>
+                                                            <button onClick={() => downloadSignedContract(sig.signature!.id, sig.filename)}
+                                                                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', fontSize: 12, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                                                                <FileText size={11} /> Baixar assinado
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+                                                return (
+                                                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#f59e0b' }}>
+                                                            <Clock size={12} /> Aguardando assinatura
+                                                        </span>
+                                                        <button onClick={() => { navigator.clipboard.writeText(sig.signature!.sign_url); }}
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', fontSize: 12, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                                                            <Copy size={11} /> Copiar link
+                                                        </button>
+                                                        <a href={sig.signature.sign_url} target="_blank" rel="noreferrer"
+                                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 9px', fontSize: 12, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', textDecoration: 'none' }}>
+                                                            <ExternalLink size={11} /> Abrir
+                                                        </a>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     );
                                 })}

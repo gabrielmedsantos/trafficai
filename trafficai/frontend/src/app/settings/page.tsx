@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   Link2, CheckCircle, XCircle, RefreshCw, AlertCircle, Key,
   Bell, Mail, MessageCircle, Save, Send, Moon, ShieldCheck, Info,
-  Zap, AlertTriangle, Smartphone, Wallet, Plug, ChevronRight,
+  Zap, AlertTriangle, Smartphone, Wallet, Plug, ChevronRight, PenTool,
 } from 'lucide-react';
 import { MetaConnectButton } from '@/components/MetaConnectButton';
 import PWAInstallButton from '@/components/PWAInstallButton';
@@ -100,6 +100,11 @@ export default function SettingsPage() {
   const [manualToken, setManualToken] = useState('');
   const [savingToken, setSavingToken] = useState(false);
 
+  const [zapsignConfigured, setZapsignConfigured] = useState(false);
+  const [zapsignToken, setZapsignToken] = useState('');
+  const [savingZapsign, setSavingZapsign] = useState(false);
+  const [zapsignError, setZapsignError] = useState('');
+
   const [notif, setNotif] = useState<NotificationSettings>(defaultSettings);
   const [savingNotif, setSavingNotif] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
@@ -113,7 +118,52 @@ export default function SettingsPage() {
   useEffect(() => {
     loadUser();
     loadNotifSettings();
+    loadZapsign();
   }, []);
+
+  const loadZapsign = async () => {
+    try {
+      const res = await fetch(`${API}/settings/esignature`, { headers: { Authorization: `Bearer ${token()}` } });
+      const result = await res.json();
+      if (result.success) setZapsignConfigured(!!result.data.configured);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const saveZapsignToken = async () => {
+    if (!zapsignToken.trim()) return;
+    setSavingZapsign(true); setZapsignError('');
+    try {
+      const res = await fetch(`${API}/settings/esignature/zapsign-token`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ api_token: zapsignToken }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        setZapsignConfigured(true); setZapsignToken('');
+      } else {
+        setZapsignError(result.error?.message || 'Erro ao salvar token');
+      }
+    } catch (e: any) {
+      setZapsignError('Erro de conexão: ' + e.message);
+    } finally {
+      setSavingZapsign(false);
+    }
+  };
+
+  const disconnectZapsign = async () => {
+    if (!confirm('Desconectar sua conta ZapSign? Contratos já enviados pra assinatura continuam válidos.')) return;
+    try {
+      await fetch(`${API}/settings/esignature/zapsign-token`, {
+        method: 'DELETE', headers: { Authorization: `Bearer ${token()}` },
+      });
+      setZapsignConfigured(false);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const loadUser = async () => {
     try {
@@ -420,6 +470,39 @@ export default function SettingsPage() {
                 Cancelar
               </button>
             </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── ZapSign (assinatura eletrônica de contratos) ── */}
+      <Section icon={<PenTool size={16} color="var(--primary)" />} title="Assinatura Eletrônica (ZapSign)">
+        <p style={{ color: 'var(--text-muted)', fontSize: '13.5px', marginBottom: '20px', lineHeight: 1.6 }}>
+          Conecte sua conta ZapSign pra enviar os contratos gerados direto pra assinatura do cliente, com link de assinatura e PDF assinado salvo automaticamente.
+        </p>
+
+        {zapsignConfigured ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px 16px', background: 'var(--bg-input)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontSize: '13.5px', fontWeight: 600 }}>
+              <CheckCircle size={16} /> Conta ZapSign conectada
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={disconnectZapsign}>Desconectar</button>
+          </div>
+        ) : (
+          <div style={{ padding: '18px', background: 'var(--bg-input)', borderRadius: '10px', border: '1px solid var(--border)' }}>
+            <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+              Cole o token de API do{' '}
+              <a href="https://app.zapsign.com.br/" target="_blank" rel="noopener noreferrer">
+                painel da ZapSign
+              </a>{' '}
+              (Configurações → Integrações → API).
+            </p>
+            <input value={zapsignToken} onChange={e => setZapsignToken(e.target.value)}
+              placeholder="Token de API da ZapSign" type="password"
+              style={{ ...inputSt, fontFamily: 'monospace', fontSize: '13px', marginBottom: '10px' }} />
+            {zapsignError && <p style={{ fontSize: '12.5px', color: '#f87171', marginBottom: '10px' }}>{zapsignError}</p>}
+            <button className="btn btn-primary btn-sm" onClick={saveZapsignToken} disabled={savingZapsign || !zapsignToken.trim()}>
+              {savingZapsign ? 'Conectando...' : 'Conectar ZapSign'}
+            </button>
           </div>
         )}
       </Section>

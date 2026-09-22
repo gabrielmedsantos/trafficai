@@ -10,6 +10,8 @@ import {
     getOrCreateDefaultTemplate, renderTemplate, generateContractPdf, saveGeneratedContract,
     formatCurrencyBRL, valorPorExtenso, ContractVars,
 } from './contract-generator.service';
+import { zapsignCreateDocument } from './zapsign.client';
+import { decryptMaybe } from '../shared/encryption';
 
 const router = Router();
 router.use(authMiddleware);
@@ -84,6 +86,78 @@ router.get('/generated-contracts/:id/download', async (req: Request, res: Respon
         res.send(row.file_data);
     } catch (error: any) {
         logger.error('Erro ao baixar contrato gerado', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /clients/generated-contracts/:id/send-for-signature — envia o PDF já gerado
+// pra ZapSign e devolve o link de assinatura (must be before /:id)
+router.post('/generated-contracts/:id/send-for-signature', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+
+        const row = await queryOne<{ filename: string; file_data: Buffer; client_name: string; client_email: string | null; client_phone: string | null }>(
+            `SELECT gc.filename, gc.file_data, cl.name as client_name, cl.email as client_email, cl.phone as client_phone
+             FROM generated_contracts gc
+             JOIN contracts c ON c.id = gc.contract_id
+             JOIN clients cl ON cl.id = c.client_id
+             WHERE gc.id = $1 AND c.user_id = $2`,
+            [id, userId]
+        );
+        if (!row) return res.status(404).json({ success: false, error: { message: 'Contrato gerado não encontrado' } });
+
+        const existing = await queryOne<{ id: string }>(`SELECT id FROM contract_signatures WHERE generated_contract_id = $1`, [id]);
+        if (existing) return res.status(400).json({ success: false, error: { message: 'Esse contrato já foi enviado pra assinatura' } });
+
+        const user = await queryOne<{ zapsign_api_token: string | null }>(`SELECT zapsign_api_token FROM users WHERE id = $1`, [userId]);
+        const apiToken = decryptMaybe(user?.zapsign_api_token);
+        if (!apiToken) {
+            return res.status(400).json({ success: false, error: { message: 'Conecte sua conta ZapSign em Configurações antes de enviar pra assinatura' } });
+        }
+        if (!row.client_email && !row.client_phone) {
+            return res.status(400).json({ success: false, error: { message: 'O cliente precisa ter e-mail ou telefone cadastrado pra receber o link de assinatura' } });
+        }
+
+        const result = await zapsignCreateDocument(
+            apiToken,
+            row.filename,
+            row.file_data.toString('base64'),
+            { name: row.client_name, email: row.client_email || undefined, phoneNumber: row.client_phone || undefined }
+        );
+
+        await query(
+            `INSERT INTO contract_signatures (generated_contract_id, zapsign_token, sign_url, status, signer_name, signer_email, signer_phone)
+             VALUES ($1, $2, $3, 'pending', $4, $5, $6)`,
+            [id, result.token, result.signUrl, row.client_name, row.client_email, row.client_phone]
+        );
+
+        res.status(201).json({ success: true, data: { signUrl: result.signUrl, status: 'pending' } });
+    } catch (error: any) {
+        logger.error('Erro ao enviar contrato pra assinatura', { error: error.message });
+        res.status(500).json({ success: false, error: { message: error.message || 'Erro interno' } });
+    }
+});
+
+// GET /clients/contract-signatures/:id/download-signed — baixa o PDF já assinado (must be before /:id)
+router.get('/contract-signatures/:id/download-signed', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const row = await queryOne<{ filename: string; signed_file_data: Buffer | null }>(
+            `SELECT gc.filename, cs.signed_file_data
+             FROM contract_signatures cs
+             JOIN generated_contracts gc ON gc.id = cs.generated_contract_id
+             JOIN contracts c ON c.id = gc.contract_id
+             WHERE cs.id = $1 AND c.user_id = $2`,
+            [id, userId]
+        );
+        if (!row || !row.signed_file_data) return res.status(404).json({ success: false, error: { message: 'PDF assinado ainda não disponível' } });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="Assinado - ${row.filename}"`);
+        res.send(row.signed_file_data);
+    } catch (error: any) {
+        logger.error('Erro ao baixar contrato assinado', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
@@ -398,6 +472,33 @@ router.get('/:clientId/contracts/:contractId/generated', async (req: Request, re
         res.json({ success: true, data: rows });
     } catch (error: any) {
         logger.error('Erro ao listar contratos gerados', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /clients/:clientId/contracts/:contractId/latest-signature — último PDF gerado
+// desse contrato + status de assinatura (se já foi enviado pra ZapSign). Um único
+// request pra alimentar o card do contrato no frontend (evita N+1).
+router.get('/:clientId/contracts/:contractId/latest-signature', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { contractId } = req.params;
+        const latest = await queryOne<{ id: string; filename: string }>(
+            `SELECT gc.id, gc.filename FROM generated_contracts gc
+             JOIN contracts c ON c.id = gc.contract_id
+             WHERE gc.contract_id = $1 AND c.user_id = $2
+             ORDER BY gc.generated_at DESC LIMIT 1`,
+            [contractId, userId]
+        );
+        if (!latest) return res.json({ success: true, data: null });
+
+        const signature = await queryOne<any>(
+            `SELECT id, sign_url, status, signed_at FROM contract_signatures WHERE generated_contract_id = $1`,
+            [latest.id]
+        );
+        res.json({ success: true, data: { generatedContractId: latest.id, filename: latest.filename, signature: signature || null } });
+    } catch (error: any) {
+        logger.error('Erro ao buscar status da assinatura', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
