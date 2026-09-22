@@ -3,9 +3,13 @@
 // ==============================
 
 import { Router, Request, Response } from 'express';
-import { query } from '../database/connection';
+import { query, queryOne } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
+import {
+    getOrCreateDefaultTemplate, renderTemplate, generateContractPdf, saveGeneratedContract,
+    formatCurrencyBRL, valorPorExtenso, ContractVars,
+} from './contract-generator.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -24,6 +28,62 @@ router.get('/contracts/all', async (req: Request, res: Response) => {
         );
         res.json({ success: true, data: rows });
     } catch (error: any) {
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /clients/contract-template — modelo padrão de contrato (cria se não existir)
+router.get('/contract-template', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const template = await getOrCreateDefaultTemplate(userId);
+        res.json({ success: true, data: template });
+    } catch (error: any) {
+        logger.error('Erro ao buscar modelo de contrato', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// PUT /clients/contract-template/:id — edita o texto do modelo
+router.put('/contract-template/:id', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { content } = req.body as { content?: string };
+        if (!content || !content.trim()) {
+            return res.status(400).json({ success: false, error: { message: 'Conteúdo é obrigatório' } });
+        }
+        const rows = await query<any>(
+            `UPDATE contract_templates SET content = $3, updated_at = NOW()
+             WHERE id = $1 AND user_id = $2 RETURNING id, name, content`,
+            [id, userId, content]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Modelo não encontrado' } });
+        res.json({ success: true, data: rows[0] });
+    } catch (error: any) {
+        logger.error('Erro ao atualizar modelo de contrato', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /clients/generated-contracts/:id/download — baixa o PDF já gerado (must be before /:id)
+router.get('/generated-contracts/:id/download', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const row = await queryOne<{ filename: string; file_data: Buffer }>(
+            `SELECT gc.filename, gc.file_data
+             FROM generated_contracts gc
+             JOIN contracts c ON c.id = gc.contract_id
+             WHERE gc.id = $1 AND c.user_id = $2`,
+            [id, userId]
+        );
+        if (!row) return res.status(404).json({ success: false, error: { message: 'Contrato gerado não encontrado' } });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${row.filename}"`);
+        res.send(row.file_data);
+    } catch (error: any) {
+        logger.error('Erro ao baixar contrato gerado', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
@@ -122,7 +182,10 @@ router.put('/:id', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
-        const { name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color } = req.body;
+        const {
+            name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color,
+            legal_name, cnpj, address, neighborhood, zip_code, city_state,
+        } = req.body;
 
         // churned_at: seta NOW() quando transiciona pra 'churned', limpa quando sai.
         // CASE no SQL pra não exigir uma SELECT prévia.
@@ -139,6 +202,12 @@ router.put('/:id', async (req: Request, res: Response) => {
                contract_end = COALESCE($11, contract_end),
                notes = COALESCE($12, notes),
                avatar_color = COALESCE($13, avatar_color),
+               legal_name = COALESCE($14, legal_name),
+               cnpj = COALESCE($15, cnpj),
+               address = COALESCE($16, address),
+               neighborhood = COALESCE($17, neighborhood),
+               zip_code = COALESCE($18, zip_code),
+               city_state = COALESCE($19, city_state),
                churned_at = CASE
                  WHEN $7::varchar = 'churned' AND status <> 'churned' THEN NOW()
                  WHEN $7::varchar IS NOT NULL AND $7::varchar <> 'churned' THEN NULL
@@ -147,7 +216,8 @@ router.put('/:id', async (req: Request, res: Response) => {
                updated_at = NOW()
              WHERE id = $1 AND user_id = $2
              RETURNING *`,
-            [id, userId, name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color]
+            [id, userId, name, email, phone, company, status, plan, monthly_value, contract_start, contract_end, notes, avatar_color,
+             legal_name, cnpj, address, neighborhood, zip_code, city_state]
         );
 
         if (!rows.length) {
@@ -303,6 +373,101 @@ router.delete('/:clientId/contracts/:contractId', async (req: Request, res: Resp
         await query(`DELETE FROM contracts WHERE id = $1 AND user_id = $2`, [contractId, userId]);
         res.json({ success: true, data: { message: 'Contrato removido' } });
     } catch (error: any) {
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /clients/:clientId/contracts/:contractId/generated — histórico de PDFs já gerados
+router.get('/:clientId/contracts/:contractId/generated', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { contractId } = req.params;
+        const rows = await query<any>(
+            `SELECT gc.id, gc.filename, gc.generated_at
+             FROM generated_contracts gc
+             JOIN contracts c ON c.id = gc.contract_id
+             WHERE gc.contract_id = $1 AND c.user_id = $2
+             ORDER BY gc.generated_at DESC`,
+            [contractId, userId]
+        );
+        res.json({ success: true, data: rows });
+    } catch (error: any) {
+        logger.error('Erro ao listar contratos gerados', { error: error.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /clients/:clientId/contracts/:contractId/generate — gera o PDF a partir do modelo
+// Body: { project_name, first_payment_date, due_day, contract_term_months, signature_date,
+//         signature_city, legal_name?, cnpj?, address?, neighborhood?, zip_code?, city_state? }
+// Os campos legais opcionais, se enviados, também são salvos no cliente (reuso em contratos futuros).
+router.post('/:clientId/contracts/:contractId/generate', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { clientId, contractId } = req.params;
+        const {
+            project_name, first_payment_date, due_day, contract_term_months, signature_date, signature_city,
+            legal_name, cnpj, address, neighborhood, zip_code, city_state,
+        } = req.body;
+
+        const client = await queryOne<any>(`SELECT * FROM clients WHERE id = $1 AND user_id = $2`, [clientId, userId]);
+        if (!client) return res.status(404).json({ success: false, error: { message: 'Cliente não encontrado' } });
+
+        const contract = await queryOne<any>(`SELECT * FROM contracts WHERE id = $1 AND user_id = $2`, [contractId, userId]);
+        if (!contract) return res.status(404).json({ success: false, error: { message: 'Contrato não encontrado' } });
+
+        // Salva/atualiza os dados legais no cliente, se vieram preenchidos — reaproveita da próxima vez.
+        const effectiveLegal = {
+            legal_name: legal_name || client.legal_name,
+            cnpj: cnpj || client.cnpj,
+            address: address || client.address,
+            neighborhood: neighborhood || client.neighborhood,
+            zip_code: zip_code || client.zip_code,
+            city_state: city_state || client.city_state,
+        };
+        if (legal_name || cnpj || address || neighborhood || zip_code || city_state) {
+            await query(
+                `UPDATE clients SET legal_name = $2, cnpj = $3, address = $4, neighborhood = $5, zip_code = $6, city_state = $7, updated_at = NOW()
+                 WHERE id = $1`,
+                [clientId, effectiveLegal.legal_name, effectiveLegal.cnpj, effectiveLegal.address,
+                 effectiveLegal.neighborhood, effectiveLegal.zip_code, effectiveLegal.city_state]
+            );
+        }
+
+        for (const [key, val] of Object.entries(effectiveLegal)) {
+            if (!val) return res.status(400).json({ success: false, error: { message: `Campo obrigatório ausente: ${key}` } });
+        }
+        if (!project_name || !first_payment_date || !due_day || !contract_term_months || !signature_date || !signature_city) {
+            return res.status(400).json({ success: false, error: { message: 'Preencha todos os campos do contrato' } });
+        }
+
+        const value = Number(contract.fixed_amount) || 0;
+        const vars: ContractVars = {
+            client_legal_name: effectiveLegal.legal_name,
+            client_cnpj: effectiveLegal.cnpj,
+            client_address: effectiveLegal.address,
+            client_neighborhood: effectiveLegal.neighborhood,
+            client_zip: effectiveLegal.zip_code,
+            client_city_state: effectiveLegal.city_state,
+            project_name,
+            monthly_value: formatCurrencyBRL(value),
+            monthly_value_extenso: valorPorExtenso(value),
+            due_day: String(due_day),
+            first_payment_date,
+            contract_term_months: String(contract_term_months),
+            signature_date,
+            signature_city,
+        };
+
+        const template = await getOrCreateDefaultTemplate(userId);
+        const rendered = renderTemplate(template.content, vars as unknown as Record<string, string>);
+        const pdfBuffer = await generateContractPdf(rendered);
+        const filename = `Contrato - ${client.name} - ${new Date().toISOString().slice(0, 10)}.pdf`;
+        const saved = await saveGeneratedContract(contractId, template.id, filename, pdfBuffer, vars);
+
+        res.status(201).json({ success: true, data: { id: saved.id, filename } });
+    } catch (error: any) {
+        logger.error('Erro ao gerar contrato', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

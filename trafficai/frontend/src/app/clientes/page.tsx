@@ -28,6 +28,12 @@ interface Client {
     email: string | null;
     phone: string | null;
     company: string | null;
+    legal_name: string | null;
+    cnpj: string | null;
+    address: string | null;
+    neighborhood: string | null;
+    zip_code: string | null;
+    city_state: string | null;
     status: 'ativo' | 'inativo' | 'prospecto' | 'churned';
     plan: string | null;
     notes: string | null;
@@ -63,6 +69,8 @@ interface BillingSummary {
 interface ClientForm {
     name: string; email: string; phone: string; company: string;
     status: string; plan: string; notes: string; avatar_color: string;
+    legal_name: string; cnpj: string; address: string; neighborhood: string;
+    zip_code: string; city_state: string;
 }
 
 interface ContractForm {
@@ -75,6 +83,7 @@ interface ContractForm {
 const emptyClientForm: ClientForm = {
     name: '', email: '', phone: '', company: '', status: 'ativo',
     plan: '', notes: '', avatar_color: '#ff6b35',
+    legal_name: '', cnpj: '', address: '', neighborhood: '', zip_code: '', city_state: '',
 };
 
 const emptyContractForm: ContractForm = {
@@ -153,6 +162,18 @@ export default function ClientesPage() {
     const [savingContract, setSavingContract] = useState(false);
     const [deleteContractId, setDeleteContractId] = useState<string | null>(null);
     const [contractError, setContractError] = useState('');
+
+    // Geração de contrato (PDF)
+    const [showGenerateModal, setShowGenerateModal] = useState(false);
+    const [generatingFor, setGeneratingFor] = useState<Contract | null>(null);
+    const [generateForm, setGenerateForm] = useState({
+        legal_name: '', cnpj: '', address: '', neighborhood: '', zip_code: '', city_state: '',
+        project_name: '', first_payment_date: '', due_day: '', contract_term_months: '6',
+        signature_date: '', signature_city: '',
+    });
+    const [generatingLoading, setGeneratingLoading] = useState(false);
+    const [generateError, setGenerateError] = useState('');
+    const [generatedHistory, setGeneratedHistory] = useState<{ id: string; filename: string; generated_at: string }[]>([]);
 
     // Meetings (compartilhado com drawer único)
     const [meetingStatsMap, setMeetingStatsMap] = useState<Record<string, { this_month: number; last_month: number; risk: 'low' | 'medium' | 'high'; total_completed: number }>>({});
@@ -360,6 +381,8 @@ export default function ClientesPage() {
             name: client.name, email: client.email || '', phone: client.phone || '',
             company: client.company || '', status: client.status, plan: client.plan || '',
             notes: client.notes || '', avatar_color: client.avatar_color,
+            legal_name: client.legal_name || '', cnpj: client.cnpj || '', address: client.address || '',
+            neighborhood: client.neighborhood || '', zip_code: client.zip_code || '', city_state: client.city_state || '',
         });
         setClientError('');
         setShowClientModal(true);
@@ -378,6 +401,12 @@ export default function ClientesPage() {
                 plan: clientForm.plan || null,
                 notes: clientForm.notes || null,
                 avatar_color: clientForm.avatar_color,
+                legal_name: clientForm.legal_name || null,
+                cnpj: clientForm.cnpj || null,
+                address: clientForm.address || null,
+                neighborhood: clientForm.neighborhood || null,
+                zip_code: clientForm.zip_code || null,
+                city_state: clientForm.city_state || null,
             };
             const wasNewClient = !editingClient;
             const url = editingClient ? `${API}/clients/${editingClient.id}` : `${API}/clients`;
@@ -494,6 +523,88 @@ export default function ClientesPage() {
             });
             setDeleteContractId(null);
             fetchContracts(contractsClient.id);
+        } catch { /* ignore */ }
+    }
+
+    async function fetchGeneratedHistory(contractId: string) {
+        try {
+            const res = await fetch(`${API}/clients/${contractsClient!.id}/contracts/${contractId}/generated`, {
+                headers: { Authorization: `Bearer ${token()}` },
+            });
+            const json = await res.json();
+            setGeneratedHistory(json.success ? json.data : []);
+        } catch { setGeneratedHistory([]); }
+    }
+
+    function openGenerateContract(c: Contract) {
+        if (!contractsClient) return;
+        setGeneratingFor(c);
+        setGenerateError('');
+        const today = new Date().toISOString().slice(0, 10);
+        setGenerateForm({
+            legal_name: contractsClient.legal_name || '',
+            cnpj: contractsClient.cnpj || '',
+            address: contractsClient.address || '',
+            neighborhood: contractsClient.neighborhood || '',
+            zip_code: contractsClient.zip_code || '',
+            city_state: contractsClient.city_state || '',
+            project_name: contractsClient.company || contractsClient.name || '',
+            first_payment_date: c.start_date ? c.start_date.split('T')[0] : today,
+            due_day: String(c.billing_day || 1),
+            contract_term_months: '6',
+            signature_date: today,
+            signature_city: contractsClient.city_state || '',
+        });
+        fetchGeneratedHistory(c.id);
+        setShowGenerateModal(true);
+    }
+
+    function fmtDateBR(iso: string): string {
+        if (!iso) return '';
+        const [y, m, d] = iso.split('-');
+        return `${d}/${m}/${y}`;
+    }
+
+    async function handleGenerateContract() {
+        if (!contractsClient || !generatingFor) return;
+        const f = generateForm;
+        if (!f.legal_name || !f.cnpj || !f.address || !f.neighborhood || !f.zip_code || !f.city_state) {
+            setGenerateError('Preencha os dados do CONTRATANTE (razão social, CNPJ, endereço, bairro, CEP, cidade)');
+            return;
+        }
+        if (!f.project_name || !f.first_payment_date || !f.due_day || !f.contract_term_months || !f.signature_date || !f.signature_city) {
+            setGenerateError('Preencha todos os campos do contrato');
+            return;
+        }
+        setGeneratingLoading(true); setGenerateError('');
+        try {
+            const res = await fetch(`${API}/clients/${contractsClient.id}/contracts/${generatingFor.id}/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+                body: JSON.stringify({
+                    ...f,
+                    first_payment_date: fmtDateBR(f.first_payment_date),
+                    signature_date: fmtDateBR(f.signature_date),
+                }),
+            });
+            const json = await res.json();
+            if (!json.success) { setGenerateError(json.error?.message || 'Erro ao gerar contrato'); return; }
+            await fetchGeneratedHistory(generatingFor.id);
+            await downloadGeneratedContract(json.data.id, json.data.filename);
+        } catch { setGenerateError('Erro de conexão'); } finally { setGeneratingLoading(false); }
+    }
+
+    async function downloadGeneratedContract(id: string, filename: string) {
+        try {
+            const res = await fetch(`${API}/clients/generated-contracts/${id}/download`, {
+                headers: { Authorization: `Bearer ${token()}` },
+            });
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
         } catch { /* ignore */ }
     }
 
@@ -936,9 +1047,13 @@ export default function ClientesPage() {
                                                 </button>
                                                 {c.contract_file_url && (
                                                     <a href={c.contract_file_url} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12.5, borderRadius: 6, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', textDecoration: 'none' }}>
-                                                        <ExternalLink size={11} /> PDF
+                                                        <ExternalLink size={11} /> Link
                                                     </a>
                                                 )}
+                                                <button onClick={() => openGenerateContract(c)}
+                                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, background: 'rgba(56,189,248,.10)', border: '1px solid rgba(56,189,248,.25)', color: 'var(--accent-blue)', cursor: 'pointer' }}>
+                                                    <FileText size={11} /> Gerar contrato (PDF)
+                                                </button>
                                             </div>
                                         </div>
                                     );
@@ -1127,6 +1242,26 @@ export default function ClientesPage() {
                                 </div>
                             </div>
                             <FF label="Plano / Pacote" value={clientForm.plan} onChange={v => setClientForm(f => ({ ...f, plan: v }))} placeholder="Ex: Pro, Basic, Premium..." />
+
+                            <div style={{ gridColumn: '1/-1', marginTop: 4, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 4 }}>
+                                    Dados para contrato (CONTRATANTE)
+                                </div>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                    Usados pra gerar contratos automaticamente — preencha uma vez, fica salvo pro cliente.
+                                </div>
+                            </div>
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FF label="Razão Social" value={clientForm.legal_name} onChange={v => setClientForm(f => ({ ...f, legal_name: v }))} placeholder="Ex: D & D TREINAMENTOS E ASSESSORIA LTDA" />
+                            </div>
+                            <FF label="CNPJ" value={clientForm.cnpj} onChange={v => setClientForm(f => ({ ...f, cnpj: v }))} placeholder="00.000.000/0000-00" />
+                            <FF label="CEP" value={clientForm.zip_code} onChange={v => setClientForm(f => ({ ...f, zip_code: v }))} placeholder="00000-000" />
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FF label="Endereço" value={clientForm.address} onChange={v => setClientForm(f => ({ ...f, address: v }))} placeholder="Rua, número" />
+                            </div>
+                            <FF label="Bairro" value={clientForm.neighborhood} onChange={v => setClientForm(f => ({ ...f, neighborhood: v }))} placeholder="Bairro" />
+                            <FF label="Cidade/UF" value={clientForm.city_state} onChange={v => setClientForm(f => ({ ...f, city_state: v }))} placeholder="FORTALEZA-CE" />
+
                             <div style={{ gridColumn: '1/-1' }}>
                                 <label style={labelStyle}>Observações</label>
                                 <textarea value={clientForm.notes} onChange={e => setClientForm(f => ({ ...f, notes: e.target.value }))} placeholder="Notas sobre o cliente..." rows={3}
@@ -1264,6 +1399,88 @@ export default function ClientesPage() {
                             <button onClick={() => setShowContractModal(false)} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 14, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>Cancelar</button>
                             <button onClick={handleSaveContract} disabled={savingContract} style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: 'var(--primary)', border: 'none', color: '#fff', cursor: savingContract ? 'not-allowed' : 'pointer', opacity: savingContract ? .7 : 1 }}>
                                 {savingContract ? 'Salvando...' : editingContract ? 'Salvar Alterações' : 'Criar Contrato'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Gerar Contrato (PDF) Modal ─── */}
+            {showGenerateModal && generatingFor && contractsClient && (
+                <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-overlay)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 105, padding: 20 }}>
+                    <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', padding: 32 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>
+                                Gerar Contrato (PDF)
+                            </h2>
+                            <button onClick={() => setShowGenerateModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4 }}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <p style={{ margin: '0 0 20px', fontSize: 12.5, color: 'var(--text-muted)' }}>
+                            Confirme os dados do CONTRATANTE ({contractsClient.name}) e os termos deste contrato. Os dados legais ficam salvos no cliente pra reaproveitar da próxima vez.
+                        </p>
+                        {generateError && <div style={{ background: 'rgba(239,68,68,.12)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 10, padding: '10px 14px', color: '#f87171', fontSize: 13, marginBottom: 20 }}>{generateError}</div>}
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                            <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
+                                Dados do CONTRATANTE
+                            </div>
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FF label="Razão Social" value={generateForm.legal_name} onChange={v => setGenerateForm(f => ({ ...f, legal_name: v }))} placeholder="Ex: D & D TREINAMENTOS E ASSESSORIA LTDA" />
+                            </div>
+                            <FF label="CNPJ" value={generateForm.cnpj} onChange={v => setGenerateForm(f => ({ ...f, cnpj: v }))} placeholder="00.000.000/0000-00" />
+                            <FF label="CEP" value={generateForm.zip_code} onChange={v => setGenerateForm(f => ({ ...f, zip_code: v }))} placeholder="00000-000" />
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FF label="Endereço" value={generateForm.address} onChange={v => setGenerateForm(f => ({ ...f, address: v }))} placeholder="Rua, número" />
+                            </div>
+                            <FF label="Bairro" value={generateForm.neighborhood} onChange={v => setGenerateForm(f => ({ ...f, neighborhood: v }))} placeholder="Bairro" />
+                            <FF label="Cidade/UF" value={generateForm.city_state} onChange={v => setGenerateForm(f => ({ ...f, city_state: v }))} placeholder="FORTALEZA-CE" />
+
+                            <div style={{ gridColumn: '1/-1', fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginTop: 8 }}>
+                                Termos do contrato
+                            </div>
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FF label="Nome do projeto" value={generateForm.project_name} onChange={v => setGenerateForm(f => ({ ...f, project_name: v }))} placeholder="Ex: REGOOLA" />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Valor mensal</label>
+                                <div style={{ padding: '10px 12px', background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-muted)', fontSize: 14 }}>
+                                    {formatBRL(Number(generatingFor.fixed_amount) || 0)} <span style={{ fontSize: 11 }}>(editar no contrato)</span>
+                                </div>
+                            </div>
+                            <FF label="Prazo (meses)" value={generateForm.contract_term_months} onChange={v => setGenerateForm(f => ({ ...f, contract_term_months: v }))} placeholder="6" />
+                            <FF label="Dia de vencimento" value={generateForm.due_day} onChange={v => setGenerateForm(f => ({ ...f, due_day: v }))} placeholder="22" />
+                            <FF label="1º pagamento" value={generateForm.first_payment_date} onChange={v => setGenerateForm(f => ({ ...f, first_payment_date: v }))} type="date" />
+                            <FF label="Data de assinatura" value={generateForm.signature_date} onChange={v => setGenerateForm(f => ({ ...f, signature_date: v }))} type="date" />
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <FF label="Cidade da assinatura" value={generateForm.signature_city} onChange={v => setGenerateForm(f => ({ ...f, signature_city: v }))} placeholder="FORTALEZA-CE" />
+                            </div>
+                        </div>
+
+                        {generatedHistory.length > 0 && (
+                            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+                                    Já gerados
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    {generatedHistory.map(g => (
+                                        <button key={g.id} onClick={() => downloadGeneratedContract(g.id, g.filename)}
+                                            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', fontSize: 12.5, borderRadius: 8, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left' }}>
+                                            <FileText size={12} /> {g.filename}
+                                            <span style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: 11 }}>
+                                                {new Date(g.generated_at).toLocaleDateString('pt-BR')}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+                            <button onClick={() => setShowGenerateModal(false)} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 14, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-muted)', cursor: 'pointer' }}>Cancelar</button>
+                            <button onClick={handleGenerateContract} disabled={generatingLoading} style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: 'var(--accent-blue)', border: 'none', color: '#0a0d14', cursor: generatingLoading ? 'not-allowed' : 'pointer', opacity: generatingLoading ? .7 : 1 }}>
+                                {generatingLoading ? 'Gerando...' : 'Gerar e baixar PDF'}
                             </button>
                         </div>
                     </div>
