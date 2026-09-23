@@ -220,18 +220,6 @@ export class SmartAlertsService {
                 }
             }
 
-            // ── 2. Orçamento esgotado ──────────────────────────────────────
-            if (campaign.daily_budget && latest.spend >= campaign.daily_budget) {
-                alerts.push({
-                    user_id: account.user_id, account_id: account.id, campaign_id: campaign.id,
-                    type: 'budget_exhausted', severity: 'critical',
-                    title: '🚨 Orçamento Diário Esgotado',
-                    message: `"${name}" atingiu 100% do orçamento diário (${this.fmt(campaign.daily_budget, currency)}). Anúncios pausados.`,
-                    metric_name: 'daily_spend', current_value: latest.spend,
-                    metric_threshold: campaign.daily_budget, auto_generated: true,
-                });
-            }
-
             if (previous) {
                 // ── 3. CPA / Custo por ação elevado ───────────────────────
                 if (!shouldSkipConversionAlert(obj) && latestCpa > 0 && previousCpa && previousCpa > 0) {
