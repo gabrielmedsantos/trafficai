@@ -118,6 +118,34 @@ export default function AccountsPage() {
   const [contactSaving, setContactSaving] = useState(false);
   const [contactError, setContactError] = useState('');
 
+  // Grupos do WhatsApp conectado (Evolution/Uazapi) — pra escolher o grupo do
+  // cliente em vez de digitar o ID @g.us manualmente
+  interface WhatsAppGroup { id: string; name: string; size: number; }
+  const [whatsappGroups, setWhatsappGroups] = useState<WhatsAppGroup[] | null>(null);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [groupsError, setGroupsError] = useState('');
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false);
+  const [groupSearch, setGroupSearch] = useState('');
+
+  const openGroupPicker = async () => {
+    setGroupPickerOpen(true);
+    if (whatsappGroups !== null) return;
+    setLoadingGroups(true);
+    setGroupsError('');
+    try {
+      const res = await fetch(`${API}/commercial/integrations/whatsapp-groups`, {
+        headers: { Authorization: `Bearer ${authToken()}` },
+      });
+      const result = await res.json();
+      if (result.success) setWhatsappGroups(result.data);
+      else setGroupsError(result.error?.message || 'Erro ao buscar grupos');
+    } catch (e: any) {
+      setGroupsError('Erro de conexão: ' + e.message);
+    } finally {
+      setLoadingGroups(false);
+    }
+  };
+
   useEffect(() => {
     loadAccounts();
   }, []);
@@ -318,9 +346,11 @@ export default function AccountsPage() {
     setContactDraft(existing ? { ...existing } : emptyContactDraft);
     setContactError('');
     setContactEditingId(account.id);
+    setGroupPickerOpen(false);
+    setGroupSearch('');
   };
 
-  const cancelContactEdit = () => { setContactEditingId(null); setContactError(''); };
+  const cancelContactEdit = () => { setContactEditingId(null); setContactError(''); setGroupPickerOpen(false); };
 
   const saveContact = async (accountId: string) => {
     setContactSaving(true);
@@ -783,12 +813,46 @@ export default function AccountsPage() {
                               style={contactInputStyle} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' as const, letterSpacing: '0.4px' }}>
-                              <MessageCircle size={10} style={{ display: 'inline', marginRight: '4px', color: 'var(--accent-blue)' }} /> WhatsApp
+                            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' as const, letterSpacing: '0.4px' }}>
+                              <span><MessageCircle size={10} style={{ display: 'inline', marginRight: '4px', color: 'var(--accent-blue)' }} /> WhatsApp</span>
+                              <button type="button" onClick={openGroupPicker}
+                                style={{ background: 'none', border: 'none', color: 'var(--accent-blue)', fontSize: '11px', fontWeight: 600, cursor: 'pointer', textTransform: 'none' as const, letterSpacing: 'normal', padding: 0 }}>
+                                Buscar grupos
+                              </button>
                             </label>
                             <input type="text" placeholder="11999998888 ou link do grupo" value={contactDraft.client_phone}
                               onChange={e => setContactDraft(d => ({ ...d, client_phone: e.target.value }))}
                               style={contactInputStyle} />
+                            {groupPickerOpen && (
+                              <div style={{ marginTop: '8px', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--bg)', maxHeight: '220px', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>
+                                  <input type="text" placeholder="Buscar grupo pelo nome..." value={groupSearch}
+                                    onChange={e => setGroupSearch(e.target.value)}
+                                    style={{ ...contactInputStyle, fontSize: '12.5px', padding: '6px 10px' }} />
+                                </div>
+                                <div style={{ overflowY: 'auto', maxHeight: '170px' }}>
+                                  {loadingGroups && (
+                                    <p style={{ padding: '10px 12px', fontSize: '12.5px', color: 'var(--text-muted)' }}>Buscando grupos...</p>
+                                  )}
+                                  {!loadingGroups && groupsError && (
+                                    <p style={{ padding: '10px 12px', fontSize: '12.5px', color: 'var(--accent-red)' }}>{groupsError}</p>
+                                  )}
+                                  {!loadingGroups && !groupsError && whatsappGroups?.length === 0 && (
+                                    <p style={{ padding: '10px 12px', fontSize: '12.5px', color: 'var(--text-muted)' }}>Nenhum grupo encontrado nessa instância.</p>
+                                  )}
+                                  {!loadingGroups && !groupsError && whatsappGroups
+                                    ?.filter(g => g.name.toLowerCase().includes(groupSearch.toLowerCase()))
+                                    .map(g => (
+                                      <button key={g.id} type="button"
+                                        onClick={() => { setContactDraft(d => ({ ...d, client_phone: g.id })); setGroupPickerOpen(false); setGroupSearch(''); }}
+                                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '12.5px', textAlign: 'left', cursor: 'pointer' }}>
+                                        <span>{g.name}</span>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{g.size} membros</span>
+                                      </button>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '4px', borderTop: '1px solid var(--border)' }}>

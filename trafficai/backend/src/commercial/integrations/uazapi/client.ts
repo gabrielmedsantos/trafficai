@@ -88,6 +88,18 @@ export class UazapiClient {
             .filter((l: UazapiLabel) => l.id && l.name);
     }
 
+    /** Lista os grupos que essa instância participa — usado pro seletor de grupo do cliente. */
+    async listGroups(instanceToken: string): Promise<{ id: string; name: string; size: number }[]> {
+        const { data } = await this.http.get('/group/list', {
+            headers: { token: instanceToken },
+            params: { noparticipants: 'true' },
+        });
+        const arr = Array.isArray(data?.groups) ? data.groups : [];
+        return arr
+            .map((g: any) => ({ id: String(g.JID ?? ''), name: String(g.Name ?? g.JID ?? ''), size: Number(g.ParticipantCount ?? 0) }))
+            .filter((g: { id: string }) => g.id);
+    }
+
     async deleteInstance(instanceToken: string): Promise<void> {
         await this.http.delete('/instance', { headers: { token: instanceToken } });
     }

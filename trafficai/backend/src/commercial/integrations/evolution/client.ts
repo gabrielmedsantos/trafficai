@@ -124,6 +124,15 @@ export class EvolutionClient {
         await this.http.delete(`/instance/delete/${instanceName}`);
     }
 
+    /** Lista os grupos que essa instância participa — usado pro seletor de grupo do cliente. */
+    async fetchGroups(instanceName: string): Promise<{ id: string; name: string; size: number }[]> {
+        const { data } = await this.http.get(`/group/fetchAllGroups/${instanceName}`, {
+            params: { getParticipants: 'false' },
+        });
+        const arr = Array.isArray(data) ? data : [];
+        return arr.map((g: any) => ({ id: g.id, name: g.subject || g.id, size: g.size ?? 0 }));
+    }
+
     /** Envio de mensagem (não usado na v1 do dashboard, mas exposto pra futuro). */
     async sendText(instanceName: string, to: string, text: string): Promise<{ id: string }> {
         const { data } = await this.http.post(`/message/sendText/${instanceName}`, {

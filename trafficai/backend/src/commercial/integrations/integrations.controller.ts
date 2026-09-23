@@ -48,6 +48,42 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     }
 });
 
+// ----- GET /commercial/integrations/whatsapp-groups -----
+// Lista os grupos da instância WhatsApp conectada do usuário (Evolution ou
+// Uazapi) — usado pro seletor de grupo do cliente (em vez de digitar o ID
+// @g.us manualmente).
+router.get('/whatsapp-groups', async (req: Request, res: Response): Promise<void> => {
+    try {
+        const userId = getUserId(req);
+        const intg = await queryOne<{ type: string; config: any; credentials: any }>(
+            `SELECT type, config, credentials FROM comm_integrations
+             WHERE user_id = $1 AND type IN ('whatsapp_evolution', 'whatsapp_uazapi') AND status = 'connected'
+             ORDER BY connected_at DESC NULLS LAST LIMIT 1`,
+            [userId]
+        );
+        if (!intg) return fail(res, 'Nenhuma instância WhatsApp conectada — conecte em Integrações antes.', 400);
+
+        if (intg.type === 'whatsapp_uazapi') {
+            const token = intg.credentials?.instance_token;
+            if (!token) return fail(res, 'instance_token ausente', 500);
+            const uaz = new UazapiClient(getUazapiConfig().baseUrl, getUazapiConfig().adminToken);
+            const groups = await uaz.listGroups(token);
+            res.json({ success: true, data: groups });
+            return;
+        }
+
+        const ev = resolveEvolutionForIntegration(intg.credentials);
+        const evo = new EvolutionClient(ev.baseUrl, ev.apiKey);
+        const instanceName = intg.config?.instanceName;
+        if (!instanceName) return fail(res, 'instanceName ausente', 500);
+        const groups = await evo.fetchGroups(instanceName);
+        res.json({ success: true, data: groups });
+    } catch (err: any) {
+        logger.error('Erro ao listar grupos WhatsApp', { error: err.message });
+        fail(res, 'Erro ao buscar grupos do WhatsApp', 500);
+    }
+});
+
 // ----- POST /commercial/integrations/kommo/connect -----
 // Body: { subdomain, accessToken, name?, clientId? }
 // Valida o token, cria o registro e dispara sync inicial em background.
