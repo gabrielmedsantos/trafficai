@@ -502,8 +502,7 @@ export default function AccountsPage() {
             placeholder="Buscar por nome ou ID..."
             value={mainSearch}
             onChange={e => setMainSearch(e.target.value)}
-            className="input"
-            style={{ paddingLeft: 30, width: '100%' }}
+            style={{ paddingLeft: 30, width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px 8px 30px', color: 'var(--text-primary)', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none' }}
           />
         </div>
       </div>
@@ -1049,8 +1048,7 @@ export default function AccountsPage() {
                     placeholder="Buscar por nome ou ID..."
                     value={bulkSearch}
                     onChange={e => setBulkSearch(e.target.value)}
-                    className="input"
-                    style={{ paddingLeft: 30, width: '100%' }}
+                    style={{ paddingLeft: 30, width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px 8px 30px', color: 'var(--text-primary)', fontSize: '13.5px', fontFamily: 'inherit', outline: 'none' }}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: 4, background: 'var(--bg-input)', padding: 3, borderRadius: 8 }}>

@@ -570,6 +570,28 @@ a:hover { color: var(--primary-hover); }
 }
 
 /* ============================================================
+   FORM INPUTS
+   ============================================================ */
+.input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+.input:focus {
+  border-color: var(--accent-blue);
+}
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ============================================================
    BUTTONS
    ============================================================ */
 .btn {
