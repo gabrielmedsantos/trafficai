@@ -642,6 +642,7 @@ router.put('/settings/:account_id', async (req: Request, res: Response) => {
             monthly_report_enabled, monthly_report_day,
             billing_alert_enabled, billing_alert_min_interval_hours,
             report_owner_phone,
+            client_balance_alert_enabled, client_balance_alert_mention_all,
         } = req.body;
         const toggleFields: string[] = [];
         const toggleParams: any[] = [];
@@ -653,6 +654,8 @@ router.put('/settings/:account_id', async (req: Request, res: Response) => {
         if (billing_alert_enabled !== undefined) { toggleFields.push(`billing_alert_enabled = $${ti++}`); toggleParams.push(Boolean(billing_alert_enabled)); }
         if (billing_alert_min_interval_hours !== undefined) { toggleFields.push(`billing_alert_min_interval_hours = $${ti++}`); toggleParams.push(Number(billing_alert_min_interval_hours)); }
         if (report_owner_phone !== undefined) { toggleFields.push(`report_owner_phone = $${ti++}`); toggleParams.push(report_owner_phone || null); }
+        if (client_balance_alert_enabled !== undefined) { toggleFields.push(`client_balance_alert_enabled = $${ti++}`); toggleParams.push(Boolean(client_balance_alert_enabled)); }
+        if (client_balance_alert_mention_all !== undefined) { toggleFields.push(`client_balance_alert_mention_all = $${ti++}`); toggleParams.push(Boolean(client_balance_alert_mention_all)); }
         if (toggleFields.length > 0) {
             try {
                 toggleParams.push(account_id, userId);

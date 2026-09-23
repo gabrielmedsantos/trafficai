@@ -107,10 +107,14 @@ export default function AccountsPage() {
   const [billingError, setBillingError] = useState<string>('');
 
   // Contact (report settings) state
-  interface ContactDraft { client_name: string; client_email: string; client_phone: string; }
+  interface ContactDraft {
+    client_name: string; client_email: string; client_phone: string;
+    client_balance_alert_enabled: boolean; client_balance_alert_mention_all: boolean;
+  }
+  const emptyContactDraft: ContactDraft = { client_name: '', client_email: '', client_phone: '', client_balance_alert_enabled: false, client_balance_alert_mention_all: false };
   const [contactMap, setContactMap] = useState<Record<string, ContactDraft>>({});
   const [contactEditingId, setContactEditingId] = useState<string | null>(null);
-  const [contactDraft, setContactDraft] = useState<ContactDraft>({ client_name: '', client_email: '', client_phone: '' });
+  const [contactDraft, setContactDraft] = useState<ContactDraft>(emptyContactDraft);
   const [contactSaving, setContactSaving] = useState(false);
   const [contactError, setContactError] = useState('');
 
@@ -302,6 +306,8 @@ export default function AccountsPage() {
           client_name: result.data.client_name || '',
           client_email: result.data.client_email || '',
           client_phone: result.data.client_phone || '',
+          client_balance_alert_enabled: !!result.data.client_balance_alert_enabled,
+          client_balance_alert_mention_all: !!result.data.client_balance_alert_mention_all,
         }}));
       }
     } catch { /* silently ignore */ }
@@ -309,7 +315,7 @@ export default function AccountsPage() {
 
   const startContactEdit = (account: AdAccount) => {
     const existing = contactMap[account.id];
-    setContactDraft({ client_name: existing?.client_name || '', client_email: existing?.client_email || '', client_phone: existing?.client_phone || '' });
+    setContactDraft(existing ? { ...existing } : emptyContactDraft);
     setContactError('');
     setContactEditingId(account.id);
   };
@@ -327,6 +333,8 @@ export default function AccountsPage() {
           client_name: contactDraft.client_name || null,
           client_email: contactDraft.client_email || null,
           client_phone: contactDraft.client_phone || null,
+          client_balance_alert_enabled: contactDraft.client_balance_alert_enabled,
+          client_balance_alert_mention_all: contactDraft.client_balance_alert_mention_all,
         }),
       });
       const result = await res.json();
@@ -721,6 +729,11 @@ export default function AccountsPage() {
                                 <MessageCircle size={11} /> {contact.client_phone}
                               </span>
                             )}
+                            {contact?.client_balance_alert_enabled && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', fontWeight: 600, color: '#f59e0b', background: 'rgba(245,158,11,.10)', border: '1px solid rgba(245,158,11,.25)', borderRadius: 999, padding: '2px 8px' }}>
+                                <AlertCircle size={10} /> Avisa saldo{contact.client_balance_alert_mention_all ? ' (@todos)' : ''}
+                              </span>
+                            )}
                           </>
                         )}
                         {!isEditingContact && !hasContact && (
@@ -777,6 +790,20 @@ export default function AccountsPage() {
                               onChange={e => setContactDraft(d => ({ ...d, client_phone: e.target.value }))}
                               style={contactInputStyle} />
                           </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '4px', borderTop: '1px solid var(--border)' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer', paddingTop: '8px' }}>
+                            <input type="checkbox" checked={contactDraft.client_balance_alert_enabled}
+                              onChange={e => setContactDraft(d => ({ ...d, client_balance_alert_enabled: e.target.checked }))} />
+                            Avisar o cliente automaticamente quando o saldo ficar baixo
+                          </label>
+                          {contactDraft.client_balance_alert_enabled && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text-muted)', cursor: 'pointer', marginLeft: '24px' }}>
+                              <input type="checkbox" checked={contactDraft.client_balance_alert_mention_all}
+                                onChange={e => setContactDraft(d => ({ ...d, client_balance_alert_mention_all: e.target.checked }))} />
+                              Mencionar todos (@todos) — só tem efeito se o WhatsApp acima for um grupo
+                            </label>
+                          )}
                         </div>
                         {contactError && (
                           <p style={{ fontSize: '13px', color: 'var(--accent-red)' }}>{contactError}</p>

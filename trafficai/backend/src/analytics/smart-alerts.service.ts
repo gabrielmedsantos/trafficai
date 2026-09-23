@@ -7,6 +7,7 @@ import { query } from '../database/connection';
 import { metaRepository } from '../meta/meta.repository';
 import { logger } from '../shared/logger';
 import { notificationService } from '../notifications/notification.service';
+import { sendWhatsAppMessage } from '../notifications/whatsapp.helper';
 
 // ── Prioridade de ações: mesmo mapeamento do meta.service.ts ──────────────────
 const ACTION_PRIORITY: { type: string; label: string }[] = [
@@ -135,9 +136,10 @@ export class SmartAlertsService {
             logger.info('🔔 Iniciando análise de alertas para contas ativas');
 
             const accounts = await query<any>(
-                `SELECT a.*, u.id as user_id
+                `SELECT a.*, u.id as user_id, rs.client_phone, rs.client_balance_alert_enabled, rs.client_balance_alert_mention_all
                  FROM ad_accounts a
                  JOIN users u ON a.user_id = u.id
+                 LEFT JOIN report_settings rs ON rs.account_id = a.id
                  WHERE a.is_client_active = true`
             );
 
@@ -158,8 +160,9 @@ export class SmartAlertsService {
     async analyzeActiveAccountsByUser(userId: string): Promise<void> {
         try {
             const accounts = await query<any>(
-                `SELECT a.*, $1::uuid as user_id
+                `SELECT a.*, $1::uuid as user_id, rs.client_phone, rs.client_balance_alert_enabled, rs.client_balance_alert_mention_all
                  FROM ad_accounts a
+                 LEFT JOIN report_settings rs ON rs.account_id = a.id
                  WHERE a.user_id = $1
                    AND a.is_client_active = true`,
                 [userId]
@@ -412,6 +415,17 @@ export class SmartAlertsService {
                         metric_threshold: threshold,
                         auto_generated: true,
                     });
+
+                    // Avisa o cliente automaticamente (número ou grupo), se configurado
+                    if (account.client_balance_alert_enabled && account.client_phone) {
+                        const clientMsg = `⚠️ *Aviso de saldo — ${accountName}*\n\nO saldo da conta de anúncios está baixo (${this.fmt(balance, currency)}). Para não pausar as campanhas em andamento, pedimos que providencie a recarga o quanto antes.\n\nQualquer dúvida, estamos à disposição!`;
+                        try {
+                            await sendWhatsAppMessage(account.user_id, account.client_phone, clientMsg, !!account.client_balance_alert_mention_all);
+                            logger.info(`✅ Cliente avisado sobre saldo baixo: ${accountName} → ${account.client_phone}`);
+                        } catch (err: any) {
+                            logger.warn('Falha ao avisar cliente sobre saldo baixo', { account_id: account.id, error: err.message });
+                        }
+                    }
                 }
             }
         }
