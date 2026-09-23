@@ -61,18 +61,18 @@ function getBalanceColor(
   threshold: number | null | undefined
 ): string {
   if (balance == null) return 'var(--text-muted)';
-  if (threshold == null || threshold <= 0) return 'var(--accent-green)';
+  if (threshold == null || threshold <= 0) return 'var(--accent-blue)';
   if (balance <= threshold) return 'var(--accent-red)';
   if (balance <= threshold * 1.2) return 'var(--accent-yellow)';
-  return 'var(--accent-green)';
+  return 'var(--accent-blue)';
 }
 
 function syncStatus(iso: string | null | undefined): { label: string; color: string } {
   if (!iso) return { label: 'Nunca sincronizado', color: 'var(--accent-red)' };
   const diff = Date.now() - new Date(iso).getTime();
   const hours = diff / 3_600_000;
-  if (hours < 1) return { label: `há ${Math.max(1, Math.round(diff / 60_000))}min`, color: 'var(--accent-green)' };
-  if (hours < 24) return { label: `há ${Math.round(hours)}h`, color: 'var(--accent-green)' };
+  if (hours < 1) return { label: `há ${Math.max(1, Math.round(diff / 60_000))}min`, color: 'var(--accent-blue)' };
+  if (hours < 24) return { label: `há ${Math.round(hours)}h`, color: 'var(--accent-blue)' };
   if (hours < 48) return { label: `há 1 dia`, color: 'var(--accent-yellow)' };
   if (hours < 168) return { label: `há ${Math.round(hours / 24)} dias`, color: 'var(--accent-yellow)' };
   return { label: `há ${Math.round(hours / 24)} dias`, color: 'var(--accent-red)' };
@@ -366,7 +366,7 @@ export default function AccountsPage() {
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-ghost"
             onClick={() => {
               setBulkSelected(new Set());
               setBulkSearch('');
@@ -380,16 +380,7 @@ export default function AccountsPage() {
           </button>
           <button
             type="button"
-            className="btn btn-secondary"
-            onClick={() => setShowAddModal(true)}
-            style={{ padding: '10px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <Plus size={15} />
-            Adicionar conta
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
+            className="btn btn-ghost"
             onClick={syncBalances}
             disabled={syncingBalances}
             style={{ padding: '10px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
@@ -398,10 +389,22 @@ export default function AccountsPage() {
             {syncingBalances ? 'Atualizando...' : 'Atualizar Saldos'}
           </button>
           <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowAddModal(true)}
+            style={{ padding: '10px 18px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Plus size={15} />
+            Adicionar conta
+          </button>
+          <button
             className="btn btn-primary"
             onClick={syncAccounts}
             disabled={syncing}
-            style={{ padding: '12px 24px', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}
+            style={{
+              padding: '12px 24px', fontSize: '15px', display: 'flex', alignItems: 'center', gap: '8px',
+              background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700,
+            }}
           >
             <RefreshCw size={18} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }} />
             {syncing ? 'Sincronizando...' : 'Sincronizar Contas'}
@@ -451,10 +454,10 @@ export default function AccountsPage() {
 
         <div className="card-glass" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-            <CheckCircle size={20} color="var(--accent-green)" />
+            <CheckCircle size={20} color="var(--accent-blue)" />
             <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 600 }}>ATIVOS</span>
           </div>
-          <p style={{ fontSize: '28px', fontWeight: 800, color: 'var(--accent-green)' }}>{activeCount}</p>
+          <p style={{ fontSize: '28px', fontWeight: 800, color: 'var(--accent-blue)' }}>{activeCount}</p>
         </div>
 
         <div className="card-glass" style={{ padding: '20px' }}>
@@ -467,30 +470,32 @@ export default function AccountsPage() {
       </div>
 
       {/* Filter */}
-      <div style={{ marginBottom: '24px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-        <Filter size={18} color="var(--text-muted)" />
-        <button
-          className={`btn ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setFilter('all')}
-          style={{ padding: '8px 16px', fontSize: '14px' }}
-        >
-          Todas ({accounts.length})
-        </button>
-        <button
-          className={`btn ${filter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setFilter('active')}
-          style={{ padding: '8px 16px', fontSize: '14px' }}
-        >
-          Ativas ({activeCount})
-        </button>
-        <button
-          className={`btn ${filter === 'inactive' ? 'btn-primary' : 'btn-secondary'}`}
-          onClick={() => setFilter('inactive')}
-          style={{ padding: '8px 16px', fontSize: '14px' }}
-        >
-          Inativas ({inactiveCount})
-        </button>
-        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320, marginLeft: 8 }}>
+      <div style={{ marginBottom: '24px', display: 'flex', gap: '4px', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+        <Filter size={16} color="var(--text-muted)" style={{ marginRight: '10px' }} />
+        {([
+          ['all', `Todas (${accounts.length})`],
+          ['active', `Ativas (${activeCount})`],
+          ['inactive', `Inativas (${inactiveCount})`],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setFilter(key)}
+            style={{
+              padding: '10px 14px 12px',
+              marginBottom: '-1px',
+              fontSize: '13.5px',
+              fontWeight: 600,
+              background: 'transparent',
+              border: 'none',
+              borderBottom: filter === key ? '2px solid var(--accent-blue)' : '2px solid transparent',
+              color: filter === key ? 'var(--accent-blue)' : 'var(--text-muted)',
+              cursor: 'pointer',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320, marginLeft: 8, marginBottom: '8px' }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
           <input
             type="text"
@@ -524,7 +529,7 @@ export default function AccountsPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '8px' }}>
                     <h3 style={{ fontSize: '18px', fontWeight: 700 }}>{account.account_name}</h3>
                     {account.is_client_active ? (
-                      <span className="badge badge-green" style={{ padding: '4px 12px', fontSize: '12px' }}>
+                      <span className="badge" style={{ padding: '4px 12px', fontSize: '12px', background: 'rgba(56,189,248,.10)', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,.22)' }}>
                         <CheckCircle size={14} />
                         Cliente Ativo
                       </span>
@@ -615,7 +620,7 @@ export default function AccountsPage() {
                         <button
                           className="btn btn-primary"
                           onClick={() => saveNotes(account.id, account.is_client_active)}
-                          style={{ padding: '8px 12px', fontSize: '14px' }}
+                          style={{ padding: '8px 12px', fontSize: '14px', background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700 }}
                         >
                           <Save size={16} />
                           Salvar
@@ -634,7 +639,10 @@ export default function AccountsPage() {
                         <button
                           className={`btn ${account.is_client_active ? 'btn-secondary' : 'btn-primary'}`}
                           onClick={() => toggleClientStatus(account.id, account.is_client_active, account.client_notes)}
-                          style={{ padding: '8px 12px', fontSize: '14px' }}
+                          style={{
+                            padding: '8px 12px', fontSize: '14px',
+                            ...(account.is_client_active ? {} : { background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700 }),
+                          }}
                         >
                           {account.is_client_active ? (
                             <>
@@ -693,7 +701,7 @@ export default function AccountsPage() {
                   <div style={{ marginTop: '12px', padding: '16px', background: 'var(--bg-input)', borderRadius: '8px', border: isEditingContact ? '1px solid rgba(37,211,102,.2)' : '1px solid transparent' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isEditingContact ? '16px' : '0' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                        <MessageCircle size={15} color="#25d366" />
+                        <MessageCircle size={15} color="var(--accent-blue)" />
                         <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)' }}>
                           Contato para Relatórios
                         </span>
@@ -710,7 +718,7 @@ export default function AccountsPage() {
                               </span>
                             )}
                             {contact?.client_phone && (
-                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#25d366' }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: 'var(--accent-blue)' }}>
                                 <MessageCircle size={11} /> {contact.client_phone}
                               </span>
                             )}
@@ -736,7 +744,7 @@ export default function AccountsPage() {
                           </button>
                           <button type="button" className="btn btn-primary" onClick={() => saveContact(account.id)}
                             disabled={contactSaving}
-                            style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: '#25d366', borderColor: '#25d366' }}>
+                            style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700 }}>
                             <Save size={13} /> {contactSaving ? 'Salvando…' : 'Salvar'}
                           </button>
                         </div>
@@ -764,7 +772,7 @@ export default function AccountsPage() {
                           </div>
                           <div>
                             <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px', textTransform: 'uppercase' as const, letterSpacing: '0.4px' }}>
-                              <MessageCircle size={10} style={{ display: 'inline', marginRight: '4px', color: '#25d366' }} /> WhatsApp
+                              <MessageCircle size={10} style={{ display: 'inline', marginRight: '4px', color: 'var(--accent-blue)' }} /> WhatsApp
                             </label>
                             <input type="text" placeholder="11999998888 ou link do grupo" value={contactDraft.client_phone}
                               onChange={e => setContactDraft(d => ({ ...d, client_phone: e.target.value }))}
@@ -791,12 +799,12 @@ export default function AccountsPage() {
                     {!isEditingBilling && account.payment_type && (
                       <span style={{
                         padding: '2px 8px',
-                        background: account.payment_type === 'pix' ? 'rgba(34,197,94,.12)' : 'rgba(255, 107, 53,.12)',
-                        border: `1px solid ${account.payment_type === 'pix' ? 'rgba(34,197,94,.3)' : 'rgba(255, 107, 53,.3)'}`,
+                        background: account.payment_type === 'pix' ? 'rgba(56,189,248,.12)' : 'rgba(255, 107, 53,.12)',
+                        border: `1px solid ${account.payment_type === 'pix' ? 'rgba(56,189,248,.3)' : 'rgba(255, 107, 53,.3)'}`,
                         borderRadius: '6px',
                         fontSize: '11px',
                         fontWeight: 700,
-                        color: account.payment_type === 'pix' ? 'var(--accent-green)' : 'var(--primary)',
+                        color: account.payment_type === 'pix' ? 'var(--accent-blue)' : 'var(--primary)',
                         textTransform: 'uppercase' as const,
                         letterSpacing: '0.4px',
                       }}>
@@ -848,7 +856,7 @@ export default function AccountsPage() {
                         className="btn btn-primary"
                         onClick={() => saveBilling(account.id)}
                         disabled={billingSaving}
-                        style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        style={{ padding: '6px 12px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700 }}
                       >
                         <Save size={13} />
                         {billingSaving ? 'Salvando...' : 'Salvar'}
@@ -874,14 +882,14 @@ export default function AccountsPage() {
                             fontSize: '14px',
                             fontWeight: 600,
                             border: billingDraft.payment_type === 'pix'
-                              ? '2px solid var(--accent-green)'
+                              ? '2px solid var(--accent-blue)'
                               : '1px solid var(--border)',
                             borderRadius: '8px',
                             background: billingDraft.payment_type === 'pix'
-                              ? 'rgba(34,197,94,.12)'
+                              ? 'rgba(56,189,248,.12)'
                               : 'var(--bg)',
                             color: billingDraft.payment_type === 'pix'
-                              ? 'var(--accent-green)'
+                              ? 'var(--accent-blue)'
                               : 'var(--text-muted)',
                             cursor: 'pointer',
                             transition: 'all .15s',
@@ -1097,7 +1105,13 @@ export default function AccountsPage() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{acc.account_name}</span>
-                          <span className={`badge ${acc.is_client_active ? 'badge-green' : 'badge-gray'}`} style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                          <span
+                            className={`badge ${acc.is_client_active ? '' : 'badge-gray'}`}
+                            style={{
+                              fontSize: 10, textTransform: 'uppercase', letterSpacing: '.04em',
+                              ...(acc.is_client_active ? { background: 'rgba(56,189,248,.10)', color: 'var(--accent-blue)', borderColor: 'rgba(56,189,248,.22)' } : {}),
+                            }}
+                          >
                             {acc.is_client_active ? 'Ativa' : 'Inativa'}
                           </span>
                         </div>
@@ -1135,6 +1149,7 @@ export default function AccountsPage() {
                   style={{
                     padding: '10px 18px', opacity: bulkSelected.size === 0 ? 0.5 : 1,
                     display: 'flex', alignItems: 'center', gap: 6,
+                    background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700,
                   }}
                 >
                   <CheckCircle size={14} /> Ativar {bulkSelected.size > 0 ? `(${bulkSelected.size})` : ''}
@@ -1198,7 +1213,7 @@ export default function AccountsPage() {
                 <button type="button" className="btn btn-secondary" onClick={() => { setShowAddModal(false); setAddError(''); }}>
                   Cancelar
                 </button>
-                <button type="submit" className="btn btn-primary" disabled={addLoading}>
+                <button type="submit" className="btn btn-primary" disabled={addLoading} style={{ background: 'var(--accent-blue)', borderColor: 'var(--accent-blue)', color: '#0a0d14', fontWeight: 700 }}>
                   {addLoading ? 'Adicionando…' : 'Adicionar conta'}
                 </button>
               </div>
