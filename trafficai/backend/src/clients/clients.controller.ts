@@ -8,7 +8,7 @@ import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
 import {
     getOrCreateDefaultTemplate, renderTemplate, generateContractPdf, saveGeneratedContract,
-    formatCurrencyBRL, valorPorExtenso, ContractVars,
+    formatCurrencyBRL, valorPorExtenso, buildCancellationClause, ContractVars,
 } from './contract-generator.service';
 import { zapsignCreateDocument } from './zapsign.client';
 import { decryptMaybe } from '../shared/encryption';
@@ -388,7 +388,7 @@ router.post('/:clientId/contracts', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { clientId } = req.params;
-        const { description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url } = req.body;
+        const { description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url, term_months, is_flexible } = req.body;
 
         if (!description) {
             return res.status(400).json({ success: false, error: { message: 'Descrição é obrigatória' } });
@@ -398,12 +398,13 @@ router.post('/:clientId/contracts', async (req: Request, res: Response) => {
         if (!clients.length) return res.status(404).json({ success: false, error: { message: 'Cliente não encontrado' } });
 
         const rows = await query<any>(
-            `INSERT INTO contracts (user_id, client_id, description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+            `INSERT INTO contracts (user_id, client_id, description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url, term_months, is_flexible)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
             [userId, clientId, description, type || 'fixed', fixed_amount || 0, percentage || 0,
              percentage_base || 'Investimento em anúncios', billing_day || 1,
              start_date || null, end_date || null, status || 'active',
-             payment_method || null, notes || null, contract_file_url || null]
+             payment_method || null, notes || null, contract_file_url || null,
+             term_months || null, Boolean(is_flexible)]
         );
         res.status(201).json({ success: true, data: rows[0] });
     } catch (error: any) {
@@ -417,7 +418,7 @@ router.put('/:clientId/contracts/:contractId', async (req: Request, res: Respons
     try {
         const userId = (req as any).user.userId;
         const { contractId } = req.params;
-        const { description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url } = req.body;
+        const { description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url, term_months, is_flexible } = req.body;
 
         const rows = await query<any>(
             `UPDATE contracts SET
@@ -433,9 +434,12 @@ router.put('/:clientId/contracts/:contractId', async (req: Request, res: Respons
                payment_method = COALESCE($12, payment_method),
                notes = COALESCE($13, notes),
                contract_file_url = $14,
+               term_months = $15,
+               is_flexible = COALESCE($16, is_flexible),
                updated_at = NOW()
              WHERE id = $1 AND user_id = $2 RETURNING *`,
-            [contractId, userId, description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url || null]
+            [contractId, userId, description, type, fixed_amount, percentage, percentage_base, billing_day, start_date, end_date, status, payment_method, notes, contract_file_url || null,
+             term_months || null, is_flexible === undefined ? null : Boolean(is_flexible)]
         );
         if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Contrato não encontrado' } });
         res.json({ success: true, data: rows[0] });
@@ -563,6 +567,7 @@ router.post('/:clientId/contracts/:contractId/generate', async (req: Request, re
             contract_term_months: String(contract_term_months),
             signature_date,
             signature_city,
+            cancellation_clause: buildCancellationClause(!!contract.is_flexible, String(contract_term_months)),
         };
 
         const template = await getOrCreateDefaultTemplate(userId);

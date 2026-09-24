@@ -91,9 +91,7 @@ PARÁGRAFO ÚNICO: É responsabilidade da parte CONTRATANTE fornecer dados sufic
 
 6. DA RESCISÃO
 
-CLÁUSULA 10ª: Conforme previsto nas cláusulas anteriores (vide 8ª e 9ª), o presente instrumento poderá ser rescindido caso uma das partes não cumpra o estabelecido ou viole quaisquer dos acordos referentes a confidencialidade e honra previstos neste. A parte rescindente obriga-se a pagar multa correspondente à importância de 10% do valor total previamente descrito e perfeito expressivo na soma das {contract_term_months} parcelas.
-
-CLÁUSULA 11ª: A rescisão amigável implica na não obrigatoriedade do pagamento de multa, uma vez que cumprido o aviso prévio de distrato previsto anteriormente (vide cláusula 10ª) e que não haja configuração de violação ou descumprimento de quaisquer das cláusulas previstas no presente instrumento. Doravante, compreende-se que o presente instrumento configura-se expressamente rescindido mediante a assinatura do Termo de Distrato, que deverá ser enviado pela CONTRATADA em até 48h após o registro formal do desejo de rescisão da parte interessada à parte contrária.
+{cancellation_clause}
 
 PARÁGRAFO ÚNICO: Em qualquer caso de rescisão contratual, não ocorrerá a devolução de qualquer valor pago pelo CONTRATANTE. A CONTRATADA poderá extinguir o presente contrato, a qualquer tempo, mediante prévia notificação à CONTRATANTE sempre que considerar caracterizado algum tipo de infração aos dispositivos constantes deste presente contrato.
 
@@ -126,6 +124,23 @@ export interface ContractVars {
     contract_term_months: string;
     signature_date: string;
     signature_city: string;
+    cancellation_clause: string;
+}
+
+/**
+ * Cláusulas 10ª/11ª (rescisão) — variam conforme o contrato ser "flexível" ou não.
+ * Flexível: sem multa rescisória, só aviso prévio + Termo de Distrato.
+ * Padrão: multa de 10% sobre o total do contrato em caso de rescisão por violação.
+ */
+export function buildCancellationClause(flexible: boolean, termMonths: string): string {
+    if (flexible) {
+        return `CLÁUSULA 10ª: O presente instrumento poderá ser rescindido por qualquer das partes, a qualquer tempo, mediante aviso prévio por escrito com antecedência mínima de 30 (trinta) dias, sem incidência de multa rescisória.
+
+CLÁUSULA 11ª: A rescisão será considerada efetiva mediante a assinatura do Termo de Distrato, que deverá ser enviado pela CONTRATADA em até 48h após o registro formal do desejo de rescisão da parte interessada à parte contrária.`;
+    }
+    return `CLÁUSULA 10ª: Conforme previsto nas cláusulas anteriores (vide 8ª e 9ª), o presente instrumento poderá ser rescindido caso uma das partes não cumpra o estabelecido ou viole quaisquer dos acordos referentes a confidencialidade e honra previstos neste. A parte rescindente obriga-se a pagar multa correspondente à importância de 10% do valor total previamente descrito e perfeito expressivo na soma das ${termMonths} parcelas.
+
+CLÁUSULA 11ª: A rescisão amigável implica na não obrigatoriedade do pagamento de multa, uma vez que cumprido o aviso prévio de distrato previsto anteriormente (vide cláusula 10ª) e que não haja configuração de violação ou descumprimento de quaisquer das cláusulas previstas no presente instrumento. Doravante, compreende-se que o presente instrumento configura-se expressamente rescindido mediante a assinatura do Termo de Distrato, que deverá ser enviado pela CONTRATADA em até 48h após o registro formal do desejo de rescisão da parte interessada à parte contrária.`;
 }
 
 /** Mesmo padrão de daily-whatsapp.service.ts — {placeholder} desconhecido fica intacto. */

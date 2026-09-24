@@ -58,6 +58,8 @@ interface Contract {
     payment_method: string | null;
     notes: string | null;
     contract_file_url: string | null;
+    term_months: number | null;
+    is_flexible: boolean;
 }
 
 interface BillingSummary {
@@ -79,6 +81,7 @@ interface ContractForm {
     percentage: string; percentage_base: string; billing_day: string;
     start_date: string; end_date: string; status: string;
     payment_method: string; notes: string; contract_file_url: string;
+    term_months: string; is_flexible: boolean;
 }
 
 const emptyClientForm: ClientForm = {
@@ -92,6 +95,7 @@ const emptyContractForm: ContractForm = {
     percentage_base: 'Investimento em anúncios', billing_day: '1',
     start_date: '', end_date: '', status: 'active',
     payment_method: '', notes: '', contract_file_url: '',
+    term_months: '6', is_flexible: false,
 };
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -515,6 +519,8 @@ export default function ClientesPage() {
             end_date: c.end_date ? c.end_date.split('T')[0] : '',
             status: c.status, payment_method: c.payment_method || '',
             notes: c.notes || '', contract_file_url: c.contract_file_url || '',
+            term_months: c.term_months != null ? String(c.term_months) : '6',
+            is_flexible: c.is_flexible,
         });
         setContractError('');
         setShowContractModal(true);
@@ -535,6 +541,8 @@ export default function ClientesPage() {
                 payment_method: contractForm.payment_method || null,
                 notes: contractForm.notes || null,
                 contract_file_url: contractForm.contract_file_url || null,
+                term_months: parseInt(contractForm.term_months) || null,
+                is_flexible: contractForm.is_flexible,
             };
             const url = editingContract
                 ? `${API}/clients/${contractsClient.id}/contracts/${editingContract.id}`
@@ -569,6 +577,7 @@ export default function ClientesPage() {
     }
 
     function computeTermMonths(c: Contract): string {
+        if (c.term_months != null) return String(c.term_months);
         if (c.start_date && c.end_date) {
             const start = new Date(c.start_date);
             const end = new Date(c.end_date);
@@ -1041,7 +1050,11 @@ export default function ClientesPage() {
                                             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                                                 <div style={{ flex: 1 }}>
                                                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{c.description}</div>
-                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{CONTRACT_TYPE_LABELS[c.type]} · vence dia {c.billing_day}</div>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                                                        {CONTRACT_TYPE_LABELS[c.type]} · vence dia {c.billing_day}
+                                                        {c.term_months != null && <> · {c.term_months} meses</>}
+                                                        {c.is_flexible && <span style={{ marginLeft: 6, padding: '1px 7px', borderRadius: 999, fontSize: 10.5, fontWeight: 600, background: 'rgba(168,85,247,.10)', border: '1px solid rgba(168,85,247,.25)', color: '#c084fc' }}>Flexível</span>}
+                                                    </div>
                                                 </div>
                                                 <span style={{ fontSize: 11, fontWeight: 600, color: sc.color, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}>
                                                     <sc.Icon size={12} /> {sc.label}
@@ -1399,6 +1412,20 @@ export default function ClientesPage() {
                             {/* Billing day */}
                             <div>
                                 <FF label="Dia de vencimento" value={contractForm.billing_day} onChange={v => setContractForm(f => ({ ...f, billing_day: v }))} placeholder="1" type="number" />
+                            </div>
+
+                            {/* Prazo do contrato (usado na geração do PDF) */}
+                            <div>
+                                <FF label="Prazo do contrato (meses)" value={contractForm.term_months} onChange={v => setContractForm(f => ({ ...f, term_months: v }))} placeholder="6" type="number" />
+                            </div>
+
+                            {/* Contrato flexível — remove cláusulas de multa do PDF gerado */}
+                            <div style={{ gridColumn: '1/-1' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text)', cursor: 'pointer', padding: '10px 12px', background: 'var(--bg-input)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                                    <input type="checkbox" checked={contractForm.is_flexible}
+                                        onChange={e => setContractForm(f => ({ ...f, is_flexible: e.target.checked }))} />
+                                    Contrato flexível — remove as cláusulas de multa rescisória do PDF gerado
+                                </label>
                             </div>
 
                             {/* Status */}
