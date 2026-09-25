@@ -579,47 +579,60 @@ router.put('/settings/:account_id', async (req: Request, res: Response) => {
             agency_name, custom_message,
         } = req.body;
 
-        // Salva campos base (colunas da migration 006 — sempre existem)
+        // Salva campos base (colunas da migration 006 — sempre existem).
+        // client_name/client_email sempre são sobrescritos (todo caller manda os
+        // três, inclusive pra limpar) — mas daily_enabled/weekly_enabled/
+        // monthly_enabled/auto_send_email/agency_name/custom_message usam
+        // COALESCE($n, coluna_atual) pra preservar o valor já salvo quando o
+        // campo não vem no corpo. Necessário porque esse mesmo endpoint também é
+        // chamado pelo card rápido "Contato para Relatórios" em Contas, que só
+        // manda nome/email/telefone/alertas de saldo — sem o COALESCE, esse
+        // caller resetava esses toggles pra false a cada salvamento (bug real
+        // que já derrubou o relatório diário de clientes sem ninguém mexer nele).
         await query(
             `INSERT INTO report_settings (
                 user_id, account_id, client_name, client_email,
                 daily_enabled, weekly_enabled, monthly_enabled,
                 auto_send_email,
                 agency_name, custom_message, updated_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+            ) VALUES ($1,$2,$3,$4,COALESCE($5,false),COALESCE($6,true),COALESCE($7,true),COALESCE($8,false),COALESCE($9,'TrafficAI'),$10,NOW())
             ON CONFLICT (account_id) DO UPDATE SET
                 client_name = EXCLUDED.client_name,
                 client_email = EXCLUDED.client_email,
-                daily_enabled = EXCLUDED.daily_enabled,
-                weekly_enabled = EXCLUDED.weekly_enabled,
-                monthly_enabled = EXCLUDED.monthly_enabled,
-                auto_send_email = EXCLUDED.auto_send_email,
-                agency_name = EXCLUDED.agency_name,
-                custom_message = EXCLUDED.custom_message,
+                daily_enabled = COALESCE($5, report_settings.daily_enabled),
+                weekly_enabled = COALESCE($6, report_settings.weekly_enabled),
+                monthly_enabled = COALESCE($7, report_settings.monthly_enabled),
+                auto_send_email = COALESCE($8, report_settings.auto_send_email),
+                agency_name = COALESCE($9, report_settings.agency_name),
+                custom_message = COALESCE($10, report_settings.custom_message),
                 updated_at = NOW()`,
             [
                 userId, account_id,
                 client_name || null, client_email || null,
-                daily_enabled ?? false, weekly_enabled ?? true, monthly_enabled ?? true,
-                auto_send_email ?? false,
-                agency_name || 'TrafficAI',
-                custom_message || null,
+                daily_enabled, weekly_enabled, monthly_enabled,
+                auto_send_email,
+                agency_name ?? null,
+                custom_message ?? null,
             ]
         );
 
-        // Salva client_phone e auto_send_whatsapp (migration 009)
+        // Salva client_phone (sempre sobrescrito, mesmo motivo do client_name/email
+        // acima) e auto_send_whatsapp (preservado se omitido)
         try {
             await query(
-                `UPDATE report_settings SET client_phone = $1, auto_send_whatsapp = $2 WHERE account_id = $3 AND user_id = $4`,
-                [client_phone || null, auto_send_whatsapp ?? false, account_id, userId]
+                `UPDATE report_settings SET
+                    client_phone = $1,
+                    auto_send_whatsapp = COALESCE($2, auto_send_whatsapp)
+                 WHERE account_id = $3 AND user_id = $4`,
+                [client_phone || null, auto_send_whatsapp, account_id, userId]
             );
         } catch { /* colunas ainda não existem — migration 009 pendente */ }
 
         // Salva daily_whatsapp_enabled (migration 010)
         try {
             await query(
-                `UPDATE report_settings SET daily_whatsapp_enabled = $1 WHERE account_id = $2 AND user_id = $3`,
-                [daily_whatsapp_enabled ?? false, account_id, userId]
+                `UPDATE report_settings SET daily_whatsapp_enabled = COALESCE($1, daily_whatsapp_enabled) WHERE account_id = $2 AND user_id = $3`,
+                [daily_whatsapp_enabled, account_id, userId]
             );
         } catch { /* coluna ainda não existe — migration 010 pendente */ }
 
