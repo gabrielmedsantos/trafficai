@@ -90,6 +90,7 @@ export interface TrackingUserInput {
     // WhatsApp Click-to-Message attribution
     ctwa_clid?: string;     // Click-to-WhatsApp Click ID
     page_id?: string;       // Facebook page associada
+    whatsapp_business_account_id?: string; // WABA — usar em vez de page_id quando o evento vai pro dataset da própria WABA
 }
 
 /**
@@ -197,8 +198,9 @@ function buildUserData(u: TrackingUserInput | undefined): Record<string, any> {
     if (u.client_ip)           ud.client_ip_address = u.client_ip;
     if (u.client_user_agent)   ud.client_user_agent = u.client_user_agent;
     // WhatsApp Click-to-Message
-    if (u.ctwa_clid)           ud.ctwa_clid = u.ctwa_clid;
-    if (u.page_id)             ud.page_id = u.page_id;
+    if (u.ctwa_clid)                     ud.ctwa_clid = u.ctwa_clid;
+    if (u.page_id)                       ud.page_id = u.page_id;
+    if (u.whatsapp_business_account_id)  ud.whatsapp_business_account_id = u.whatsapp_business_account_id;
 
     return ud;
 }

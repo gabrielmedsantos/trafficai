@@ -348,8 +348,16 @@ async function processExtractedLead(source: any, input: ExtractedLeadInput): Pro
     let metaSent = false;
     let metaError: string | null = null;
 
-    // Usa o pixel resolvido do anúncio OU o pixel configurado na fonte como fallback
-    const effectivePixel = pixelId || source.pixel_id;
+    // Eventos business_messaging (Click-to-WhatsApp) precisam ir pro dataset
+    // da PRÓPRIA Conta Comercial do WhatsApp (whatsapp_dataset_id, obtido via
+    // POST /{waba_id}/dataset), não pro pixel genérico de anúncios — usar o
+    // pixel/tracking_specs aqui é o que causa "nenhuma Página associada ao
+    // conjunto de dados" (error_subcode 2804131), mesmo com page_id certo.
+    // Confirmado ao vivo: com whatsapp_dataset_id configurado, o evento só
+    // passa se o user_data levar whatsapp_business_account_id e NÃO levar
+    // page_id — os dois juntos rejeitam do mesmo jeito que só page_id.
+    const effectivePixel = source.whatsapp_dataset_id || pixelId || source.pixel_id;
+    const useWabaId = !!source.whatsapp_dataset_id && !!source.whatsapp_business_account_id;
 
     if (effectivePixel && source.access_token) {
         const event: TrackingEventInput = {
@@ -364,7 +372,9 @@ async function processExtractedLead(source: any, input: ExtractedLeadInput): Pro
                 last_name: name?.split(' ').slice(1).join(' ') || undefined,
                 external_id: `ctwa-${ctwaClid.slice(0, 20)}`,
                 ctwa_clid: ctwaClid,
-                page_id: pageId || undefined,
+                ...(useWabaId
+                    ? { whatsapp_business_account_id: source.whatsapp_business_account_id }
+                    : { page_id: pageId || undefined }),
             },
             custom_data: {
                 source: 'whatsapp_ad',
