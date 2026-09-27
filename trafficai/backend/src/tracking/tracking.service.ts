@@ -572,7 +572,8 @@ export async function retryEvent(eventId: string): Promise<{
     retry_count: number;
 }> {
     const rows = await query<any>(
-        `SELECT e.*, s.pixel_id, s.access_token, s.test_event_code, s.is_active
+        `SELECT e.*, s.pixel_id, s.access_token, s.test_event_code, s.is_active,
+                s.whatsapp_business_account_id, s.whatsapp_dataset_id
          FROM tracking_events e
          JOIN tracking_sources s ON e.source_id = s.id
          WHERE e.id = $1`,
@@ -607,13 +608,26 @@ export async function retryEvent(eventId: string): Promise<{
     if (ev.event_source_url) payload.event_source_url = ev.event_source_url;
     if (ev.messaging_channel) payload.messaging_channel = ev.messaging_channel;
     if (ev.user_data_hashed && Object.keys(ev.user_data_hashed).length > 0) {
-        payload.user_data = ev.user_data_hashed;
+        payload.user_data = { ...ev.user_data_hashed };
     }
     if (ev.custom_data && Object.keys(ev.custom_data).length > 0) {
         payload.custom_data = ev.custom_data;
     }
 
-    const result = await postToMeta(ev.pixel_id, ev.access_token, payload, ev.test_event_code);
+    // business_messaging (Click-to-WhatsApp) precisa ir pro dataset da própria
+    // WABA, com whatsapp_business_account_id no user_data — NUNCA page_id
+    // junto (rejeitado com error_subcode 2804131 mesmo com o dataset certo).
+    // Ver whatsapp-lead.service.ts pra explicação completa.
+    let effectivePixel = ev.pixel_id;
+    if (ev.action_source === 'business_messaging' && ev.whatsapp_dataset_id && ev.whatsapp_business_account_id) {
+        effectivePixel = ev.whatsapp_dataset_id;
+        if (payload.user_data) {
+            delete payload.user_data.page_id;
+            payload.user_data.whatsapp_business_account_id = ev.whatsapp_business_account_id;
+        }
+    }
+
+    const result = await postToMeta(effectivePixel, ev.access_token, payload, ev.test_event_code);
 
     try {
         await query(
