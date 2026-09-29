@@ -1112,6 +1112,79 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     }));
   }
 
+  // ── UTMs persistidas + decoração de links de checkout ──────────────────
+  // Plataformas de checkout (Kiwify, Hotmart, Eduzz...) devolvem no webhook
+  // de venda as UTMs e o sck que estavam NO LINK DO CHECKOUT. O botão
+  // "Comprar" da página normalmente não carrega as UTMs do anúncio — então
+  // guardamos as UTMs da chegada (30 dias, último toque) e anexamos UTMs +
+  // sck=<session_id> em todo link que aponte pra um checkout. É o que liga a
+  // venda ao clique/campanha de origem.
+  var UTM_KEY = '__tai_utms__';
+  var UTM_FIELDS = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+  function saveUtms(p){
+    var has = false, data = {};
+    UTM_FIELDS.forEach(function(f){ if (p[f]) { data[f] = p[f]; has = true; } });
+    if (!has) return;
+    data._ts = Date.now();
+    try { localStorage.setItem(UTM_KEY, JSON.stringify(data)); } catch(e){}
+  }
+  function getUtms(){
+    try {
+      var d = JSON.parse(localStorage.getItem(UTM_KEY) || 'null');
+      if (d && Date.now() - d._ts < 30*86400000) return d;
+    } catch(e){}
+    return null;
+  }
+  saveUtms(initParams);
+
+  var CHECKOUT_HOSTS = /kiwify|hotmart|eduzz|monetizze|cakto|hub\\.la|perfectpay|braip|ticto|greenn|payt/i;
+  function isCheckoutLink(el){
+    if (!el || !el.href) return false;
+    if (el.hasAttribute && el.hasAttribute('data-tai-checkout')) return true;
+    try {
+      var h = new URL(el.href, window.location.href).hostname;
+      return h !== window.location.hostname && CHECKOUT_HOSTS.test(h);
+    } catch(e){ return false; }
+  }
+  function decorate(url){
+    try {
+      var u = new URL(url, window.location.href);
+      var utms = getUtms() || {};
+      UTM_FIELDS.forEach(function(f){ if (utms[f] && !u.searchParams.get(f)) u.searchParams.set(f, utms[f]); });
+      if (!u.searchParams.get('sck')) u.searchParams.set('sck', getSession());
+      return u.toString();
+    } catch(e){ return url; }
+  }
+  function decorateAll(){
+    var links = document.querySelectorAll('a[href]');
+    for (var i = 0; i < links.length; i++) {
+      if (isCheckoutLink(links[i])) links[i].href = decorate(links[i].href);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', decorateAll);
+  else decorateAll();
+  // Páginas que montam o botão depois (builders, SPA) — redecora em mudanças
+  try {
+    var decorTimer = null;
+    new MutationObserver(function(){
+      if (decorTimer) return;
+      decorTimer = setTimeout(function(){ decorTimer = null; decorateAll(); }, 400);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  } catch(e){}
+
+  var checkoutTracked = false;
+  document.addEventListener('click', function(e){
+    var el = e.target;
+    while (el && el !== document) {
+      if (el.tagName === 'A' && isCheckoutLink(el)) {
+        el.href = decorate(el.href);
+        if (!checkoutTracked) { checkoutTracked = true; track('InitiateCheckout', { custom_data: { checkout_url: el.href.split('?')[0] } }); }
+        return;
+      }
+      el = el.parentNode;
+    }
+  }, true);
+
   // ── Auto-scroll tracking (50% e 90%) — reseta a cada PageView SPA ─────
   var scrollMarks = { 50:false, 90:false };
   function onScroll(){
@@ -1204,6 +1277,8 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     track: track,
     identify: setIdent,
     sessionId: getSession,
+    // Pra checkout em domínio próprio/não detectado: TrafficAI.checkoutUrl(url)
+    checkoutUrl: decorate,
     pageView: function(params){ return track('PageView', params); },
     viewContent: function(params){ return track('ViewContent', params); },
     lead: function(params){ return track('Lead', params); },
