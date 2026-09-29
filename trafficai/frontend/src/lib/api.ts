@@ -437,9 +437,27 @@ class ApiClient {
         const q = new URLSearchParams(params).toString();
         return this.request<any>('GET', `/tracking/sources/${sourceId}/sales-report?${q}`);
     }
-    async getSalesOrders(sourceId: string, params: { since: string; until: string; status?: string }) {
+    async getSalesOrders(sourceId: string, params: { since: string; until: string; status?: string; limit?: string }) {
         const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/orders?${q}`);
+    }
+    async updateSalesMetaObject(sourceId: string, metaId: string, change: { status?: 'ACTIVE' | 'PAUSED'; daily_budget?: number }) {
+        return this.request<any>('PATCH', `/tracking/sources/${sourceId}/meta-objects/${metaId}`, change);
+    }
+    async getSalesSettings(sourceId: string) {
+        return this.request<{ settings: any; products: { product_name: string; orders: string }[] }>('GET', `/tracking/sources/${sourceId}/sales-settings`);
+    }
+    async updateSalesSettings(sourceId: string, settings: any) {
+        return this.request<any>('PUT', `/tracking/sources/${sourceId}/sales-settings`, settings);
+    }
+    async getSalesExpenses(sourceId: string, params: { since: string; until: string }) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/expenses?${new URLSearchParams(params).toString()}`);
+    }
+    async createSalesExpense(sourceId: string, data: { expense_date: string; description: string; category?: string; amount: number }) {
+        return this.request<any>('POST', `/tracking/sources/${sourceId}/expenses`, data);
+    }
+    async deleteSalesExpense(sourceId: string, expenseId: string) {
+        return this.request<any>('DELETE', `/tracking/sources/${sourceId}/expenses/${expenseId}`);
     }
     async createTrackingSource(data: {
         name: string; account_id?: string; pixel_id?: string; access_token?: string;

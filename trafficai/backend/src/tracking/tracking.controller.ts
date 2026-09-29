@@ -20,7 +20,7 @@ import {
     listConversionRules, createConversionRule, updateConversionRule, deleteConversionRule, listRuleExecutions,
 } from './conversion-rules/conversion-rules.service';
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
-import { buildSummary, buildGroupedRows, ReportGroup } from './sales-report.service';
+import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject } from './sales-report.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -35,7 +35,7 @@ function brtDate(offsetDays = 0): string {
 
 async function loadReportSource(sourceId: string, userId: string) {
     const rows = await query<any>(
-        `SELECT s.id, s.user_id, s.account_id, a.meta_account_id
+        `SELECT s.id, s.user_id, s.account_id, s.sales_settings, a.meta_account_id
          FROM tracking_sources s LEFT JOIN ad_accounts a ON a.id = s.account_id
          WHERE s.id = $1 AND s.user_id = $2`,
         [sourceId, userId]
@@ -58,11 +58,11 @@ router.get('/sources/:id/sales-report', async (req: Request, res: Response) => {
         if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
         const group = (REPORT_GROUPS.includes(req.query.group as ReportGroup) ? req.query.group : 'campaign') as ReportGroup;
 
-        const [summary, rows] = await Promise.all([
+        const [summary, grouped] = await Promise.all([
             buildSummary(source, range.since, range.until),
             buildGroupedRows(source, group, range.since, range.until),
         ]);
-        res.json({ success: true, data: { ...range, group, summary, rows } });
+        res.json({ success: true, data: { ...range, group, summary, rows: grouped.rows, meta_live: grouped.live } });
     } catch (err: any) {
         logger.error('sales-report falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
@@ -94,6 +94,118 @@ router.get('/sources/:id/orders', async (req: Request, res: Response) => {
         res.json({ success: true, data: rows });
     } catch (err: any) {
         logger.error('orders list falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// PATCH /tracking/sources/:id/meta-objects/:metaId  { status?: 'ACTIVE'|'PAUSED', daily_budget?: number (R$) }
+// Pausar/ativar e orçamento de campanha/conjunto/anúncio direto do relatório.
+router.patch('/sources/:id/meta-objects/:metaId', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const { status, daily_budget } = req.body || {};
+        if (status !== undefined && status !== 'ACTIVE' && status !== 'PAUSED') {
+            return res.status(400).json({ success: false, error: { message: 'status deve ser ACTIVE ou PAUSED' } });
+        }
+        const budget = daily_budget !== undefined ? Number(daily_budget) : undefined;
+        if (budget !== undefined && (!Number.isFinite(budget) || budget < 1)) {
+            return res.status(400).json({ success: false, error: { message: 'Orçamento inválido (mínimo R$ 1)' } });
+        }
+        if (status === undefined && budget === undefined) {
+            return res.status(400).json({ success: false, error: { message: 'Nada pra alterar' } });
+        }
+        await updateMetaObject(source, req.params.metaId, { status, daily_budget: budget });
+        logger.info('vendas: objeto Meta alterado', { source: source.id, metaId: req.params.metaId, status, daily_budget: budget });
+        res.json({ success: true, data: { id: req.params.metaId, status, daily_budget: budget } });
+    } catch (err: any) {
+        const msg = err.response?.data?.error?.error_user_msg || err.response?.data?.error?.message || err.message;
+        logger.warn('vendas: alterar objeto Meta falhou', { error: msg });
+        res.status(400).json({ success: false, error: { message: msg || 'Falha ao alterar na Meta' } });
+    }
+});
+
+// GET/PUT /tracking/sources/:id/sales-settings — imposto, custo por produto, regras do Purchase
+router.get('/sources/:id/sales-settings', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const products = await query<{ product_name: string; orders: string }>(
+            `SELECT product_name, COUNT(*) AS orders FROM tracking_orders
+             WHERE source_id = $1 AND product_name IS NOT NULL
+             GROUP BY 1 ORDER BY 2 DESC LIMIT 100`,
+            [source.id]
+        );
+        res.json({ success: true, data: { settings: normalizeSalesSettings(source.sales_settings), products } });
+    } catch (err: any) {
+        logger.error('sales-settings get falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+router.put('/sources/:id/sales-settings', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const settings = normalizeSalesSettings({ ...normalizeSalesSettings(source.sales_settings), ...(req.body || {}) });
+        await query(`UPDATE tracking_sources SET sales_settings = $1, updated_at = NOW() WHERE id = $2`, [JSON.stringify(settings), source.id]);
+        res.json({ success: true, data: settings });
+    } catch (err: any) {
+        logger.error('sales-settings put falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// Despesas adicionais (entram no lucro)
+router.get('/sources/:id/expenses', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const range = reportRange(req.query);
+        if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
+        const rows = await query<any>(
+            `SELECT id, to_char(expense_date, 'YYYY-MM-DD') AS expense_date, description, category, amount
+             FROM tracking_expenses WHERE source_id = $1 AND expense_date BETWEEN $2 AND $3
+             ORDER BY expense_date DESC, created_at DESC`,
+            [source.id, range.since, range.until]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('expenses list falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+router.post('/sources/:id/expenses', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const { expense_date, description, category, amount } = req.body || {};
+        const value = Number(amount);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(expense_date || '')) || !String(description || '').trim() || !Number.isFinite(value) || value < 0) {
+            return res.status(400).json({ success: false, error: { message: 'Preencha data, descrição e valor' } });
+        }
+        const [row] = await query<any>(
+            `INSERT INTO tracking_expenses (source_id, expense_date, description, category, amount)
+             VALUES ($1, $2, $3, $4, $5)
+             RETURNING id, to_char(expense_date, 'YYYY-MM-DD') AS expense_date, description, category, amount`,
+            [source.id, expense_date, String(description).trim().slice(0, 200), category ? String(category).slice(0, 60) : null, value]
+        );
+        res.json({ success: true, data: row });
+    } catch (err: any) {
+        logger.error('expense create falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+router.delete('/sources/:id/expenses/:expenseId', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        await query(`DELETE FROM tracking_expenses WHERE id = $1 AND source_id = $2`, [req.params.expenseId, source.id]);
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.error('expense delete falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

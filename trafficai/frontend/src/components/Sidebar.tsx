@@ -33,6 +33,10 @@ import {
     MessageCircle,
     ClipboardCheck,
     History,
+    Link2,
+    ShoppingCart,
+    Receipt,
+    Code2,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -59,7 +63,7 @@ const AREAS = [
         label: 'Tráfego Pago',
         shortLabel: 'Tráfego',
         icon: Radio,
-        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/vendas', '/reports/whatsapp', '/templates', '/calendar', '/automation'],
+        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/reports/whatsapp', '/templates', '/calendar', '/automation'],
         groups: [
             {
                 label: 'Meu dia',
@@ -91,9 +95,39 @@ const AREAS = [
                     { href: '/reports',           label: 'Relatórios',       icon: FileText, color: C.blue },
                     { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle, color: C.whatsapp },
                     { href: '/creative',          label: 'Criativos',        icon: Palette, capability: 'creatives', color: C.purple },
-                    { href: '/tracking',          label: 'Tracking',         icon: Activity, color: C.cyan },
-                    { href: '/vendas',            label: 'Vendas',           icon: Wallet, color: C.green },
                     { href: '/accounts',          label: 'Contas',           icon: Users, color: C.neutral },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'tracking',
+        label: 'Tracking',
+        icon: Activity,
+        routes: ['/vendas', '/tracking'],
+        groups: [
+            {
+                label: 'Vendas',
+                items: [
+                    { href: '/vendas',            label: 'Resumo',            icon: LayoutDashboard, color: C.cyan, exact: true },
+                    { href: '/vendas/campanhas',  label: 'Campanhas',         icon: Megaphone, color: C.orange },
+                    { href: '/vendas/utms',       label: 'UTMs',              icon: Link2, color: C.purple },
+                    { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },
+                    { href: '/vendas/pedidos',    label: 'Pedidos',           icon: ShoppingCart, color: C.green },
+                ],
+            },
+            {
+                label: 'Configuração',
+                items: [
+                    { href: '/vendas/integracoes', label: 'Integrações',      icon: Plug, color: C.neutral },
+                    { href: '/vendas/pixel',       label: 'Pixel e UTMs',     icon: Code2, color: C.neutral },
+                    { href: '/vendas/custos',      label: 'Custos e impostos', icon: Receipt, color: C.neutral },
+                ],
+            },
+            {
+                label: 'WhatsApp e CAPI',
+                items: [
+                    { href: '/tracking',          label: 'Fontes e WhatsApp', icon: MessageCircle, color: C.whatsapp },
                 ],
             },
         ],
@@ -153,7 +187,7 @@ const AREAS = [
     },
 ] as const;
 
-type AreaId = 'traffic' | 'gestao' | 'comercial';
+type AreaId = 'traffic' | 'tracking' | 'gestao' | 'comercial';
 
 function detectArea(pathname: string): AreaId {
     for (const area of AREAS) {
@@ -292,7 +326,7 @@ export default function Sidebar() {
                         <div className="nav-group-label">{group.label}</div>
                         {group.items.filter((item: any) => (!item.capability || can(item.capability)) && (!item.adminOnly || user?.role === 'admin')).map((item: any) => {
                             const Icon = item.icon;
-                            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
+                            const isActive = pathname === item.href || (!item.exact && pathname?.startsWith(item.href + '/'));
                             return (
                                 <Link
                                     key={item.href}

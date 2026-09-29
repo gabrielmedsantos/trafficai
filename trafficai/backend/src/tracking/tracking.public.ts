@@ -25,6 +25,7 @@ import {
     upsertOrder, linkOrderPurchaseEvent, normalizePaymentMethod, metaIdsFromUtms,
     NormalizedOrder, OrderStatus,
 } from './sales-orders.service';
+import { normalizeSalesSettings } from './sales-report.service';
 
 const router = Router();
 
@@ -399,6 +400,17 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             if (!saved.became_approved) {
                 return res.json({ success: true, data: { order_id: saved.id, status: k.order.status, purchase_sent: false } });
             }
+            // Regras do Purchase configuradas em Tracking → Pixel (valor e produtos).
+            let settings = normalizeSalesSettings(null);
+            try {
+                const [row] = await query<any>(`SELECT sales_settings FROM tracking_sources WHERE id = $1`, [source.id]);
+                settings = normalizeSalesSettings(row?.sales_settings);
+            } catch { /* coluna ainda não migrada → padrão */ }
+            if (settings.purchase_products.length && !settings.purchase_products.includes(String(k.order.product_name || '').trim())) {
+                logger.info('webhook Kiwify: produto fora do filtro do Purchase, só registrando pedido', { order: saved.id, product: k.order.product_name });
+                return res.json({ success: true, data: { order_id: saved.id, status: k.order.status, purchase_sent: false, reason: 'produto fora do filtro' } });
+            }
+            if (settings.purchase_value === 'net' && k.order.net_value != null) k.purchase.value = k.order.net_value;
             b = k.purchase;
             orderRecordId = saved.id;
         }
