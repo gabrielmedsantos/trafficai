@@ -433,6 +433,14 @@ class ApiClient {
     async getTrackingSource(id: string) {
         return this.request<any>('GET', `/tracking/sources/${id}`);
     }
+    async getSalesReport(sourceId: string, params: { since: string; until: string; group: string }) {
+        const q = new URLSearchParams(params).toString();
+        return this.request<any>('GET', `/tracking/sources/${sourceId}/sales-report?${q}`);
+    }
+    async getSalesOrders(sourceId: string, params: { since: string; until: string; status?: string }) {
+        const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/orders?${q}`);
+    }
     async createTrackingSource(data: {
         name: string; account_id?: string; pixel_id?: string; access_token?: string;
         use_ads_token?: boolean; test_event_code?: string; domain?: string;

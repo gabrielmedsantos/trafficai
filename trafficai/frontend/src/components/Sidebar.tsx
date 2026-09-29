@@ -59,7 +59,7 @@ const AREAS = [
         label: 'Tráfego Pago',
         shortLabel: 'Tráfego',
         icon: Radio,
-        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/reports/whatsapp', '/templates', '/calendar', '/automation'],
+        routes: ['/agenda', '/onboarding', '/dashboard', '/agent', '/campaigns', '/insights', '/predictions', '/alerts', '/rotina', '/reports', '/accounts', '/creative', '/otimizacoes', '/tracking', '/vendas', '/reports/whatsapp', '/templates', '/calendar', '/automation'],
         groups: [
             {
                 label: 'Meu dia',
@@ -92,6 +92,7 @@ const AREAS = [
                     { href: '/reports/whatsapp',  label: 'Diário WhatsApp',  icon: MessageCircle, color: C.whatsapp },
                     { href: '/creative',          label: 'Criativos',        icon: Palette, capability: 'creatives', color: C.purple },
                     { href: '/tracking',          label: 'Tracking',         icon: Activity, color: C.cyan },
+                    { href: '/vendas',            label: 'Vendas',           icon: Wallet, color: C.green },
                     { href: '/accounts',          label: 'Contas',           icon: Users, color: C.neutral },
                 ],
             },
