@@ -20,9 +20,83 @@ import {
     listConversionRules, createConversionRule, updateConversionRule, deleteConversionRule, listRuleExecutions,
 } from './conversion-rules/conversion-rules.service';
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
+import { buildSummary, buildGroupedRows, ReportGroup } from './sales-report.service';
 
 const router = Router();
 router.use(authMiddleware);
+
+// ─── Vendas (pedidos de checkout) — relatório estilo UTMify ─────────────────
+const REPORT_GROUPS: ReportGroup[] = ['campaign', 'adset', 'ad', 'utm_source', 'utm_campaign', 'utm_medium', 'utm_content', 'utm_term', 'day', 'product'];
+
+function brtDate(offsetDays = 0): string {
+    const d = new Date(Date.now() - 3 * 3600000 + offsetDays * 86400000);
+    return d.toISOString().slice(0, 10);
+}
+
+async function loadReportSource(sourceId: string, userId: string) {
+    const rows = await query<any>(
+        `SELECT s.id, s.user_id, s.account_id, a.meta_account_id
+         FROM tracking_sources s LEFT JOIN ad_accounts a ON a.id = s.account_id
+         WHERE s.id = $1 AND s.user_id = $2`,
+        [sourceId, userId]
+    );
+    return rows[0] || null;
+}
+
+function reportRange(q: any): { since: string; until: string } | null {
+    const since = typeof q.since === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(q.since) ? q.since : brtDate(-6);
+    const until = typeof q.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(q.until) ? q.until : brtDate(0);
+    return since <= until ? { since, until } : null;
+}
+
+// GET /tracking/sources/:id/sales-report?since=YYYY-MM-DD&until=YYYY-MM-DD&group=campaign
+router.get('/sources/:id/sales-report', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const range = reportRange(req.query);
+        if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
+        const group = (REPORT_GROUPS.includes(req.query.group as ReportGroup) ? req.query.group : 'campaign') as ReportGroup;
+
+        const [summary, rows] = await Promise.all([
+            buildSummary(source, range.since, range.until),
+            buildGroupedRows(source, group, range.since, range.until),
+        ]);
+        res.json({ success: true, data: { ...range, group, summary, rows } });
+    } catch (err: any) {
+        logger.error('sales-report falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /tracking/sources/:id/orders?since&until&status&limit — pedidos recentes
+router.get('/sources/:id/orders', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const range = reportRange(req.query);
+        if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
+        const status = typeof req.query.status === 'string' ? req.query.status : null;
+        const limit = Math.min(Number(req.query.limit) || 100, 500);
+        const rows = await query<any>(
+            `SELECT id, platform, external_order_id, status, payment_method, product_name,
+                    gross_value, net_value, currency, customer_name,
+                    utm_source, utm_campaign, utm_medium, utm_content,
+                    meta_campaign_id, meta_adset_id, meta_ad_id, purchase_event_id,
+                    COALESCE(approved_at, order_created_at, created_at) AS order_date
+             FROM tracking_orders
+             WHERE source_id = $1
+               AND (COALESCE(approved_at, order_created_at, created_at) AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
+               AND ($4::text IS NULL OR status = $4)
+             ORDER BY order_date DESC LIMIT $5`,
+            [source.id, range.since, range.until, status, limit]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('orders list falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
 
 // ─── GET /tracking/crm-schema ──────────────────────────────────────────────
 // Retorna quais campos são necessários para cada tipo de CRM
