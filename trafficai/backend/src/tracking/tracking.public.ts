@@ -21,6 +21,10 @@ import { processWhatsAppMessage, findWhatsAppLeadByPhone, recordPurchaseForWhats
 import { resolveClickAttribution, enrichClickWithContact } from './attribution-resolver';
 import { KommoAdapter } from './crm-adapters/kommo.adapter';
 import { DataCrazyAdapter } from './crm-adapters/datacrazy.adapter';
+import {
+    upsertOrder, linkOrderPurchaseEvent, normalizePaymentMethod, metaIdsFromUtms,
+    NormalizedOrder, OrderStatus,
+} from './sales-orders.service';
 
 const router = Router();
 
@@ -327,6 +331,7 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
         }
 
         let b: any = req.body || {};
+        let orderRecordId: string | null = null;
 
         // ── Formato nativo Kommo ──────────────────────────────────────────
         // Kommo envia form-encoded com chaves tipo:
@@ -385,9 +390,17 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
         // assim que o primeiro evento de teste real chegar.
         if (!b.event && (b.order_id || b.order_status || b.Customer || b.customer_id || b.Product)) {
             logger.info('webhook Kiwify recebido — corpo bruto pra conferência', { source: source.id, raw: JSON.stringify(b).slice(0, 4000) });
-            const normalized = normalizeKiwifyPayload(b);
-            if (normalized) b = normalized;
-            else return res.json({ success: true, data: { ignored: true, reason: 'status não mapeado pra evento' } });
+            const k = normalizeKiwifyPayload(b);
+            if (!k) return res.json({ success: true, data: { ignored: true, reason: 'status não mapeado pra pedido' } });
+            const saved = await upsertOrder(source.id, k.order);
+            // Pendente/recusado/reembolso só atualizam o pedido (dashboard);
+            // Purchase na Meta só na transição pra aprovado — reenvio do mesmo
+            // webhook aprovado não duplica.
+            if (!saved.became_approved) {
+                return res.json({ success: true, data: { order_id: saved.id, status: k.order.status, purchase_sent: false } });
+            }
+            b = k.purchase;
+            orderRecordId = saved.id;
         }
 
         // ── DataCrazy: automação manda só IDs (leadId/businessId/stageId) ──
@@ -487,6 +500,10 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             return res.status(400).json({ success: false, error: { message: 'event obrigatório' } });
         }
 
+        // Pedido de checkout (Kiwify etc.) já traz campanha/conjunto/anúncio
+        // pelos ids das UTMs — vira "Origem da venda" do evento.
+        if (b.campaign) event.campaign = b.campaign;
+
         // Enriquecimento: se o phone já está em tracking_whatsapp_leads,
         // é um lead que veio de anúncio WhatsApp → anexa ctwa_clid + page_id
         // e converte action_source pra business_messaging. Isso faz a Meta
@@ -557,6 +574,7 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
         }
 
         const r = await trackEvent(source, event);
+        if (orderRecordId && r.event_id) await linkOrderPurchaseEvent(orderRecordId, r.event_id);
 
         // Stampa o resultado da atribuição no evento já persistido — feito à
         // parte pra não mexer no INSERT principal de trackEvent(). Nunca falha
@@ -777,69 +795,97 @@ async function normalizeKommoPayload(body: any, eventHintFromQuery: string, sour
 }
 
 // ── Normalizador Kiwify ─────────────────────────────────────────────────
-// status aprovado → Purchase; recusado/pendente → ignora (não é venda);
-// reembolso/chargeback → ainda não mapeado (ver comentário no chamador).
-// value: tenta múltiplos caminhos conhecidos de plataformas parecidas —
-// o valor bruto e o caminho usado ficam no log pra eu confirmar unidade
-// (centavos vs reais) contra o primeiro evento de teste real.
-const KIWIFY_APPROVED_STATUSES = ['paid', 'approved', 'compra_aprovada', 'completed'];
-const KIWIFY_IGNORED_STATUSES = ['refused', 'compra_recusada', 'waiting_payment', 'pending', 'pix_gerado', 'boleto_gerado', 'carrinho_abandonado', 'abandoned'];
+// Todo webhook vira/atualiza um pedido (status mapeado abaixo); o Purchase
+// pra Meta só sai quando o pedido vira aprovado (ver chamador). Carrinho
+// abandonado não é pedido — ignora. Status desconhecido: não assume nada.
+function mapKiwifyStatus(raw: string): OrderStatus | 'skip' | null {
+    const s = raw.toLowerCase();
+    if (!s) return null;
+    if (s.includes('carrinho_abandonado') || s.includes('abandoned')) return 'skip';
+    if (s.includes('chargeback') || s.includes('chargedback')) return 'chargeback';
+    if (s.includes('reembols') || s.includes('refund')) return 'refunded';
+    if (s.includes('recusad') || s.includes('refused')) return 'refused';
+    if (s.includes('cancel')) return 'canceled';
+    if (s.includes('aprovad') || s === 'paid' || s === 'approved' || s === 'completed' || s.includes('renewed')) return 'approved';
+    if (s.includes('waiting') || s.includes('pending') || s.includes('pix_gerado') || s.includes('boleto_gerado') || s.includes('processing')) return 'pending';
+    return null;
+}
 
-function normalizeKiwifyPayload(body: any): any | null {
-    const status = String(
-        body.order_status || body.status || body.Status || body?.data?.status || ''
-    ).toLowerCase().trim();
+// Kiwify trabalha em centavos em toda a API (charge_amount, net_amount,
+// product_base_price, my_commission) — inteiro ou string de inteiro.
+function kiwifyCents(v: any): number | undefined {
+    if (v == null || v === '') return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n / 100 : undefined;
+}
 
-    if (KIWIFY_IGNORED_STATUSES.some(s => status.includes(s))) return null;
-    // Status desconhecido (não bate nem com aprovado nem com os ignorados
-    // conhecidos): não assume Purchase às cegas — melhor perder um evento
-    // do que mandar uma venda que não é venda pra Meta.
-    if (!KIWIFY_APPROVED_STATUSES.some(s => status.includes(s))) {
-        logger.warn('webhook Kiwify: status não reconhecido, ignorando', { status });
+function normalizeKiwifyPayload(body: any): { order: NormalizedOrder; purchase: any } | null {
+    const rawStatus = String(body.order_status || body.webhook_event_type || body.status || body.Status || '').trim();
+    const status = mapKiwifyStatus(rawStatus);
+    if (status === 'skip') return null;
+    if (!status) {
+        logger.warn('webhook Kiwify: status não reconhecido, ignorando', { status: rawStatus });
+        return null;
+    }
+
+    const orderId = String(body.order_id || body.id || body.order?.id || body.order_ref || '').trim();
+    if (!orderId) {
+        logger.warn('webhook Kiwify: sem order_id, ignorando');
         return null;
     }
 
     const customer = body.Customer || body.customer || {};
     const tracking = body.TrackingParameters || body.tracking || body.Tracking || {};
     const product = body.Product || body.product || {};
+    const commissions = body.Commissions || body.commissions || {};
 
-    const email = customer.email || customer.Email;
-    const phone = customer.mobile || customer.Mobile || customer.phone || customer.Phone;
-    const fullName = customer.full_name || customer.fullName || customer.name || customer.Name;
-    const [firstName, ...lastParts] = String(fullName || '').trim().split(/\s+/);
+    const email = customer.email || customer.Email || undefined;
+    const phone = customer.mobile || customer.Mobile || customer.phone || customer.Phone || undefined;
+    const fullName = String(customer.full_name || customer.fullName || customer.name || customer.Name || '').trim();
+    const [firstName, ...lastParts] = fullName.split(/\s+/);
 
-    // Candidatos de valor, em ordem de preferência (valor bruto cobrado do
-    // cliente antes de taxa/comissão) — o primeiro que existir e for > 0 vence.
-    const valueCandidates: { path: string; raw: any }[] = [
-        { path: 'Commissions.charge_amount', raw: body.Commissions?.charge_amount },
-        { path: 'payment.charge_amount', raw: body.payment?.charge_amount },
-        { path: 'charge_amount', raw: body.charge_amount },
-        { path: 'net_amount', raw: body.net_amount },
-        { path: 'order_total', raw: body.order_total },
-        { path: 'total_price', raw: body.total_price },
-        { path: 'Commissions.product_base_price', raw: body.Commissions?.product_base_price },
-        { path: 'price', raw: body.price },
-        { path: 'product.price', raw: product.price },
-    ];
-    const found = valueCandidates.find(c => c.raw != null && Number(c.raw) > 0);
-    let value: number | undefined;
-    if (found) {
-        const n = Number(found.raw);
-        // Heurística: valores > 1000 e inteiros geralmente são centavos
-        // (padrão comum nessas plataformas) — loga os dois jeitos pra eu
-        // confirmar contra o valor real do produto de teste.
-        value = n > 999 && Number.isInteger(n) ? n / 100 : n;
-        logger.info('webhook Kiwify: valor resolvido', { path: found.path, raw: n, valor_usado: value });
-    }
+    const gross = kiwifyCents(commissions.charge_amount) ?? kiwifyCents(body.payment?.charge_amount)
+        ?? kiwifyCents(body.charge_amount) ?? kiwifyCents(commissions.product_base_price);
+    const net = kiwifyCents(commissions.my_commission) ?? kiwifyCents(body.net_amount) ?? kiwifyCents(body.payment?.net_amount);
+    logger.info('webhook Kiwify: valores resolvidos', { order: orderId, status, gross, net });
 
-    const orderId = body.order_id || body.id || body.order?.id;
+    const utm = {
+        utm_source: tracking.utm_source || undefined,
+        utm_medium: tracking.utm_medium || undefined,
+        utm_campaign: tracking.utm_campaign || undefined,
+        utm_content: tracking.utm_content || undefined,
+        utm_term: tracking.utm_term || undefined,
+    };
+    const ids = metaIdsFromUtms(utm);
+    const sck = tracking.sck || undefined;
 
-    return {
-        event: 'Purchase',
-        external_id: orderId ? `kiwify-${orderId}` : undefined,
-        event_id: orderId ? `kiwify-${orderId}-Purchase` : undefined,
-        value,
+    const order: NormalizedOrder = {
+        platform: 'kiwify',
+        external_order_id: orderId,
+        status,
+        payment_method: normalizePaymentMethod(body.payment_method || body.PaymentMethod),
+        product_id: product.product_id || product.id || undefined,
+        product_name: product.product_name || product.name || body.product_name || undefined,
+        gross_value: gross,
+        net_value: net,
         currency: body.currency || 'BRL',
+        customer_name: fullName || undefined,
+        customer_email: email,
+        customer_phone: phone,
+        ...utm,
+        sck,
+        order_created_at: body.created_at || undefined,
+        approved_at: status === 'approved' ? (body.approved_date || undefined) : undefined,
+        refunded_at: status === 'refunded' || status === 'chargeback' ? (body.refunded_at || undefined) : undefined,
+        raw: body,
+    };
+
+    const purchase = {
+        event: 'Purchase',
+        external_id: `kiwify-${orderId}`,
+        event_id: `kiwify-${orderId}-Purchase`,
+        value: gross ?? net,
+        currency: order.currency,
         user: {
             email, phone,
             first_name: firstName || undefined,
@@ -847,20 +893,25 @@ function normalizeKiwifyPayload(body: any): any | null {
         },
         custom_data: {
             source: 'kiwify',
-            kiwify_order_id: orderId,
-            product_name: product.name || body.product_name,
-            ...(tracking.utm_source   && { utm_source: tracking.utm_source }),
-            ...(tracking.utm_campaign && { utm_campaign: tracking.utm_campaign }),
-            ...(tracking.utm_medium   && { utm_medium: tracking.utm_medium }),
-            ...(tracking.utm_content  && { utm_content: tracking.utm_content }),
-            ...(tracking.utm_term     && { utm_term: tracking.utm_term }),
-            ...(tracking.sck          && { sck: tracking.sck }),
-            ...(tracking.src          && { src: tracking.src }),
+            order_id: orderId,
+            content_name: order.product_name,
+            ...(utm.utm_source && { utm_source: utm.utm_source }),
+            ...(utm.utm_campaign && { utm_campaign: utm.utm_campaign }),
+            ...(utm.utm_medium && { utm_medium: utm.utm_medium }),
+            ...(utm.utm_content && { utm_content: utm.utm_content }),
+            ...(utm.utm_term && { utm_term: utm.utm_term }),
         },
-        // sck (se configurarmos o link de checkout com ?sck=<session_id>) vira
-        // o session_id pra atribuição de alta confiança via attribution-resolver.
-        session_id: tracking.sck || undefined,
+        campaign: ids.meta_campaign_id ? {
+            meta_campaign_id: ids.meta_campaign_id,
+            meta_adset_id: ids.meta_adset_id || undefined,
+            meta_ad_id: ids.meta_ad_id || undefined,
+        } : undefined,
+        // sck = session_id do nosso pixel (injetado no link do checkout) →
+        // atribuição de alta confiança via attribution-resolver.
+        session_id: sck,
     };
+
+    return { order, purchase };
 }
 
 function buildPixelScript(token: string, apiBase: string, pixelId: string | null): string {

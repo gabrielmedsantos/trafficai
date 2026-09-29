@@ -14,6 +14,7 @@ import { logger } from '../shared/logger';
 import { getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 import { encrypt, decryptMaybe } from '../shared/encryption';
 import { recordDiagnosticEvent } from './diagnostics.service';
+import { metaIdsFromUtms } from './utm';
 
 const META_VERSION = 'v19.0';
 const META_BASE = `https://graph.facebook.com/${META_VERSION}`;
@@ -730,14 +731,15 @@ export interface ClickRecordInput {
 export async function recordClick(sourceId: string, c: ClickRecordInput): Promise<void> {
     // Só grava se tiver ao menos 1 identificador de tráfego.
     if (!c.fbclid && !c.gclid && !c.gbraid && !c.wbraid && !c.utm_source && !c.utm_campaign) return;
+    const ids = metaIdsFromUtms(c);
     try {
         await query(
             `INSERT INTO tracking_clicks (
                 source_id, fbclid, gclid, utm_source, utm_medium, utm_campaign,
                 utm_content, utm_term, landing_page, referrer,
                 client_ip, client_user_agent, country, city, session_id,
-                gbraid, wbraid
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+                gbraid, wbraid, meta_campaign_id, meta_adset_id, meta_ad_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
             [
                 sourceId,
                 c.fbclid || null, c.gclid || null,
@@ -748,6 +750,7 @@ export async function recordClick(sourceId: string, c: ClickRecordInput): Promis
                 c.country || null, c.city || null,
                 c.session_id || null,
                 c.gbraid || null, c.wbraid || null,
+                ids.meta_campaign_id, ids.meta_adset_id, ids.meta_ad_id,
             ]
         );
     } catch (err: any) {
