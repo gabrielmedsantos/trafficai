@@ -377,6 +377,19 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             }
         }
 
+        // ── Kiwify ─────────────────────────────────────────────────────────
+        // Documentação pública da Kiwify pra webhook de venda está incompleta
+        // (o payload do webhook NÃO é igual ao da API REST — confirmado pela
+        // própria Kiwify). Detecção e extração propositalmente tolerantes a
+        // variação de nome/caixa de campo — loga o corpo bruto pra ajuste fino
+        // assim que o primeiro evento de teste real chegar.
+        if (!b.event && (b.order_id || b.order_status || b.Customer || b.customer_id || b.Product)) {
+            logger.info('webhook Kiwify recebido — corpo bruto pra conferência', { source: source.id, raw: JSON.stringify(b).slice(0, 4000) });
+            const normalized = normalizeKiwifyPayload(b);
+            if (normalized) b = normalized;
+            else return res.json({ success: true, data: { ignored: true, reason: 'status não mapeado pra evento' } });
+        }
+
         // ── DataCrazy: automação manda só IDs (leadId/businessId/stageId) ──
         // A DataCrazy não deixa customizar o JSON com dados do lead direto na
         // automação (só IDs) — buscamos telefone/nome via lead e o valor da
@@ -761,6 +774,93 @@ async function normalizeKommoPayload(body: any, eventHintFromQuery: string, sour
         logger.warn('tracking webhook: normalização Kommo falhou', { error: err.message });
         return null;
     }
+}
+
+// ── Normalizador Kiwify ─────────────────────────────────────────────────
+// status aprovado → Purchase; recusado/pendente → ignora (não é venda);
+// reembolso/chargeback → ainda não mapeado (ver comentário no chamador).
+// value: tenta múltiplos caminhos conhecidos de plataformas parecidas —
+// o valor bruto e o caminho usado ficam no log pra eu confirmar unidade
+// (centavos vs reais) contra o primeiro evento de teste real.
+const KIWIFY_APPROVED_STATUSES = ['paid', 'approved', 'compra_aprovada', 'completed'];
+const KIWIFY_IGNORED_STATUSES = ['refused', 'compra_recusada', 'waiting_payment', 'pending', 'pix_gerado', 'boleto_gerado', 'carrinho_abandonado', 'abandoned'];
+
+function normalizeKiwifyPayload(body: any): any | null {
+    const status = String(
+        body.order_status || body.status || body.Status || body?.data?.status || ''
+    ).toLowerCase().trim();
+
+    if (KIWIFY_IGNORED_STATUSES.some(s => status.includes(s))) return null;
+    // Status desconhecido (não bate nem com aprovado nem com os ignorados
+    // conhecidos): não assume Purchase às cegas — melhor perder um evento
+    // do que mandar uma venda que não é venda pra Meta.
+    if (!KIWIFY_APPROVED_STATUSES.some(s => status.includes(s))) {
+        logger.warn('webhook Kiwify: status não reconhecido, ignorando', { status });
+        return null;
+    }
+
+    const customer = body.Customer || body.customer || {};
+    const tracking = body.TrackingParameters || body.tracking || body.Tracking || {};
+    const product = body.Product || body.product || {};
+
+    const email = customer.email || customer.Email;
+    const phone = customer.mobile || customer.Mobile || customer.phone || customer.Phone;
+    const fullName = customer.full_name || customer.fullName || customer.name || customer.Name;
+    const [firstName, ...lastParts] = String(fullName || '').trim().split(/\s+/);
+
+    // Candidatos de valor, em ordem de preferência (valor bruto cobrado do
+    // cliente antes de taxa/comissão) — o primeiro que existir e for > 0 vence.
+    const valueCandidates: { path: string; raw: any }[] = [
+        { path: 'Commissions.charge_amount', raw: body.Commissions?.charge_amount },
+        { path: 'payment.charge_amount', raw: body.payment?.charge_amount },
+        { path: 'charge_amount', raw: body.charge_amount },
+        { path: 'net_amount', raw: body.net_amount },
+        { path: 'order_total', raw: body.order_total },
+        { path: 'total_price', raw: body.total_price },
+        { path: 'Commissions.product_base_price', raw: body.Commissions?.product_base_price },
+        { path: 'price', raw: body.price },
+        { path: 'product.price', raw: product.price },
+    ];
+    const found = valueCandidates.find(c => c.raw != null && Number(c.raw) > 0);
+    let value: number | undefined;
+    if (found) {
+        const n = Number(found.raw);
+        // Heurística: valores > 1000 e inteiros geralmente são centavos
+        // (padrão comum nessas plataformas) — loga os dois jeitos pra eu
+        // confirmar contra o valor real do produto de teste.
+        value = n > 999 && Number.isInteger(n) ? n / 100 : n;
+        logger.info('webhook Kiwify: valor resolvido', { path: found.path, raw: n, valor_usado: value });
+    }
+
+    const orderId = body.order_id || body.id || body.order?.id;
+
+    return {
+        event: 'Purchase',
+        external_id: orderId ? `kiwify-${orderId}` : undefined,
+        event_id: orderId ? `kiwify-${orderId}-Purchase` : undefined,
+        value,
+        currency: body.currency || 'BRL',
+        user: {
+            email, phone,
+            first_name: firstName || undefined,
+            last_name: lastParts.length ? lastParts.join(' ') : undefined,
+        },
+        custom_data: {
+            source: 'kiwify',
+            kiwify_order_id: orderId,
+            product_name: product.name || body.product_name,
+            ...(tracking.utm_source   && { utm_source: tracking.utm_source }),
+            ...(tracking.utm_campaign && { utm_campaign: tracking.utm_campaign }),
+            ...(tracking.utm_medium   && { utm_medium: tracking.utm_medium }),
+            ...(tracking.utm_content  && { utm_content: tracking.utm_content }),
+            ...(tracking.utm_term     && { utm_term: tracking.utm_term }),
+            ...(tracking.sck          && { sck: tracking.sck }),
+            ...(tracking.src          && { src: tracking.src }),
+        },
+        // sck (se configurarmos o link de checkout com ?sck=<session_id>) vira
+        // o session_id pra atribuição de alta confiança via attribution-resolver.
+        session_id: tracking.sck || undefined,
+    };
 }
 
 function buildPixelScript(token: string, apiBase: string, pixelId: string | null): string {
