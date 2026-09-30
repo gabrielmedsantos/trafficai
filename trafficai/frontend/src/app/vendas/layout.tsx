@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { RefreshCw } from 'lucide-react';
+import Sidebar from '@/components/Sidebar';
 import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox } from '@/components/vendas/shared';
 
 const PAGES: Record<string, { title: string; subtitle: string; period: boolean }> = {
@@ -81,11 +82,14 @@ function Body({ children }: { children: React.ReactNode }) {
 
 export default function VendasLayout({ children }: { children: React.ReactNode }) {
     return (
-        <VendasProvider>
-            <div style={{ padding: '24px 28px', maxWidth: 1480, margin: '0 auto' }}>
-                <Header />
-                <Body>{children}</Body>
-            </div>
-        </VendasProvider>
+        <div className="app-layout">
+            <Sidebar />
+            <main className="main-content">
+                <VendasProvider>
+                    <Header />
+                    <Body>{children}</Body>
+                </VendasProvider>
+            </main>
+        </div>
     );
 }
