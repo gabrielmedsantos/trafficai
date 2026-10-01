@@ -225,6 +225,16 @@ export class AuthService {
         }
     }
 
+    /**
+     * Sessão deslizante: token emitido há mais de 1 dia ganha um novo com
+     * validade cheia, devolvido no header X-Renewed-Token. Quem usa o painel
+     * com frequência nunca é deslogado no meio do uso.
+     */
+    renewIfStale(payload: JwtPayload & { iat?: number }): string | null {
+        if (!payload.iat || Date.now() / 1000 - payload.iat < 24 * 3600) return null;
+        return jwt.sign({ userId: payload.userId, email: payload.email }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN } as any);
+    }
+
     private generateToken(user: User): string {
         const payload: JwtPayload = { userId: user.id, email: user.email };
         return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN } as any);

@@ -49,6 +49,7 @@ app.use(cors({
         'http://localhost:3003',
     ],
     credentials: true,
+    exposedHeaders: ['X-Renewed-Token'],
 }));
 
 // ---- Rate Limiting ----

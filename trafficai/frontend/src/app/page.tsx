@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Zap, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
-    const router = useRouter();
+    const [expired, setExpired] = useState(false);
+    useEffect(() => {
+        setExpired(new URLSearchParams(window.location.search).get('expired') === '1');
+    }, []);
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -26,13 +28,24 @@ export default function LoginPage() {
 
             localStorage.setItem('trafficai_token', result.token);
 
+            // Navegação completa (não router.push): usuário e contas são
+            // carregados uma vez quando o app abre — com push eles ficavam
+            // vazios até sair e entrar de novo.
+            const go = (path: string) => window.location.assign(path);
+            let back = '/agenda';
+            try {
+                const saved = sessionStorage.getItem('__tai_after_login__');
+                sessionStorage.removeItem('__tai_after_login__');
+                if (saved && saved.startsWith('/') && !saved.startsWith('//')) back = saved;
+            } catch { /* sem storage */ }
+
             // Checa status da assinatura antes de mandar pro dashboard.
             // Trial expirado / plano inativo → força escolha de plano.
             try {
                 const sub = await api.getSubscription();
                 // Admin: acesso ilimitado, nunca redireciona pra billing
                 if (sub?.is_admin) {
-                    router.push('/agenda');
+                    go(back);
                     return;
                 }
                 const now = Date.now();
@@ -41,19 +54,19 @@ export default function LoginPage() {
                     && new Date(sub.trial_ends_at).getTime() > now;
                 const active = sub?.status === 'active' || sub?.status === 'past_due';
                 if (!trialValid && !active) {
-                    router.push('/billing?blocked=1');
+                    go('/billing?blocked=1');
                     return;
                 }
                 // Novo signup em trial → leva pra billing pra ele CONHECER os planos
                 // (mas pode fechar e ir pro dashboard, é opcional). Só redireciona
                 // pra billing em signup, não em login.
                 if (!isLogin && sub?.status === 'trialing') {
-                    router.push('/billing?welcome=1');
+                    go('/billing?welcome=1');
                     return;
                 }
             } catch { /* falha ao checar sub — deixa ir pro dashboard, o guard vai bloquear se preciso */ }
 
-            router.push('/agenda');
+            go(back);
         } catch (err: any) {
             setError(err.message || 'Erro ao processar. Tente novamente.');
         } finally {
@@ -131,6 +144,15 @@ export default function LoginPage() {
                             ? 'Acesse sua dashboard e continue de onde parou.'
                             : 'Comece agora — leva menos de um minuto.'}
                     </p>
+
+                    {expired && isLogin && (
+                        <div role="status" style={{
+                            marginBottom: 20, padding: '10px 12px', fontSize: 13, borderRadius: 8,
+                            background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.3)', color: 'var(--text-primary)',
+                        }}>
+                            Sua sessão expirou. Entre de novo para continuar de onde parou.
+                        </div>
+                    )}
 
                     <form onSubmit={handleSubmit}>
                         {!isLogin && (

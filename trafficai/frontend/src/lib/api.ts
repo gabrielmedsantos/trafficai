@@ -42,6 +42,32 @@ function handlePlanBlocked(err: NonNullable<ApiResponse['error']>): void {
     window.location.assign('/billing?blocked=1');
 }
 
+const PUBLIC_PREFIXES = ['/d/', '/report/', '/r/', '/marketing'];
+
+/** Guarda o token renovado pelo backend (sessão deslizante). */
+function storeRenewedToken(res: Response): void {
+    if (typeof window === 'undefined') return;
+    const renewed = res.headers.get('X-Renewed-Token');
+    if (!renewed) return;
+    try { localStorage.setItem('trafficai_token', renewed); } catch { /* sem storage */ }
+}
+
+/**
+ * Sessão vencida/inválida → volta pro login com aviso, em vez de deixar o
+ * painel aberto com todas as chamadas falhando (tela vazia até deslogar).
+ */
+function handleUnauthorized(path: string): void {
+    if (typeof window === 'undefined') return;
+    if (path.startsWith('/auth/login') || path.startsWith('/auth/register')) return;
+    const here = window.location.pathname;
+    if (here === '/' || PUBLIC_PREFIXES.some(p => here.startsWith(p))) return;
+    try {
+        localStorage.removeItem('trafficai_token');
+        sessionStorage.setItem('__tai_after_login__', here + window.location.search);
+    } catch { /* sem storage */ }
+    window.location.assign('/?expired=1');
+}
+
 class ApiClient {
     private baseUrl: string;
 
@@ -70,6 +96,8 @@ class ApiClient {
         };
 
         const res = await fetch(url, options);
+        storeRenewedToken(res);
+        if (res.status === 401 && this.getToken()) handleUnauthorized(path);
         const json: ApiResponse<T> = await res.json();
 
         // 402 Payment Required — trial expirou / plano inativo → redireciona
@@ -92,6 +120,8 @@ class ApiClient {
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
         const res = await fetch(url, { method: 'POST', headers, body: formData });
+        storeRenewedToken(res);
+        if (res.status === 401 && this.getToken()) handleUnauthorized(path);
         const json: ApiResponse<T> = await res.json();
         if (res.status === 402 && json.error) {
             handlePlanBlocked(json.error);

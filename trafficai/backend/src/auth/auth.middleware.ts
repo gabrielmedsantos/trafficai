@@ -18,7 +18,7 @@ declare global {
 /**
  * Middleware to authenticate incoming requests via JWT Bearer token
  */
-export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
+export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -27,5 +27,7 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
 
     const token = authHeader.split(' ')[1];
     req.user = authService.verifyToken(token);
+    const renewed = authService.renewIfStale(req.user);
+    if (renewed) res.setHeader('X-Renewed-Token', renewed);
     next();
 }
