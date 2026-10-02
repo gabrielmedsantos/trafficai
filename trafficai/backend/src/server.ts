@@ -37,6 +37,13 @@ app.set('trust proxy', 1);
 // ---- Security Middleware ----
 app.use(helmet());
 
+// O pixel (/track/pixel/:token.js) é carregado via <script> em sites de outras
+// origens; com o CORP same-origin padrão do helmet o navegador bloqueia o arquivo.
+app.use('/api/v1/track', (_req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+});
+
 // CORS aberto para o namespace /api/v1/track (sites dos clientes embedam o pixel).
 // Os endpoints de tracking não usam cookies nem dependem de auth JWT.
 app.use('/api/v1/track', cors({ origin: true, credentials: false }));
