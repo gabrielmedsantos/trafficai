@@ -19,6 +19,9 @@ export interface Row {
     cpa: number | null; roas: number | null; profit: number; margin: number | null; roi: number | null;
     pending_count: number; pending_value: number; refunded_count: number;
     impressions: number | null; clicks: number | null; ctr: number | null; cpc: number | null; cpm: number | null;
+    video_3s: number | null; thruplays: number | null; landing_views: number | null; initiate_checkouts: number | null;
+    hook_rate: number | null; hold_rate: number | null; retention: number | null; connect_rate: number | null;
+    page_conversion: number | null; checkout_conversion: number | null; cost_per_checkout: number | null;
 }
 
 // ── Formatação ──────────────────────────────────────────────────────────
@@ -370,6 +373,7 @@ export interface Column {
     label: string;
     render: (r: Row) => React.ReactNode;
     total?: (rows: Row[], t: Totals) => React.ReactNode;
+    hint?: string;
 }
 
 export interface Totals {
@@ -377,13 +381,19 @@ export interface Totals {
     impressions: number; clicks: number; pending_count: number;
     cpa: number | null; roas: number | null; margin: number | null; roi: number | null;
     ctr: number | null; cpc: number | null; cpm: number | null;
+    video_3s: number; thruplays: number; landing_views: number; initiate_checkouts: number;
+    hook_rate: number | null; hold_rate: number | null; retention: number | null; connect_rate: number | null;
+    page_conversion: number | null; checkout_conversion: number | null; cost_per_checkout: number | null;
 }
 
 export function computeTotals(rows: Row[]): Totals {
     const t = rows.reduce((a, r) => ({
         sales: a.sales + r.sales, revenue: a.revenue + r.revenue, spend: a.spend + r.spend, costs: a.costs + r.costs,
         impressions: a.impressions + (r.impressions || 0), clicks: a.clicks + (r.clicks || 0), pending_count: a.pending_count + r.pending_count,
-    }), { sales: 0, revenue: 0, spend: 0, costs: 0, impressions: 0, clicks: 0, pending_count: 0 });
+        video_3s: a.video_3s + (r.video_3s || 0), thruplays: a.thruplays + (r.thruplays || 0),
+        landing_views: a.landing_views + (r.landing_views || 0), initiate_checkouts: a.initiate_checkouts + (r.initiate_checkouts || 0),
+    }), { sales: 0, revenue: 0, spend: 0, costs: 0, impressions: 0, clicks: 0, pending_count: 0, video_3s: 0, thruplays: 0, landing_views: 0, initiate_checkouts: 0 });
+    const pc = (n: number, d: number) => (d ? (n / d) * 100 : null);
     const profit = t.revenue - t.spend - t.costs;
     return {
         ...t, profit,
@@ -394,41 +404,163 @@ export function computeTotals(rows: Row[]): Totals {
         ctr: t.impressions ? (t.clicks / t.impressions) * 100 : null,
         cpc: t.clicks ? t.spend / t.clicks : null,
         cpm: t.impressions ? (t.spend / t.impressions) * 1000 : null,
+        hook_rate: t.video_3s ? pc(t.video_3s, t.impressions) : null,
+        hold_rate: t.thruplays ? pc(t.thruplays, t.impressions) : null,
+        retention: t.video_3s ? pc(t.thruplays, t.video_3s) : null,
+        connect_rate: t.landing_views ? pc(t.landing_views, t.clicks) : null,
+        page_conversion: t.landing_views ? pc(t.initiate_checkouts, t.landing_views) : null,
+        checkout_conversion: t.initiate_checkouts ? pc(t.sales, t.initiate_checkouts) : null,
+        cost_per_checkout: t.initiate_checkouts ? t.spend / t.initiate_checkouts : null,
     };
 }
 
 const roasColor = (v: number | null) => (v == null ? 'var(--text-muted)' : v >= 1 ? 'var(--accent-green)' : 'var(--accent-red)');
 
+/** Todas as colunas disponíveis, por grupo — o seletor "Colunas" escolhe quais aparecem. */
+const pctCell = (v: number | null, good?: number) => (
+    <span style={{ color: v == null ? 'var(--text-muted)' : good != null && v >= good ? 'var(--accent-green)' : 'var(--text-primary)' }}>{pct(v)}</span>
+);
+
+export const COLUMN_DEFS: Record<string, Column> = {
+    sales: {
+        key: 'sales', label: 'Vendas', hint: 'Vendas aprovadas atribuídas',
+        render: (r) => <span>{r.sales}{r.pending_count > 0 && <div style={{ fontSize: 10, color: 'var(--accent-yellow)' }}>+{r.pending_count} pend.</div>}</span>,
+        total: (_, t) => t.sales,
+    },
+    cpa: { key: 'cpa', label: 'CPA', hint: 'Gasto ÷ vendas aprovadas', render: (r) => brl(r.cpa), total: (_, t) => brl(t.cpa) },
+    spend: { key: 'spend', label: 'Gastos', render: (r) => brl(r.spend), total: (_, t) => brl(t.spend) },
+    revenue: { key: 'revenue', label: 'Faturamento', hint: 'Faturamento líquido das vendas aprovadas', render: (r) => brl(r.revenue), total: (_, t) => brl(t.revenue) },
+    profit: {
+        key: 'profit', label: 'Lucro', hint: 'Faturamento − gastos − imposto − custo de produto',
+        render: (r) => <span style={{ color: signColor(r.profit), fontWeight: 600 }}>{brl(r.profit)}</span>,
+        total: (_, t) => <span style={{ color: signColor(t.profit) }}>{brl(t.profit)}</span>,
+    },
+    roas: { key: 'roas', label: 'ROAS', hint: 'Faturamento ÷ gasto', render: (r) => <span style={{ color: roasColor(r.roas) }}>{num2(r.roas)}</span>, total: (_, t) => <span style={{ color: roasColor(t.roas) }}>{num2(t.roas)}</span> },
+    margin: { key: 'margin', label: 'Margem', hint: 'Lucro ÷ faturamento', render: (r) => <span style={{ color: signColor(r.margin) }}>{pct(r.margin)}</span>, total: (_, t) => pct(t.margin) },
+    roi: { key: 'roi', label: 'ROI', hint: 'Lucro ÷ custos totais', render: (r) => <span style={{ color: signColor(r.roi) }}>{num2(r.roi)}</span>, total: (_, t) => num2(t.roi) },
+    impressions: { key: 'impressions', label: 'Impressões', render: (r) => int(r.impressions), total: (_, t) => int(t.impressions) },
+    clicks: { key: 'clicks', label: 'Cliques', hint: 'Cliques no link', render: (r) => int(r.clicks), total: (_, t) => int(t.clicks) },
+    ctr: { key: 'ctr', label: 'CTR', hint: 'Cliques no link ÷ impressões', render: (r) => pct(r.ctr), total: (_, t) => pct(t.ctr) },
+    cpc: { key: 'cpc', label: 'CPC', hint: 'Gasto ÷ cliques no link', render: (r) => brl(r.cpc), total: (_, t) => brl(t.cpc) },
+    cpm: { key: 'cpm', label: 'CPM', hint: 'Gasto por mil impressões', render: (r) => brl(r.cpm), total: (_, t) => brl(t.cpm) },
+    hook_rate: { key: 'hook_rate', label: 'Hook rate', hint: 'Views de 3 segundos ÷ impressões — quanto o começo do vídeo prende', render: (r) => pctCell(r.hook_rate, 30), total: (_, t) => pct(t.hook_rate) },
+    hold_rate: { key: 'hold_rate', label: 'Hold rate', hint: 'ThruPlays (15s ou o vídeo inteiro) ÷ impressões', render: (r) => pctCell(r.hold_rate, 15), total: (_, t) => pct(t.hold_rate) },
+    retention: { key: 'retention', label: 'Retenção', hint: 'ThruPlays ÷ views de 3s — de quem parou no vídeo, quantos continuaram assistindo', render: (r) => pctCell(r.retention, 40), total: (_, t) => pct(t.retention) },
+    video_3s: { key: 'video_3s', label: 'Views 3s', render: (r) => int(r.video_3s), total: (_, t) => int(t.video_3s) },
+    thruplays: { key: 'thruplays', label: 'ThruPlays', render: (r) => int(r.thruplays), total: (_, t) => int(t.thruplays) },
+    landing_views: { key: 'landing_views', label: 'Vis. página', hint: 'Visualizações da página de destino (Meta)', render: (r) => int(r.landing_views), total: (_, t) => int(t.landing_views) },
+    connect_rate: { key: 'connect_rate', label: 'Connect rate', hint: 'Visualizações da página ÷ cliques no link — quantos cliques viram a página carregar', render: (r) => pctCell(r.connect_rate, 70), total: (_, t) => pct(t.connect_rate) },
+    initiate_checkouts: { key: 'initiate_checkouts', label: 'ICs', hint: 'Checkouts iniciados (Meta)', render: (r) => int(r.initiate_checkouts), total: (_, t) => int(t.initiate_checkouts) },
+    cost_per_checkout: { key: 'cost_per_checkout', label: 'Custo/IC', hint: 'Gasto ÷ checkouts iniciados', render: (r) => brl(r.cost_per_checkout), total: (_, t) => brl(t.cost_per_checkout) },
+    page_conversion: { key: 'page_conversion', label: 'Conv. página', hint: 'Checkouts iniciados ÷ visualizações da página — quanto a página convence', render: (r) => pctCell(r.page_conversion), total: (_, t) => pct(t.page_conversion) },
+    checkout_conversion: { key: 'checkout_conversion', label: 'Conv. checkout', hint: 'Vendas aprovadas ÷ checkouts iniciados — quanto o checkout fecha', render: (r) => pctCell(r.checkout_conversion), total: (_, t) => pct(t.checkout_conversion) },
+};
+
+export const COLUMN_GROUPS: { label: string; keys: string[] }[] = [
+    { label: 'Vendas e lucro', keys: ['sales', 'cpa', 'spend', 'revenue', 'profit', 'roas', 'margin', 'roi'] },
+    { label: 'Criativo (vídeo)', keys: ['hook_rate', 'hold_rate', 'retention', 'video_3s', 'thruplays'] },
+    { label: 'Funil', keys: ['clicks', 'landing_views', 'connect_rate', 'initiate_checkouts', 'cost_per_checkout', 'page_conversion', 'checkout_conversion'] },
+    { label: 'Mídia', keys: ['impressions', 'ctr', 'cpc', 'cpm'] },
+];
+
+export const COLUMN_PRESETS: { key: string; label: string; keys: string[] }[] = [
+    { key: 'vendas', label: 'Vendas', keys: ['sales', 'cpa', 'spend', 'revenue', 'profit', 'roas', 'margin', 'roi'] },
+    { key: 'criativos', label: 'Criativos', keys: ['sales', 'cpa', 'spend', 'roas', 'hook_rate', 'hold_rate', 'retention', 'checkout_conversion', 'ctr', 'cpm'] },
+    { key: 'funil', label: 'Funil', keys: ['sales', 'cpa', 'spend', 'clicks', 'landing_views', 'connect_rate', 'initiate_checkouts', 'cost_per_checkout', 'page_conversion', 'checkout_conversion', 'ctr'] },
+];
+
+const COLUMN_ORDER = COLUMN_GROUPS.flatMap((g) => g.keys);
+
+export function columnsFor(keys: string[]): Column[] {
+    return keys.map((k) => COLUMN_DEFS[k]).filter(Boolean);
+}
+
 /** Colunas financeiras padrão (mesma ordem da UTMify). */
 export function financialColumns(opts: { media?: boolean } = {}): Column[] {
-    const cols: Column[] = [
-        {
-            key: 'sales', label: 'Vendas',
-            render: (r) => <span>{r.sales}{r.pending_count > 0 && <div style={{ fontSize: 10, color: 'var(--accent-yellow)' }}>+{r.pending_count} pend.</div>}</span>,
-            total: (_, t) => t.sales,
-        },
-        { key: 'cpa', label: 'CPA', render: (r) => brl(r.cpa), total: (_, t) => brl(t.cpa) },
-        { key: 'spend', label: 'Gastos', render: (r) => brl(r.spend), total: (_, t) => brl(t.spend) },
-        { key: 'revenue', label: 'Faturamento', render: (r) => brl(r.revenue), total: (_, t) => brl(t.revenue) },
-        {
-            key: 'profit', label: 'Lucro',
-            render: (r) => <span style={{ color: signColor(r.profit), fontWeight: 600 }}>{brl(r.profit)}</span>,
-            total: (_, t) => <span style={{ color: signColor(t.profit) }}>{brl(t.profit)}</span>,
-        },
-        { key: 'roas', label: 'ROAS', render: (r) => <span style={{ color: roasColor(r.roas) }}>{num2(r.roas)}</span>, total: (_, t) => <span style={{ color: roasColor(t.roas) }}>{num2(t.roas)}</span> },
-        { key: 'margin', label: 'Margem', render: (r) => <span style={{ color: signColor(r.margin) }}>{pct(r.margin)}</span>, total: (_, t) => pct(t.margin) },
-        { key: 'roi', label: 'ROI', render: (r) => <span style={{ color: signColor(r.roi) }}>{num2(r.roi)}</span>, total: (_, t) => num2(t.roi) },
-    ];
-    if (opts.media) {
-        cols.push(
-            { key: 'impressions', label: 'Impressões', render: (r) => int(r.impressions), total: (_, t) => int(t.impressions) },
-            { key: 'clicks', label: 'Cliques', render: (r) => int(r.clicks), total: (_, t) => int(t.clicks) },
-            { key: 'ctr', label: 'CTR', render: (r) => pct(r.ctr), total: (_, t) => pct(t.ctr) },
-            { key: 'cpc', label: 'CPC', render: (r) => brl(r.cpc), total: (_, t) => brl(t.cpc) },
-            { key: 'cpm', label: 'CPM', render: (r) => brl(r.cpm), total: (_, t) => brl(t.cpm) },
-        );
-    }
-    return cols;
+    return columnsFor([...COLUMN_PRESETS[0].keys, ...(opts.media ? ['impressions', 'clicks', 'ctr', 'cpc', 'cpm'] : [])]);
+}
+
+/** Escolha de colunas (com atalhos), lembrada no navegador. */
+export function useColumnChoice(storageKey: string, fallback: string[] = COLUMN_PRESETS[0].keys) {
+    const [keys, setKeys] = useState<string[]>(fallback);
+    useEffect(() => {
+        try {
+            const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            if (Array.isArray(saved)) {
+                const valid = saved.filter((k: unknown) => typeof k === 'string' && COLUMN_DEFS[k as string]) as string[];
+                if (valid.length) setKeys(valid);
+            }
+        } catch { /* sem storage */ }
+    }, [storageKey]);
+    const update = (next: string[]) => {
+        setKeys(next);
+        try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* sem storage */ }
+    };
+    return [keys, update] as const;
+}
+
+export function ColumnPicker({ value, onChange }: { value: string[]; onChange: (keys: string[]) => void }) {
+    const [open, setOpen] = useState(false);
+    const ref = React.useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+        const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        document.addEventListener('mousedown', close);
+        document.addEventListener('keydown', esc);
+        return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+    }, [open]);
+    const toggle = (k: string) => {
+        if (value.includes(k)) onChange(value.filter((x) => x !== k));
+        else onChange([...value, k].sort((a, b) => COLUMN_ORDER.indexOf(a) - COLUMN_ORDER.indexOf(b)));
+    };
+    const preset = COLUMN_PRESETS.find((p) => p.keys.length === value.length && p.keys.every((k, i) => value[i] === k));
+    const sectionLabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 };
+    return (
+        <div ref={ref} style={{ position: 'relative' }}>
+            <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 8, cursor: 'pointer',
+                border: '1px solid var(--border-strong)', background: open ? 'var(--bg-surface-2)' : 'transparent',
+                color: 'var(--text-secondary)', font: '600 12.5px var(--font-sans)',
+            }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M15 4v16" /></svg>
+                Colunas{preset ? `: ${preset.label}` : ` (${value.length})`}
+            </button>
+            {open && (
+                <div className="tai-rise" style={{
+                    position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 40, width: 340, maxHeight: 460, overflowY: 'auto',
+                    background: 'var(--bg-surface)', border: '1px solid var(--border-strong)', borderRadius: 12,
+                    boxShadow: '0 18px 40px rgba(0,0,0,.5)', padding: 14, animationDuration: '.2s',
+                }}>
+                    <div style={sectionLabel}>Atalhos</div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+                        {COLUMN_PRESETS.map((p) => (
+                            <button key={p.key} type="button" onClick={() => onChange(p.keys)} style={{
+                                padding: '5px 11px', borderRadius: 999, cursor: 'pointer', font: '600 12px var(--font-sans)',
+                                border: `1px solid ${preset?.key === p.key ? 'var(--primary)' : 'var(--border-strong)'}`,
+                                background: preset?.key === p.key ? 'var(--primary-soft)' : 'transparent', color: 'var(--text-primary)',
+                            }}>{p.label}</button>
+                        ))}
+                    </div>
+                    {COLUMN_GROUPS.map((g) => (
+                        <div key={g.label} style={{ marginBottom: 12 }}>
+                            <div style={sectionLabel}>{g.label}</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 10px' }}>
+                                {g.keys.map((k) => (
+                                    <label key={k} title={COLUMN_DEFS[k].hint} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: 'pointer', padding: '3px 0' }}>
+                                        <input type="checkbox" checked={value.includes(k)} onChange={() => toggle(k)} /> {COLUMN_DEFS[k].label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                        Criativo e funil vêm da Meta (vídeo, visualização da página, checkout). Passe o mouse no título da coluna pra ver a conta.
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 }
 
 export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, columns, defaultSort = 'spend', emptyText }: {
@@ -463,7 +595,7 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
                         {leading?.map((l) => <th key={l.label} style={{ ...thStyle('center', false), width: l.width }}>{l.label}</th>)}
                         <th onClick={() => toggle('name')} style={thStyle('left')}>{firstLabel} <SortIcon active={sort.col === 'name'} dir={sort.dir} /></th>
                         {columns.map((c) => (
-                            <th key={String(c.key)} onClick={() => toggle(c.key)} style={thStyle('right')}>
+                            <th key={String(c.key)} onClick={() => toggle(c.key)} title={c.hint} style={thStyle('right')}>
                                 {c.label} <SortIcon active={sort.col === c.key} dir={sort.dir} />
                             </th>
                         ))}

@@ -94,6 +94,18 @@ export interface ReportRow {
     ctr: number | null;
     cpc: number | null;
     cpm: number | null;
+    // Criativo e funil (Meta, por anúncio/conjunto/campanha)
+    video_3s: number | null;
+    thruplays: number | null;
+    landing_views: number | null;
+    initiate_checkouts: number | null;
+    hook_rate: number | null;        // % views de 3s ÷ impressões
+    hold_rate: number | null;        // % ThruPlays ÷ impressões
+    retention: number | null;        // % ThruPlays ÷ views de 3s
+    connect_rate: number | null;     // % visualizações da página ÷ cliques no link
+    page_conversion: number | null;  // % checkouts iniciados ÷ visualizações da página
+    checkout_conversion: number | null; // % vendas aprovadas ÷ checkouts iniciados
+    cost_per_checkout: number | null;
 }
 
 export interface SourceCtx {
@@ -144,7 +156,38 @@ function buildRow(base: RowInput, taxRate: number): ReportRow {
         ctr: impressions && clicks != null ? (clicks / impressions) * 100 : null,
         cpc: clicks ? spend / clicks : null,
         cpm: impressions ? (spend / impressions) * 1000 : null,
+        ...creativeMetrics(base, sales, spend),
     };
+}
+
+function pctOf(num: number | null | undefined, den: number | null | undefined): number | null {
+    return num != null && den ? (num / den) * 100 : null;
+}
+
+function creativeMetrics(base: RowInput, sales: number, spend: number) {
+    const v3 = base.video_3s ?? null, tp = base.thruplays ?? null, lpv = base.landing_views ?? null, ic = base.initiate_checkouts ?? null;
+    const imp = base.impressions ?? null, clicks = base.clicks ?? null;
+    return {
+        video_3s: v3, thruplays: tp, landing_views: lpv, initiate_checkouts: ic,
+        hook_rate: v3 ? pctOf(v3, imp) : null,
+        hold_rate: tp ? pctOf(tp, imp) : null,
+        retention: v3 && tp != null ? pctOf(tp, v3) : null,
+        connect_rate: lpv != null ? pctOf(lpv, clicks) : null,
+        page_conversion: ic != null ? pctOf(ic, lpv) : null,
+        checkout_conversion: ic ? pctOf(sales, ic) : null,
+        cost_per_checkout: ic ? spend / ic : null,
+    };
+}
+
+/** Soma de uma action da Meta (vários nomes possíveis pro mesmo evento). */
+function actionSum(list: any[] | undefined, types: string[]): number {
+    if (!Array.isArray(list)) return 0;
+    let best = 0;
+    for (const t of types) {
+        const v = Number(list.find((a: any) => a.action_type === t)?.value) || 0;
+        if (v > best) best = v; // nomes alternativos do mesmo evento: pega o maior, não soma
+    }
+    return best;
 }
 
 export async function getUserAdsToken(userId: string): Promise<string | null> {
@@ -174,6 +217,10 @@ interface MetaObj {
     spend: number;
     impressions: number;
     clicks: number;
+    video3s: number | null;
+    thruplays: number | null;
+    lpv: number | null;
+    ic: number | null;
 }
 
 // Cache curto: trocar de aba/ordenar não pode virar rajada na Marketing API.
@@ -226,7 +273,7 @@ async function fetchMetaLevel(
         const [insights, objects] = await Promise.all([
             metaPaged(`${base}/${act}/insights`, {
                 level,
-                fields: [idField, nameField, parentField, 'spend', 'impressions', 'inline_link_clicks'].filter(Boolean).join(','),
+                fields: [idField, nameField, parentField, 'spend', 'impressions', 'inline_link_clicks', 'actions', 'video_thruplay_watched_actions'].filter(Boolean).join(','),
                 time_range: JSON.stringify({ since, until }),
                 limit: 500,
                 access_token: token,
@@ -252,7 +299,7 @@ async function fetchMetaLevel(
                 effective_status: o.effective_status || null,
                 daily_budget: minor(o.daily_budget),
                 lifetime_budget: minor(o.lifetime_budget),
-                spend: 0, impressions: 0, clicks: 0,
+                spend: 0, impressions: 0, clicks: 0, video3s: 0, thruplays: 0, lpv: 0, ic: 0,
             });
         }
         for (const row of insights) {
@@ -260,11 +307,15 @@ async function fetchMetaLevel(
             const cur = map.get(id) || {
                 id, name: row[nameField] || id, parent_name: parentField ? row[parentField] || null : null,
                 status: null, effective_status: null, daily_budget: null, lifetime_budget: null,
-                spend: 0, impressions: 0, clicks: 0,
+                spend: 0, impressions: 0, clicks: 0, video3s: 0, thruplays: 0, lpv: 0, ic: 0,
             };
             cur.spend = Number(row.spend) || 0;
             cur.impressions = Number(row.impressions) || 0;
             cur.clicks = Number(row.inline_link_clicks) || 0;
+            cur.video3s = actionSum(row.actions, ['video_view']);
+            cur.thruplays = actionSum(row.video_thruplay_watched_actions, ['video_view']);
+            cur.lpv = actionSum(row.actions, ['landing_page_view', 'omni_landing_page_view']);
+            cur.ic = actionSum(row.actions, ['initiate_checkout', 'omni_initiated_checkout', 'offsite_conversion.fb_pixel_initiate_checkout']);
             if (!cur.parent_name && parentField) cur.parent_name = row[parentField] || null;
             map.set(id, cur);
         }
@@ -307,6 +358,7 @@ async function campaignSpendFromDb(accountId: string, since: string, until: stri
             status: r.status, effective_status: r.status,
             daily_budget: r.daily_budget != null ? Number(r.daily_budget) : null, lifetime_budget: null,
             spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0,
+            video3s: null, thruplays: null, lpv: null, ic: null, // banco local não guarda métricas de criativo
         });
     }
     return map;
@@ -377,6 +429,10 @@ function metaPartial(s: MetaObj | undefined) {
         spend: s.spend,
         impressions: s.impressions,
         clicks: s.clicks,
+        video_3s: s.video3s,
+        thruplays: s.thruplays,
+        landing_views: s.lpv,
+        initiate_checkouts: s.ic,
     };
 }
 

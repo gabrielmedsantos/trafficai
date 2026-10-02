@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
-    useSalesReport, useVendas, Card, Tabs, ReportTable, NameCell, ErrorBox, financialColumns,
+    useSalesReport, useVendas, Card, Tabs, ReportTable, NameCell, ErrorBox, ColumnPicker, columnsFor, useColumnChoice,
     brl, Row, selectStyle, signColor,
 } from '@/components/vendas/shared';
 
@@ -94,7 +94,7 @@ export default function CampanhasPage() {
     const { data, loading, error, reload } = useSalesReport(level);
     const [search, setSearch] = useState('');
     const [onlyActive, setOnlyActive] = useState(false);
-    const [media, setMedia] = useState(false);
+    const [colKeys, setColKeys] = useColumnChoice('vendas_campanhas_cols');
     const [busyId, setBusyId] = useState<string | null>(null);
     const [actionError, setActionError] = useState('');
     const [toast, setToast] = useState('');
@@ -104,7 +104,6 @@ export default function CampanhasPage() {
 
     useEffect(() => {
         try {
-            setMedia(localStorage.getItem('vendas_media_cols') === '1');
             const l = localStorage.getItem('vendas_level') as Level | null;
             if (l && LEVELS.some(x => x.key === l)) setLevel(l);
         } catch { /* sem storage */ }
@@ -189,10 +188,7 @@ export default function CampanhasPage() {
                             <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
                                 <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} /> Só ativos
                             </label>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={media} onChange={(e) => { setMedia(e.target.checked); try { localStorage.setItem('vendas_media_cols', e.target.checked ? '1' : '0'); } catch { /* */ } }} />
-                                Métricas de mídia
-                            </label>
+                            <ColumnPicker value={colKeys} onChange={setColKeys} />
                         </div>
                     }
                 />
@@ -215,7 +211,7 @@ export default function CampanhasPage() {
                             </div>
                         </div>
                     )}
-                    columns={financialColumns({ media })}
+                    columns={columnsFor(colKeys)}
                     emptyText={`Nenhum(a) ${current.singular.toLowerCase()} com gasto ou venda no período.`}
                 />
             </Card>
