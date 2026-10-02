@@ -587,15 +587,51 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
     const toggle = (col: keyof Row) => setSort((cur) => cur.col === col ? { col, dir: (cur.dir * -1) as 1 | -1 } : { col, dir: -1 });
     const span = columns.length + 1 + (leading?.length || 0);
 
+    // Colunas da esquerda (status, orçamento, nome) ficam presas ao rolar pro lado.
+    const NAME_W = 300;
+    const lefts: number[] = [];
+    let acc = 0;
+    for (const l of leading || []) { lefts.push(acc); acc += l.width || 90; }
+    const nameLeft = acc;
+    const stickyBase = (left: number, extra?: React.CSSProperties): React.CSSProperties => ({ position: 'sticky', left, zIndex: 1, ...extra });
+
+    // Arrastar com o mouse pra rolar (além da barra e do shift+roda).
+    const wrapRef = React.useRef<HTMLDivElement>(null);
+    const drag = React.useRef<{ x: number; left: number; moved: boolean } | null>(null);
+    const [scrolled, setScrolled] = useState(false);
+    const onMouseDown = (e: React.MouseEvent) => {
+        if (e.button !== 0 || (e.target as HTMLElement).closest('button, a, input, select, label, textarea')) return;
+        drag.current = { x: e.clientX, left: wrapRef.current?.scrollLeft || 0, moved: false };
+    };
+    useEffect(() => {
+        const move = (e: MouseEvent) => {
+            const d = drag.current;
+            if (!d || !wrapRef.current) return;
+            const dx = e.clientX - d.x;
+            if (Math.abs(dx) > 4) d.moved = true;
+            if (d.moved) { wrapRef.current.scrollLeft = d.left - dx; e.preventDefault(); }
+        };
+        const up = () => { drag.current = null; };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+        return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    }, []);
+    const edgeShadow = scrolled ? '6px 0 10px -6px rgba(0,0,0,0.6)' : 'none';
+
     return (
-        <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <div ref={wrapRef} className="tai-scroll" onMouseDown={onMouseDown} onScroll={(e) => setScrolled((e.target as HTMLDivElement).scrollLeft > 4)}
+            style={{ overflowX: 'auto', maxWidth: '100%', cursor: 'grab' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12.5 }}>
                 <thead>
-                    <tr style={{ background: 'var(--bg-input)' }}>
-                        {leading?.map((l) => <th key={l.label} style={{ ...thStyle('center', false), width: l.width }}>{l.label}</th>)}
-                        <th onClick={() => toggle('name')} style={thStyle('left')}>{firstLabel} <SortIcon active={sort.col === 'name'} dir={sort.dir} /></th>
+                    <tr>
+                        {leading?.map((l, i) => (
+                            <th key={l.label} className="tai-sticky tai-head" style={{ ...thStyle('center', false), ...stickyBase(lefts[i], { minWidth: l.width, width: l.width, zIndex: 2 }) }}>{l.label}</th>
+                        ))}
+                        <th onClick={() => toggle('name')} className="tai-sticky tai-head" style={{ ...thStyle('left'), ...stickyBase(nameLeft, { minWidth: NAME_W, maxWidth: NAME_W, zIndex: 2, boxShadow: edgeShadow }) }}>
+                            {firstLabel} <SortIcon active={sort.col === 'name'} dir={sort.dir} />
+                        </th>
                         {columns.map((c) => (
-                            <th key={String(c.key)} onClick={() => toggle(c.key)} title={c.hint} style={thStyle('right')}>
+                            <th key={String(c.key)} onClick={() => toggle(c.key)} title={c.hint} className="tai-head" style={thStyle('right')}>
                                 {c.label} <SortIcon active={sort.col === c.key} dir={sort.dir} />
                             </th>
                         ))}
@@ -608,22 +644,24 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
                         </td></tr>
                     )}
                     {sorted.map((r) => (
-                        <tr key={r.key} className="tai-row" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', opacity: loading ? 0.6 : 1 }}>
-                            {leading?.map((l) => <td key={l.label} style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>{l.render(r)}</td>)}
-                            <td style={{ padding: '9px 12px', maxWidth: 380 }}>{renderFirst(r)}</td>
+                        <tr key={r.key} className="tai-row" style={{ opacity: loading ? 0.6 : 1 }}>
+                            {leading?.map((l, i) => (
+                                <td key={l.label} className="tai-sticky" style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap', borderTop: '1px solid rgba(255,255,255,0.05)', ...stickyBase(lefts[i], { minWidth: l.width, width: l.width }) }}>{l.render(r)}</td>
+                            ))}
+                            <td className="tai-sticky" style={{ padding: '9px 12px', borderTop: '1px solid rgba(255,255,255,0.05)', ...stickyBase(nameLeft, { minWidth: NAME_W, maxWidth: NAME_W, boxShadow: edgeShadow }) }}>{renderFirst(r)}</td>
                             {columns.map((c) => (
-                                <td key={String(c.key)} className="num" style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>{c.render(r)}</td>
+                                <td key={String(c.key)} className="num" style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid rgba(255,255,255,0.05)' }}>{c.render(r)}</td>
                             ))}
                         </tr>
                     ))}
                 </tbody>
                 {sorted.length > 0 && (
                     <tfoot>
-                        <tr style={{ borderTop: '2px solid var(--border)', fontWeight: 700 }}>
-                            {leading?.map((l) => <td key={l.label} />)}
-                            <td style={{ padding: '9px 12px' }}>{rows.length} {rows.length === 1 ? 'linha' : 'linhas'}</td>
+                        <tr style={{ fontWeight: 700 }}>
+                            {leading?.map((l, i) => <td key={l.label} className="tai-sticky tai-foot" style={{ borderTop: '2px solid var(--border)', ...stickyBase(lefts[i], { minWidth: l.width }) }} />)}
+                            <td className="tai-sticky tai-foot" style={{ padding: '9px 12px', borderTop: '2px solid var(--border)', ...stickyBase(nameLeft, { minWidth: NAME_W, boxShadow: edgeShadow }) }}>{rows.length} {rows.length === 1 ? 'linha' : 'linhas'}</td>
                             {columns.map((c) => (
-                                <td key={String(c.key)} className="num" style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>{c.total ? c.total(rows, totals) : ''}</td>
+                                <td key={String(c.key)} className="num tai-foot" style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '2px solid var(--border)' }}>{c.total ? c.total(rows, totals) : ''}</td>
                             ))}
                         </tr>
                     </tfoot>

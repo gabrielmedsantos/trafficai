@@ -1559,3 +1559,13 @@ select option:hover {
   .tai-grid-4, .tai-grid-rec { grid-template-columns: minmax(0, 1fr); }
   .tai-span-2 { grid-column: auto; }
 }
+/* Tabela do Tracking: colunas presas à esquerda + rolagem lateral visível */
+.tai-sticky { background: var(--bg-surface); }
+.tai-head { background: #121417 !important; }
+.tai-foot { background: #121417; }
+.tai-row:hover td.tai-sticky { background: #1a1d21; }
+.tai-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent; }
+.tai-scroll:active { cursor: grabbing; }
+.tai-scroll::-webkit-scrollbar { height: 10px; }
+.tai-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 6px; }
+.tai-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }

@@ -123,7 +123,7 @@ export default function VendasLayout({ children }: { children: React.ReactNode }
     return (
         <div className="app-layout">
             <Sidebar />
-            <main className="main-content">
+            <main className="main-content" style={{ minWidth: 0 }}>
                 <VendasProvider>
                     <Header />
                     <Body>{children}</Body>

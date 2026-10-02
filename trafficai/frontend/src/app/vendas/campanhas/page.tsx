@@ -198,7 +198,7 @@ export default function CampanhasPage() {
                     firstLabel={current.singular}
                     leading={hasMeta ? [
                         { label: 'Status', width: 70, render: (r) => <StatusSwitch row={r} busy={busyId === r.key} onChange={(s) => change(r, { status: s })} /> },
-                        ...(level !== 'ad' ? [{ label: 'Orçamento', width: 110, render: (r: Row) => <BudgetCell row={r} level={level} busy={busyId === r.key} onSave={(v) => change(r, { daily_budget: v })} /> }] : []),
+                        ...(level !== 'ad' ? [{ label: 'Orçamento', width: 140, render: (r: Row) => <BudgetCell row={r} level={level} busy={busyId === r.key} onSave={(v) => change(r, { daily_budget: v })} /> }] : []),
                     ] : undefined}
                     renderFirst={(r) => (
                         <div style={{ opacity: r.status === 'PAUSED' ? 0.6 : 1 }}>
