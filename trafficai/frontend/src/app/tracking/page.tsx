@@ -4445,28 +4445,36 @@ function MiniKpi({ label, value, color }: { label: string; value: string; color?
 function BigKpi({ icon, label, value, hint, color }: {
     icon: React.ReactNode; label: string; value: string; hint?: string; color?: string;
 }) {
+    const tone = color || 'var(--text-secondary)';
     return (
-        <div style={{
-            padding: '12px 14px',
-            background: 'var(--bg-surface-2)',
+        <div className="tai-card" style={{
+            position: 'relative', overflow: 'hidden',
+            padding: '16px 18px 15px',
+            background: `radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, ${tone} 9%, transparent) 0%, transparent 55%), var(--bg-surface)`,
             border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            minHeight: 78,
+            borderRadius: 12,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+            minHeight: 96,
+            display: 'flex', flexDirection: 'column',
         }}>
-            <div style={{
-                display: 'flex', alignItems: 'center', gap: 6, fontSize: 11,
-                color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600,
-            }}>
-                <span style={{ color: color || 'var(--text-muted)' }}>{icon}</span>
-                {label}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <span style={{
+                    width: 26, height: 26, borderRadius: 8, flexShrink: 0,
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    color: tone, background: `color-mix(in srgb, ${tone} 14%, transparent)`,
+                }}>{icon}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+                    {label}
+                </span>
             </div>
-            <div className="num" style={{
-                fontSize: 22, fontWeight: 700, color: color || 'var(--text-primary)', marginTop: 4, lineHeight: 1.15,
+            <div style={{
+                fontSize: 26, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.1, marginTop: 12,
+                fontVariantNumeric: 'tabular-nums', color: color || 'var(--text-primary)',
             }}>
                 {value}
             </div>
             {hint && (
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 5 }}>{hint}</div>
             )}
         </div>
     );
@@ -4474,18 +4482,21 @@ function BigKpi({ icon, label, value, hint, color }: {
 
 function SubKpi({ label, value, color }: { label: string; value: string; color?: string }) {
     return (
-        <div style={{
-            padding: '10px 12px',
-            background: 'var(--bg-tertiary)',
+        <div className="tai-card" style={{
+            padding: '12px 16px',
+            background: 'var(--bg-surface)',
             border: '1px solid var(--border)',
-            borderRadius: 6,
+            borderRadius: 10,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
         }}>
-            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: color || 'var(--text-subtle)' }} />
                 {label}
-            </div>
-            <div className="num" style={{ fontSize: 17, fontWeight: 600, color: color || 'var(--text-primary)', marginTop: 2 }}>
+            </span>
+            <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums', color: color || 'var(--text-primary)' }}>
                 {value}
-            </div>
+            </span>
         </div>
     );
 }
