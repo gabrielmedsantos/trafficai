@@ -417,7 +417,7 @@ function ManagePanel({ customer, plans, onClose, onSaved }: { customer: any; pla
                     </div>
                     <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                         {uaz === 'auto'
-                            ? (customer.situation === 'active' || customer.situation === 'past_due' || courtesy ? 'Assinatura paga ou cortesia: UazAPI liberada.' : 'Em teste grátis (de qualquer plano): só Evolution. Libera sozinha quando assinar ou ganhar cortesia.')
+                            ? ((customer.situation === 'active' || customer.situation === 'past_due') && !courtesy ? 'Assinatura paga: UazAPI liberada.' : 'Conta sem cobrança (teste grátis ou cortesia): só Evolution. Libera sozinha quando assinar um plano pago.')
                             : uaz === 'on' ? 'Pode conectar e usar a UazAPI, mesmo no teste.' : 'Só Evolution, mesmo em plano pago.'}
                     </span>
                 </div>
