@@ -160,7 +160,7 @@ export function getDefaultTemplate(): string {
         '💰 {last7_spend} investidos',
         '{last7_results_block}{month_section}',
         '',
-        '📄 Relatório completo:',
+        '📄 Detalhado por criativo:',
         '{report_link}',
     ].join('\n');
 }
@@ -818,7 +818,10 @@ export class DailyWhatsAppService {
             reportLink7d?: string;
         }
     ): string {
-        const clientName = acc.client_name || acc.account_name || 'Cliente';
+        // "Relatório diário - Duana" → "Duana": o campo costuma vir com o
+        // título do relatório, e a saudação ficava "Bom dia, RELATÓRIO DIÁRIO - DUANA".
+        const rawName = acc.client_name || acc.account_name || 'Cliente';
+        const clientName = rawName.replace(/^\s*relat[óo]rio(\s+di[áa]rio)?\s*[-–—:|]\s*/i, '').trim() || rawName;
         const greeting = this.greetingPrefix();
 
         // Prioridade: template customizado > template predefinido > default
