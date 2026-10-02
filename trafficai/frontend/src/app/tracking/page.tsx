@@ -12,6 +12,7 @@ import {
     ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import { MetaConnectButton } from '@/components/MetaConnectButton';
+import { BrazilMap } from '@/components/BrazilMap';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
@@ -3362,111 +3363,8 @@ function PayloadJson({ value }: { value: any }) {
     );
 }
 
-// ─── Brazil Map — SVG do Brasil por estado com densidade de eventos ─────────
-const BRAZIL_STATES: Record<string, { name: string; path: string }> = {
-    AC: { name: 'Acre', path: 'M 85 195 L 95 185 L 115 190 L 120 205 L 105 215 L 85 210 Z' },
-    AL: { name: 'Alagoas', path: 'M 385 285 L 395 280 L 400 290 L 390 295 Z' },
-    AP: { name: 'Amapá', path: 'M 245 95 L 260 90 L 270 105 L 255 115 L 245 110 Z' },
-    AM: { name: 'Amazonas', path: 'M 120 145 L 180 135 L 220 150 L 230 185 L 200 210 L 140 205 L 115 180 Z' },
-    BA: { name: 'Bahia', path: 'M 340 245 L 380 235 L 395 265 L 385 295 L 350 305 L 330 280 Z' },
-    CE: { name: 'Ceará', path: 'M 365 195 L 385 190 L 395 210 L 380 220 L 365 215 Z' },
-    DF: { name: 'Distrito Federal', path: 'M 295 265 L 305 262 L 308 272 L 298 275 Z' },
-    ES: { name: 'Espírito Santo', path: 'M 365 305 L 375 300 L 380 315 L 370 320 Z' },
-    GO: { name: 'Goiás', path: 'M 270 245 L 310 240 L 320 275 L 295 290 L 265 275 Z' },
-    MA: { name: 'Maranhão', path: 'M 285 165 L 325 160 L 340 185 L 320 205 L 285 195 Z' },
-    MT: { name: 'Mato Grosso', path: 'M 200 215 L 250 210 L 265 255 L 240 285 L 195 270 L 185 240 Z' },
-    MS: { name: 'Mato Grosso do Sul', path: 'M 215 290 L 255 285 L 265 320 L 235 335 L 210 315 Z' },
-    MG: { name: 'Minas Gerais', path: 'M 310 285 L 355 275 L 370 310 L 350 340 L 315 335 L 300 310 Z' },
-    PA: { name: 'Pará', path: 'M 220 115 L 285 110 L 310 145 L 295 175 L 245 180 L 215 155 Z' },
-    PB: { name: 'Paraíba', path: 'M 395 215 L 410 212 L 415 225 L 400 228 Z' },
-    PR: { name: 'Paraná', path: 'M 255 345 L 295 340 L 305 370 L 275 380 L 250 365 Z' },
-    PE: { name: 'Pernambuco', path: 'M 385 235 L 415 230 L 420 245 L 395 250 Z' },
-    PI: { name: 'Piauí', path: 'M 325 185 L 355 180 L 365 215 L 345 235 L 320 220 Z' },
-    RJ: { name: 'Rio de Janeiro', path: 'M 345 335 L 370 330 L 375 350 L 355 355 Z' },
-    RN: { name: 'Rio Grande do Norte', path: 'M 395 200 L 415 195 L 420 210 L 400 215 Z' },
-    RS: { name: 'Rio Grande do Sul', path: 'M 245 385 L 285 380 L 295 420 L 265 435 L 240 415 Z' },
-    RO: { name: 'Rondônia', path: 'M 145 215 L 175 210 L 185 240 L 160 255 L 140 240 Z' },
-    RR: { name: 'Roraima', path: 'M 185 105 L 210 100 L 220 125 L 200 135 L 185 125 Z' },
-    SC: { name: 'Santa Catarina', path: 'M 270 375 L 300 370 L 310 395 L 285 405 L 265 390 Z' },
-    SP: { name: 'São Paulo', path: 'M 285 335 L 325 330 L 335 360 L 305 370 L 280 355 Z' },
-    SE: { name: 'Sergipe', path: 'M 380 270 L 390 267 L 393 278 L 383 281 Z' },
-    TO: { name: 'Tocantins', path: 'M 285 195 L 315 190 L 325 230 L 300 245 L 280 225 Z' },
-};
-
-function BrazilMap({ byState }: { byState: Array<{ state: string; total: number; sent: number; purchases: number; revenue: number }> }) {
-    const maxTotal = Math.max(...byState.map(s => Number(s.total)), 1);
-    const stateMap = new Map(byState.map(s => [s.state.toUpperCase(), s]));
-    const [hovered, setHovered] = useState<string | null>(null);
-
-    return (
-        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-            <svg viewBox="60 80 380 380" style={{ width: 320, height: 320, flexShrink: 0 }}>
-                {Object.entries(BRAZIL_STATES).map(([code, { name, path }]) => {
-                    const data = stateMap.get(code);
-                    const total = data ? Number(data.total) : 0;
-                    const intensity = total / maxTotal;
-                    const fill = total === 0
-                        ? 'var(--bg-surface-2)'
-                        : `rgba(34, 197, 94, ${0.15 + intensity * 0.7})`;
-                    const isHovered = hovered === code;
-                    return (
-                        <g key={code}>
-                            <path
-                                d={path}
-                                fill={fill}
-                                stroke={isHovered ? 'var(--accent-green)' : 'var(--border)'}
-                                strokeWidth={isHovered ? 2 : 1}
-                                style={{ cursor: total > 0 ? 'pointer' : 'default', transition: 'all 0.15s' }}
-                                onMouseEnter={() => setHovered(code)}
-                                onMouseLeave={() => setHovered(null)}
-                            />
-                            <text
-                                x={path.match(/M (\d+)/)?.[1] ? Number(path.match(/M (\d+)/)![1]) + 10 : 0}
-                                y={path.match(/M \d+ (\d+)/)?.[1] ? Number(path.match(/M \d+ (\d+)/)![1]) + 15 : 0}
-                                fontSize="9"
-                                fill={total > 0 ? '#fff' : 'var(--text-muted)'}
-                                fontWeight={isHovered ? 700 : 500}
-                                style={{ pointerEvents: 'none' }}
-                            >
-                                {code}
-                            </text>
-                        </g>
-                    );
-                })}
-            </svg>
-            <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
-                    {hovered ? `${BRAZIL_STATES[hovered]?.name} (${hovered})` : 'Eventos por estado'}
-                </div>
-                {hovered && stateMap.has(hovered) ? (
-                    (() => {
-                        const d = stateMap.get(hovered)!;
-                        return (
-                            <div style={{ fontSize: 12, lineHeight: 1.8 }}>
-                                <div><strong>Total:</strong> {Number(d.total).toLocaleString('pt-BR')}</div>
-                                <div><strong>Enviados:</strong> {Number(d.sent).toLocaleString('pt-BR')}</div>
-                                <div><strong>Purchases:</strong> {Number(d.purchases).toLocaleString('pt-BR')}</div>
-                                <div><strong>Receita:</strong> R$ {Number(d.revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</div>
-                            </div>
-                        );
-                    })()
-                ) : (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8 }}>
-                        Passe o mouse sobre um estado para ver os detalhes.
-                        <div style={{ marginTop: 10 }}>
-                            {byState.slice(0, 8).map(s => (
-                                <div key={s.state} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
-                                    <span>{s.state}</span>
-                                    <span style={{ fontWeight: 600 }}>{Number(s.total).toLocaleString('pt-BR')}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
+// BrazilMap agora vem do componente compartilhado com GeoJSON real dos 27 estados
+// (ver frontend/src/components/BrazilMap.tsx)
 
 // ─── User Profile Modal — perfil completo + histórico expandível ─────────────
 function UserProfileModal({ data, onClose }: { data: any; onClose: () => void }) {

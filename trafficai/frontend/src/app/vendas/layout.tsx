@@ -18,6 +18,7 @@ const PAGES: Record<string, { title: string; subtitle: string; period: boolean }
     '/vendas/custos': { title: 'Custos e impostos', subtitle: 'Imposto, custo de produto e despesas adicionais — entram no cálculo do lucro.', period: true },
     '/vendas/integracoes': { title: 'Integrações', subtitle: 'Conecte as plataformas de checkout pra receber as vendas.', period: false },
     '/vendas/pixel': { title: 'Pixel e UTMs', subtitle: 'Instalação do script, parâmetros dos anúncios e regras do evento de compra.', period: false },
+    '/vendas/auditoria': { title: 'Auditoria', subtitle: 'Mapa de regiões, volume de eventos e perfil completo do usuário com payload enviado à Meta.', period: false },
 };
 
 const QUICK = ['today', 'yesterday', '7d', '30d', 'month'];
