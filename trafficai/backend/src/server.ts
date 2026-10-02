@@ -45,8 +45,10 @@ app.use('/api/v1/track', (_req, res, next) => {
 });
 
 // CORS aberto para o namespace /api/v1/track (sites dos clientes embedam o pixel).
-// Os endpoints de tracking não usam cookies nem dependem de auth JWT.
-app.use('/api/v1/track', cors({ origin: true, credentials: false }));
+// Os endpoints de tracking não leem cookies nem dependem de auth JWT, mas o pixel
+// envia via navigator.sendBeacon, que sempre usa credentials 'include' — sem
+// Allow-Credentials no preflight o navegador descarta o evento.
+app.use('/api/v1/track', cors({ origin: true, credentials: true }));
 
 // CORS restrito ao painel para o restante.
 app.use(cors({
