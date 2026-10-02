@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
-    useSalesReport, useVendas, Card, Tabs, ReportTable, NameCell, ErrorBox, ColumnPicker, columnsFor, useColumnChoice,
+    useSalesReport, useVendas, Card, Tabs, ReportTable, NameCell, ErrorBox, ColumnPicker, columnsFor, useColumnChoice, moveKey,
     brl, Row, selectStyle, signColor,
 } from '@/components/vendas/shared';
 
@@ -212,6 +212,7 @@ export default function CampanhasPage() {
                         </div>
                     )}
                     columns={columnsFor(colKeys)}
+                    onReorder={(from, to) => setColKeys(moveKey(colKeys, from, to))}
                     emptyText={`Nenhum(a) ${current.singular.toLowerCase()} com gasto ou venda no período.`}
                 />
             </Card>

@@ -469,7 +469,21 @@ export const COLUMN_PRESETS: { key: string; label: string; keys: string[] }[] = 
     { key: 'funil', label: 'Funil', keys: ['sales', 'cpa', 'spend', 'clicks', 'landing_views', 'connect_rate', 'initiate_checkouts', 'cost_per_checkout', 'page_conversion', 'checkout_conversion', 'ctr'] },
 ];
 
-const COLUMN_ORDER = COLUMN_GROUPS.flatMap((g) => g.keys);
+/** Move a coluna `from` pra posição onde está `to`. */
+export function moveKey(keys: string[], from: string, to: string): string[] {
+    if (from === to) return keys;
+    const list = keys.filter((k) => k !== from);
+    const idx = list.indexOf(to);
+    const fromIdx = keys.indexOf(from), toIdx = keys.indexOf(to);
+    list.splice(fromIdx < toIdx ? idx + 1 : idx, 0, from);
+    return list;
+}
+
+const miniBtn = (disabled: boolean): React.CSSProperties => ({
+    width: 22, height: 22, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+    border: '1px solid var(--border-strong)', borderRadius: 6, background: 'transparent', font: '600 12px var(--font-sans)',
+    color: disabled ? 'var(--text-subtle)' : 'var(--text-secondary)', cursor: disabled ? 'default' : 'pointer',
+});
 
 export function columnsFor(keys: string[]): Column[] {
     return keys.map((k) => COLUMN_DEFS[k]).filter(Boolean);
@@ -501,6 +515,8 @@ export function useColumnChoice(storageKey: string, fallback: string[] = COLUMN_
 
 export function ColumnPicker({ value, onChange }: { value: string[]; onChange: (keys: string[]) => void }) {
     const [open, setOpen] = useState(false);
+    const [dragKey, setDragKey] = useState<string | null>(null);
+    const [overKey, setOverKey] = useState<string | null>(null);
     const ref = React.useRef<HTMLDivElement>(null);
     useEffect(() => {
         if (!open) return;
@@ -512,7 +528,7 @@ export function ColumnPicker({ value, onChange }: { value: string[]; onChange: (
     }, [open]);
     const toggle = (k: string) => {
         if (value.includes(k)) onChange(value.filter((x) => x !== k));
-        else onChange([...value, k].sort((a, b) => COLUMN_ORDER.indexOf(a) - COLUMN_ORDER.indexOf(b)));
+        else onChange([...value, k]);
     };
     const preset = COLUMN_PRESETS.find((p) => p.keys.length === value.length && p.keys.every((k, i) => value[i] === k));
     const sectionLabel: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 };
@@ -542,6 +558,30 @@ export function ColumnPicker({ value, onChange }: { value: string[]; onChange: (
                             }}>{p.label}</button>
                         ))}
                     </div>
+                    <div style={sectionLabel}>Ordem das colunas <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>· arraste pra reordenar</span></div>
+                    <ol style={{ listStyle: 'none', margin: '0 0 14px', padding: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        {value.map((k, i) => (
+                            <li key={k}
+                                draggable
+                                onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', k); setDragKey(k); }}
+                                onDragEnd={() => { setDragKey(null); setOverKey(null); }}
+                                onDragOver={(e) => { e.preventDefault(); if (overKey !== k) setOverKey(k); }}
+                                onDrop={(e) => { e.preventDefault(); const from = e.dataTransfer.getData('text/plain') || dragKey; if (from) onChange(moveKey(value, from, k)); setDragKey(null); setOverKey(null); }}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 8, cursor: 'grab', fontSize: 12.5,
+                                    background: overKey === k && dragKey !== k ? 'var(--primary-soft)' : 'var(--bg-surface-2)',
+                                    border: `1px solid ${overKey === k && dragKey !== k ? 'var(--primary)' : 'transparent'}`,
+                                    opacity: dragKey === k ? 0.45 : 1, transition: 'background .12s, border-color .12s',
+                                }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style={{ color: 'var(--text-muted)', flexShrink: 0 }}><circle cx="9" cy="6" r="1.6" /><circle cx="15" cy="6" r="1.6" /><circle cx="9" cy="12" r="1.6" /><circle cx="15" cy="12" r="1.6" /><circle cx="9" cy="18" r="1.6" /><circle cx="15" cy="18" r="1.6" /></svg>
+                                <span style={{ flexGrow: 1 }}>{COLUMN_DEFS[k].label}</span>
+                                <button type="button" aria-label={`Subir ${COLUMN_DEFS[k].label}`} disabled={i === 0} onClick={() => onChange(moveKey(value, k, value[i - 1]))} style={miniBtn(i === 0)}>↑</button>
+                                <button type="button" aria-label={`Descer ${COLUMN_DEFS[k].label}`} disabled={i === value.length - 1} onClick={() => onChange(moveKey(value, k, value[i + 1]))} style={miniBtn(i === value.length - 1)}>↓</button>
+                                <button type="button" aria-label={`Remover ${COLUMN_DEFS[k].label}`} onClick={() => onChange(value.filter((x) => x !== k))} style={miniBtn(false)}>×</button>
+                            </li>
+                        ))}
+                    </ol>
+                    <div style={sectionLabel}>Adicionar ou tirar</div>
                     {COLUMN_GROUPS.map((g) => (
                         <div key={g.label} style={{ marginBottom: 12 }}>
                             <div style={sectionLabel}>{g.label}</div>
@@ -563,7 +603,7 @@ export function ColumnPicker({ value, onChange }: { value: string[]; onChange: (
     );
 }
 
-export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, columns, defaultSort = 'spend', emptyText }: {
+export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, columns, defaultSort = 'spend', emptyText, onReorder }: {
     rows: Row[];
     loading: boolean;
     firstLabel: string;
@@ -572,7 +612,11 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
     columns: Column[];
     defaultSort?: keyof Row;
     emptyText?: string;
+    /** Quando passado, os títulos das colunas podem ser arrastados pra mudar a ordem. */
+    onReorder?: (from: string, to: string) => void;
 }) {
+    const [dragCol, setDragCol] = useState<string | null>(null);
+    const [overCol, setOverCol] = useState<string | null>(null);
     const [sort, setSort] = useState<{ col: keyof Row; dir: 1 | -1 }>({ col: defaultSort, dir: -1 });
     const sorted = useMemo(() => {
         const list = [...rows];
@@ -600,7 +644,7 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
     const drag = React.useRef<{ x: number; left: number; moved: boolean } | null>(null);
     const [scrolled, setScrolled] = useState(false);
     const onMouseDown = (e: React.MouseEvent) => {
-        if (e.button !== 0 || (e.target as HTMLElement).closest('button, a, input, select, label, textarea')) return;
+        if (e.button !== 0 || (e.target as HTMLElement).closest('button, a, input, select, label, textarea, [draggable="true"]')) return;
         drag.current = { x: e.clientX, left: wrapRef.current?.scrollLeft || 0, moved: false };
     };
     useEffect(() => {
@@ -631,7 +675,17 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
                             {firstLabel} <SortIcon active={sort.col === 'name'} dir={sort.dir} />
                         </th>
                         {columns.map((c) => (
-                            <th key={String(c.key)} onClick={() => toggle(c.key)} title={c.hint} className="tai-head" style={thStyle('right')}>
+                            <th key={String(c.key)} onClick={() => toggle(c.key)} title={onReorder ? `${c.hint ? c.hint + ' · ' : ''}Arraste pra mudar a posição` : c.hint} className="tai-head"
+                                draggable={!!onReorder}
+                                onDragStart={onReorder ? (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(c.key)); setDragCol(String(c.key)); } : undefined}
+                                onDragEnd={onReorder ? () => { setDragCol(null); setOverCol(null); } : undefined}
+                                onDragOver={onReorder ? (e) => { e.preventDefault(); if (overCol !== String(c.key)) setOverCol(String(c.key)); } : undefined}
+                                onDrop={onReorder ? (e) => { e.preventDefault(); const from = e.dataTransfer.getData('text/plain') || dragCol; if (from && from !== String(c.key)) onReorder(from, String(c.key)); setDragCol(null); setOverCol(null); } : undefined}
+                                style={{
+                                    ...thStyle('right'), cursor: onReorder ? 'grab' : 'pointer',
+                                    opacity: dragCol === String(c.key) ? 0.4 : 1,
+                                    boxShadow: overCol === String(c.key) && dragCol !== String(c.key) ? 'inset 2px 0 0 var(--primary)' : undefined,
+                                }}>
                                 {c.label} <SortIcon active={sort.col === c.key} dir={sort.dir} />
                             </th>
                         ))}
