@@ -27,6 +27,7 @@ import {
 } from './sales-orders.service';
 import { normalizeSalesSettings } from './sales-report.service';
 import { notifySale } from './sales-notify.service';
+import { detectPlatform, parsePlatformWebhook, buildPurchaseFromOrder } from './checkout-platforms';
 
 const router = Router();
 
@@ -392,6 +393,53 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                     logger.warn('Kommo fallback API falhou', { leadId: kommoLeadId, error: e.message });
                 }
             }
+        }
+
+        // ── Hotmart / Eduzz / Cakto ────────────────────────────────────────
+        // Mesmo fluxo da Kiwify: grava o pedido (ou o carrinho), avisa no
+        // celular na mudança de situação e só manda Purchase na aprovação.
+        const platform = detectPlatform(b);
+        if (platform) {
+            logger.info(`webhook ${platform} recebido — corpo bruto pra conferência`, { source: source.id, event: b.event, raw: JSON.stringify(b).slice(0, 3000) });
+            const r = parsePlatformWebhook(platform, b);
+            if (r.kind === 'test') {
+                return res.json({ success: true, data: { test: true, message: 'Teste recebido. Conexão funcionando — pedidos de teste não entram no relatório nem vão pra Meta.' } });
+            }
+            if (r.kind === 'ignore') return res.json({ success: true, data: { ignored: true, reason: r.reason } });
+
+            const order = r.order;
+            // Carrinho sem preço: último valor conhecido do mesmo produto.
+            if (r.kind === 'cart' && order.gross_value == null && (order.product_id || order.product_name)) {
+                try {
+                    const [last] = await query<{ gross_value: string }>(
+                        `SELECT gross_value FROM tracking_orders
+                         WHERE source_id = $1 AND gross_value IS NOT NULL AND status <> 'abandoned'
+                           AND (($2::text IS NOT NULL AND product_id = $2) OR ($3::text IS NOT NULL AND product_name = $3))
+                         ORDER BY created_at DESC LIMIT 1`,
+                        [source.id, order.product_id || null, order.product_name || null]
+                    );
+                    if (last) order.gross_value = Number(last.gross_value);
+                } catch { /* sem valor, segue */ }
+            }
+
+            const saved = await upsertOrder(source.id, order);
+            if (saved.previous_status !== order.status) void notifySale(source.id, { ...order, order_id: saved.id, utm_campaign: saved.utm_campaign });
+            if (r.kind === 'cart' || !saved.became_approved) {
+                return res.json({ success: true, data: { order_id: saved.id, status: order.status, purchase_sent: false } });
+            }
+
+            let settings = normalizeSalesSettings(null);
+            try {
+                const [row] = await query<any>(`SELECT sales_settings FROM tracking_sources WHERE id = $1`, [source.id]);
+                settings = normalizeSalesSettings(row?.sales_settings);
+            } catch { /* padrão */ }
+            if (settings.purchase_products.length && !settings.purchase_products.includes(String(order.product_name || '').trim())) {
+                return res.json({ success: true, data: { order_id: saved.id, status: order.status, purchase_sent: false, reason: 'produto fora do filtro' } });
+            }
+            const purchase = buildPurchaseFromOrder({ ...order, utm_campaign: order.utm_campaign || saved.utm_campaign || undefined });
+            if (settings.purchase_value === 'net' && order.net_value != null) purchase.value = order.net_value;
+            b = purchase;
+            orderRecordId = saved.id;
         }
 
         // ── Kiwify ─────────────────────────────────────────────────────────
@@ -1274,6 +1322,8 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       var utms = getUtms() || {};
       UTM_FIELDS.forEach(function(f){ if (utms[f] && !u.searchParams.get(f)) u.searchParams.set(f, utms[f]); });
       if (!u.searchParams.get('sck')) u.searchParams.set('sck', getSession());
+      // Eduzz devolve o rastreio em tracker.code1, que vem do parâmetro trk
+      if (/eduzz/i.test(u.hostname) && !u.searchParams.get('trk')) u.searchParams.set('trk', getSession());
       return u.toString();
     } catch(e){ return url; }
   }
