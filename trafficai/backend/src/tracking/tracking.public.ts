@@ -393,6 +393,13 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             logger.info('webhook Kiwify recebido — corpo bruto pra conferência', { source: source.id, raw: JSON.stringify(b).slice(0, 4000) });
             const k = normalizeKiwifyPayload(b);
             if (!k) return res.json({ success: true, data: { ignored: true, reason: 'status não mapeado pra pedido' } });
+            // Botão "Testar" da Kiwify manda um pedido fictício aprovado (John Doe,
+            // johndoe@example.com, "Example product"). Confirma que a conexão
+            // funciona, mas não pode virar venda no relatório nem Purchase no pixel.
+            if (isKiwifyTestPayload(b)) {
+                logger.info('webhook Kiwify: pedido de TESTE recebido — conexão ok, nada gravado/enviado', { source: source.id, order: k.order.external_order_id });
+                return res.json({ success: true, data: { test: true, message: 'Teste recebido. Conexão funcionando — pedidos de teste não entram no relatório nem vão pra Meta.' } });
+            }
             const saved = await upsertOrder(source.id, k.order);
             // Pendente/recusado/reembolso só atualizam o pedido (dashboard);
             // Purchase na Meta só na transição pra aprovado — reenvio do mesmo
@@ -829,6 +836,14 @@ function kiwifyCents(v: any): number | undefined {
     if (v == null || v === '') return undefined;
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n / 100 : undefined;
+}
+
+/** Payload fictício do botão "Testar" do webhook da Kiwify. */
+function isKiwifyTestPayload(body: any): boolean {
+    const customer = body.Customer || body.customer || {};
+    const product = body.Product || body.product || {};
+    const email = String(customer.email || '').toLowerCase();
+    return email.endsWith('@example.com') || String(product.product_name || '').trim() === 'Example product';
 }
 
 function normalizeKiwifyPayload(body: any): { order: NormalizedOrder; purchase: any } | null {
