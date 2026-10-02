@@ -1,12 +1,14 @@
 'use client';
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { DollarSign } from 'lucide-react';
 import {
     useSalesReport, useVendas, useLiveOrders, Card, Kpi, SectionTitle, ShareList, ErrorBox, CountBRL,
     brl, num2, pct, signColor, brtToday, PAYMENT_LABEL, PAYMENT_COLOR, Row,
 } from '@/components/vendas/shared';
+import { BrazilMap, StateData } from '@/components/BrazilMap';
+import { api } from '@/lib/api';
 
 const PERIOD_WORD: Record<string, string> = {
     today: 'de hoje', yesterday: 'de ontem', '7d': 'em 7 dias', '14d': 'em 14 dias', '30d': 'em 30 dias',
@@ -306,6 +308,35 @@ export default function ResumoPage() {
                     <ShareList empty="Sem vendas aprovadas no período." items={s.by_source.map((p: any) => ({ label: p.source, count: p.count, pct: p.pct, color: 'var(--accent-blue)' }))} />
                 </Card>
             </section>
+
+            {/* Mapa de regiões */}
+            <RegionMap sourceId={sourceId} />
         </div>
+    );
+}
+
+// ─── Region Map — fetches stats and renders BrazilMap ────────────────────────
+function RegionMap({ sourceId }: { sourceId: string | null }) {
+    const [byState, setByState] = useState<StateData[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!sourceId) return;
+        setLoading(true);
+        api.getTrackingStats(sourceId, 7)
+            .then((stats: any) => {
+                setByState(stats?.by_state || []);
+            })
+            .catch(() => setByState([]))
+            .finally(() => setLoading(false));
+    }, [sourceId]);
+
+    if (loading || byState.length === 0) return null;
+
+    return (
+        <Card reveal style={{ marginTop: 14 }}>
+            <SectionTitle>Regiões (últimos 7 dias)</SectionTitle>
+            <BrazilMap byState={byState} />
+        </Card>
     );
 }

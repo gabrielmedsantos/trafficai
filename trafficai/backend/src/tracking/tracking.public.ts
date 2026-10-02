@@ -1395,19 +1395,42 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   }, true);
 
   // ── Auto-form InitiateCheckout em submit ──────────────────────────────
+  // Captura TODOS os campos Advanced Matching conforme recomendações Meta:
+  // email, phone, first_name, last_name, city, state, zip, country, gender, birthdate
   document.addEventListener('submit', function(e){
     var form = e.target;
     if (!form || form.dataset.taiIgnore) return;
     var ident = {};
     var email = form.querySelector('input[type=email]');
-    var phone = form.querySelector('input[type=tel]');
-    var name = form.querySelector('input[name*=nome i], input[name*=name i]');
+    var phone = form.querySelector('input[type=tel], input[name*=phone i], input[name*=celular i], input[name*=telefone i]');
+    var name = form.querySelector('input[name*=nome i], input[name*=name i]:not([name*=last i]):not([name*=sobrenome i])');
+    var lastName = form.querySelector('input[name*=sobrenome i], input[name*=last i], input[name*=surname i]');
+    var city = form.querySelector('input[name*=cidade i], input[name*=city i]');
+    var state = form.querySelector('input[name*=estado i], input[name*=state i], select[name*=estado i], select[name*=state i], input[name*=uf i]');
+    var zip = form.querySelector('input[name*=cep i], input[name*=zip i], input[name*=postal i]');
+    var country = form.querySelector('input[name*=country i], input[name*=pais i], select[name*=country i]');
+    var gender = form.querySelector('input[name*=gender i], input[name*=sexo i], select[name*=gender i], select[name*=sexo i]');
+    var birthdate = form.querySelector('input[name*=birth i], input[name*=nasc i], input[name*=data i][type=date]');
     if (email && email.value) ident.email = email.value;
-    if (phone && phone.value) ident.phone = phone.value;
+    if (phone && phone.value) ident.phone = phone.value.replace(/\\D/g, '');
     if (name && name.value) {
       var parts = name.value.trim().split(/\\s+/);
       ident.first_name = parts[0];
-      if (parts.length > 1) ident.last_name = parts.slice(1).join(' ');
+      if (parts.length > 1 && !lastName) ident.last_name = parts.slice(1).join(' ');
+    }
+    if (lastName && lastName.value) ident.last_name = lastName.value.trim();
+    if (city && city.value) ident.city = city.value.trim();
+    if (state && state.value) ident.state = (state.value || '').trim().toUpperCase().slice(0, 2);
+    if (zip && zip.value) ident.zip = zip.value.replace(/\\D/g, '').slice(0, 10);
+    if (country && country.value) ident.country = (country.value || '').trim().toUpperCase().slice(0, 2);
+    if (gender && gender.value) {
+      var g = gender.value.trim().toLowerCase();
+      ident.gender = (g === 'feminino' || g === 'female' || g === 'f' || g === 'mulher') ? 'f' : (g === 'masculino' || g === 'male' || g === 'm' || g === 'homem') ? 'm' : g.charAt(0);
+    }
+    if (birthdate && birthdate.value) {
+      var bd = birthdate.value.replace(/\\D/g, '');
+      if (bd.length === 8) ident.birthdate = bd; // YYYYMMDD
+      else if (bd.length === 6) ident.birthdate = '19' + bd; // DDMMYY -> 19DDMMYY (best guess)
     }
     if (Object.keys(ident).length) setIdent(ident);
     if (!form.dataset.taiEvent) track('InitiateCheckout');

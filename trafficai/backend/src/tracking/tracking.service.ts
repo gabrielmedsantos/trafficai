@@ -19,6 +19,48 @@ import { metaIdsFromUtms } from './utm';
 const META_VERSION = 'v19.0';
 const META_BASE = `https://graph.facebook.com/${META_VERSION}`;
 
+// ─── Geolocalização por IP (fallback quando headers Cloudflare não disponíveis) ──
+// Cache simples em memória para evitar chamadas repetidas ao mesmo IP
+const geoCache = new Map<string, { city?: string; state?: string; country?: string; zip?: string; ts: number }>();
+const GEO_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas
+
+export async function resolveGeoFromIp(ip: string | undefined | null): Promise<{ city?: string; state?: string; country?: string; zip?: string }> {
+    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.')) {
+        return {};
+    }
+    // Verifica cache
+    const cached = geoCache.get(ip);
+    if (cached && Date.now() - cached.ts < GEO_CACHE_TTL_MS) {
+        return { city: cached.city, state: cached.state, country: cached.country, zip: cached.zip };
+    }
+    try {
+        // ip-api.com é gratuito até 45 req/min, sem chave necessária
+        const resp = await axios.get(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=status,countryCode,regionName,city,zip`, {
+            timeout: 2000,
+        });
+        if (resp.data?.status === 'success') {
+            const geo = {
+                city: resp.data.city || undefined,
+                state: resp.data.regionName || undefined,
+                country: resp.data.countryCode || undefined,
+                zip: resp.data.zip || undefined,
+            };
+            geoCache.set(ip, { ...geo, ts: Date.now() });
+            // Limpa cache antigo se crescer demais
+            if (geoCache.size > 10000) {
+                const now = Date.now();
+                for (const [k, v] of geoCache) {
+                    if (now - v.ts > GEO_CACHE_TTL_MS) geoCache.delete(k);
+                }
+            }
+            return geo;
+        }
+    } catch (err: any) {
+        logger.warn('tracking: geo por IP falhou', { ip, error: err.message });
+    }
+    return {};
+}
+
 // Eventos Meta padrão — qualquer outro é aceito como custom.
 export const STANDARD_EVENTS = [
     'PageView', 'ViewContent', 'Search', 'AddToCart', 'AddToWishlist',
@@ -80,6 +122,8 @@ export interface TrackingUserInput {
     state?: string;
     zip?: string;
     country?: string;
+    gender?: string;        // 'f' ou 'm' — Advanced Matching Meta
+    birthdate?: string;     // YYYYMMDD — Advanced Matching Meta
     external_id?: string;
     fbp?: string;
     fbc?: string;
@@ -192,6 +236,8 @@ function buildUserData(u: TrackingUserInput | undefined): Record<string, any> {
     if (u.zip)          ud.zp = hashArray(u.zip, normZip);
     if (u.country)      ud.country = hashArray(u.country, normCountry);
     if (u.external_id)  ud.external_id = hashArray(u.external_id, v => v.trim().toLowerCase());
+    if (u.gender)       ud.ge = hashArray(u.gender, v => v.trim().toLowerCase().charAt(0)); // 'f' ou 'm'
+    if (u.birthdate)    ud.db = hashArray(u.birthdate, v => v.replace(/\D/g, '').slice(0, 8)); // YYYYMMDD
 
     // Esses campos NÃO são hashados — Meta exige plain-text.
     if (u.fbp)                 ud.fbp = u.fbp;
@@ -346,6 +392,20 @@ export async function trackEvent(
                 emq_score: existing[0].emq_score,
                 meta_status: existing[0].meta_status,
             };
+        }
+    }
+
+    // Geolocalização por IP — fallback quando os headers Cloudflare (CF-IPCountry etc.)
+    // não estão disponíveis. Preenche city/state/country/zip se estiverem vazios.
+    if (event.user_data && !event.user_data.city && event.user_data.client_ip) {
+        try {
+            const geo = await resolveGeoFromIp(event.user_data.client_ip);
+            if (geo.city) event.user_data.city = geo.city;
+            if (geo.state) event.user_data.state = geo.state;
+            if (geo.country) event.user_data.country = geo.country;
+            if (geo.zip) event.user_data.zip = geo.zip;
+        } catch (e: any) {
+            logger.warn('tracking: geo por IP falhou silenciosamente', { error: e.message });
         }
     }
 
