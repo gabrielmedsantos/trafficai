@@ -293,7 +293,7 @@ export function ShareList({ items, empty }: { items: { label: string; count: num
     );
 }
 
-export function CopyField({ label, value, masked, hint }: { label: string; value: string; masked?: boolean; hint?: React.ReactNode }) {
+export function CopyField({ label, value, masked, hint, multiline }: { label: string; value: string; masked?: boolean; hint?: React.ReactNode; multiline?: boolean }) {
     const [copied, setCopied] = useState(false);
     return (
         <div style={{ marginBottom: 14 }}>
@@ -302,7 +302,7 @@ export function CopyField({ label, value, masked, hint }: { label: string; value
                 <code style={{
                     flex: 1, minWidth: 0, padding: '8px 10px', fontSize: 12, background: 'var(--bg-input)',
                     border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)',
-                    overflowX: 'auto', whiteSpace: 'nowrap', fontFamily: 'var(--font-mono, monospace)',
+                    overflowX: 'auto', whiteSpace: multiline ? 'pre' : 'nowrap', lineHeight: multiline ? 1.55 : undefined, fontFamily: 'var(--font-mono, monospace)',
                 }}>{masked ? value.replace(/key=[^&]+/, 'key=••••••••') : value}</code>
                 <button
                     type="button"
