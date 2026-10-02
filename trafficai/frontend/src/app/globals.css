@@ -1574,3 +1574,7 @@ body.tai-imp .sidebar { top: 40px; height: calc(100vh - 40px); }
 body.tai-imp .main-content { padding-top: calc(32px + 40px); }
 body.tai-imp .mobile-topbar { top: 40px; }
 @media (max-width: 700px) { .tai-imp-detail { display: none; } }
+/* Alça de ajuste de largura da coluna do nome */
+.tai-resize::after { content: ''; position: absolute; top: 8px; bottom: 8px; left: 4px; width: 2px; border-radius: 1px; background: transparent; transition: background .15s; }
+th:hover > .tai-resize::after { background: rgba(255,255,255,.18); }
+.tai-resize:hover::after, .tai-resize:active::after { background: var(--primary) !important; }

@@ -632,7 +632,34 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
     const span = columns.length + 1 + (leading?.length || 0);
 
     // Colunas da esquerda (status, orçamento, nome) ficam presas ao rolar pro lado.
-    const NAME_W = 300;
+    // Largura da coluna do nome: arrastável pela borda do título, lembrada no navegador.
+    const NAME_DEFAULT = 300;
+    const [NAME_W, setNameW] = useState(NAME_DEFAULT);
+    useEffect(() => {
+        try { const v = Number(localStorage.getItem('tai_name_col_w')); if (v >= 140 && v <= 640) setNameW(v); } catch { /* sem storage */ }
+    }, []);
+    const resize = React.useRef<{ x: number; w: number } | null>(null);
+    const onResizeStart = (e: React.MouseEvent) => {
+        e.preventDefault(); e.stopPropagation();
+        resize.current = { x: e.clientX, w: NAME_W };
+        const move = (ev: MouseEvent) => {
+            if (!resize.current) return;
+            setNameW(Math.min(640, Math.max(140, resize.current.w + ev.clientX - resize.current.x)));
+        };
+        const up = () => {
+            resize.current = null;
+            window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+            setNameW((w) => { try { localStorage.setItem('tai_name_col_w', String(w)); } catch { /* */ } return w; });
+            document.body.style.cursor = '';
+        };
+        document.body.style.cursor = 'col-resize';
+        window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    };
+    const resetWidth = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setNameW(NAME_DEFAULT);
+        try { localStorage.removeItem('tai_name_col_w'); } catch { /* */ }
+    };
     const lefts: number[] = [];
     let acc = 0;
     for (const l of leading || []) { lefts.push(acc); acc += l.width || 90; }
@@ -671,8 +698,11 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
                         {leading?.map((l, i) => (
                             <th key={l.label} className="tai-sticky tai-head" style={{ ...thStyle('center', false), ...stickyBase(lefts[i], { minWidth: l.width, width: l.width, zIndex: 2 }) }}>{l.label}</th>
                         ))}
-                        <th onClick={() => toggle('name')} className="tai-sticky tai-head" style={{ ...thStyle('left'), ...stickyBase(nameLeft, { minWidth: NAME_W, maxWidth: NAME_W, zIndex: 2, boxShadow: edgeShadow }) }}>
+                        <th onClick={() => toggle('name')} className="tai-sticky tai-head" style={{ ...thStyle('left'), ...stickyBase(nameLeft, { minWidth: NAME_W, maxWidth: NAME_W, width: NAME_W, zIndex: 2, boxShadow: edgeShadow }) }}>
                             {firstLabel} <SortIcon active={sort.col === 'name'} dir={sort.dir} />
+                            <span role="separator" aria-orientation="vertical" aria-label="Ajustar largura da coluna" title="Arraste pra ajustar a largura · duplo clique volta ao padrão"
+                                className="tai-resize" onMouseDown={onResizeStart} onDoubleClick={resetWidth} onClick={(e) => e.stopPropagation()}
+                                style={{ position: 'absolute', top: 0, right: -4, bottom: 0, width: 9, cursor: 'col-resize', zIndex: 3 }} />
                         </th>
                         {columns.map((c) => (
                             <th key={String(c.key)} onClick={() => toggle(c.key)} title={onReorder ? `${c.hint ? c.hint + ' · ' : ''}Arraste pra mudar a posição` : c.hint} className="tai-head"
