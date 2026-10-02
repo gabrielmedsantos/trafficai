@@ -11,7 +11,7 @@ const PLATFORMS = [
         steps: [
             'Na Kiwify, abra Apps → Webhooks → Criar webhook.',
             'Cole a URL abaixo e escolha o produto (ou todos).',
-            'Marque: Compra aprovada, Pix gerado, Boleto gerado, Compra recusada, Compra reembolsada e Chargeback.',
+            'Marque: Compra aprovada, Pix gerado, Boleto gerado, Carrinho abandonado, Compra recusada, Reembolso, Chargeback e, se vender assinatura, os 3 de assinatura.',
             'Salve e clique em Testar — o pedido de teste aparece em Pedidos.',
         ],
     },

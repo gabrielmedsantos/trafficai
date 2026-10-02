@@ -37,6 +37,7 @@ import {
     ShoppingCart,
     Receipt,
     Code2,
+    RotateCcw,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -114,6 +115,7 @@ const AREAS = [
                     { href: '/vendas/utms',       label: 'UTMs',              icon: Link2, color: C.purple },
                     { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },
                     { href: '/vendas/pedidos',    label: 'Pedidos',           icon: ShoppingCart, color: C.green },
+                    { href: '/vendas/recuperacao', label: 'Recuperação',      icon: RotateCcw, color: C.orange },
                 ],
             },
             {

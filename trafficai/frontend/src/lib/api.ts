@@ -471,6 +471,12 @@ class ApiClient {
         const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/orders?${q}`);
     }
+    async getSalesRecovery(sourceId: string, params: { since: string; until: string }) {
+        return this.request<any[]>('GET', `/tracking/sources/${sourceId}/recovery?${new URLSearchParams(params).toString()}`);
+    }
+    async setRecoveryContacted(sourceId: string, orderId: string, contacted: boolean) {
+        return this.request<any>('PATCH', `/tracking/sources/${sourceId}/orders/${orderId}/contacted`, { contacted });
+    }
     async getAccountPixels(accountId: string) {
         return this.request<{ pixel_id: string; pixel_name: string; last_fired_time: string | null }[]>('GET', `/tracking/account-pixels?account_id=${encodeURIComponent(accountId)}`);
     }

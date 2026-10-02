@@ -389,6 +389,21 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
         // própria Kiwify). Detecção e extração propositalmente tolerantes a
         // variação de nome/caixa de campo — loga o corpo bruto pra ajuste fino
         // assim que o primeiro evento de teste real chegar.
+        // ── Kiwify: carrinho abandonado ────────────────────────────────────
+        // Formato diferente do pedido (sem order_id; traz nome/e-mail/telefone
+        // e o link do checkout). Só alimenta a tela de Recuperação — nunca
+        // vira evento na Meta.
+        if (!b.event && isKiwifyAbandonedPayload(b)) {
+            logger.info('webhook Kiwify carrinho abandonado — corpo bruto pra conferência', { source: source.id, raw: JSON.stringify(b).slice(0, 3000) });
+            if (isKiwifyTestPayload(b)) {
+                return res.json({ success: true, data: { test: true, message: 'Teste recebido. Conexão funcionando.' } });
+            }
+            const cart = normalizeKiwifyAbandoned(b);
+            if (!cart) return res.json({ success: true, data: { ignored: true, reason: 'carrinho sem identificador' } });
+            const saved = await upsertOrder(source.id, cart);
+            return res.json({ success: true, data: { order_id: saved.id, status: 'abandoned' } });
+        }
+
         if (!b.event && (b.order_id || b.order_status || b.Customer || b.customer_id || b.Product)) {
             logger.info('webhook Kiwify recebido — corpo bruto pra conferência', { source: source.id, raw: JSON.stringify(b).slice(0, 4000) });
             const k = normalizeKiwifyPayload(b);
@@ -820,7 +835,8 @@ async function normalizeKommoPayload(body: any, eventHintFromQuery: string, sour
 function mapKiwifyStatus(raw: string): OrderStatus | 'skip' | null {
     const s = raw.toLowerCase();
     if (!s) return null;
-    if (s.includes('carrinho_abandonado') || s.includes('abandoned')) return 'skip';
+    if (s.includes('carrinho_abandonado') || s.includes('abandoned')) return 'skip'; // tratado antes, em normalizeKiwifyAbandoned
+    if (s.includes('late') || s.includes('atrasad') || s.includes('overdue')) return 'pending';
     if (s.includes('chargeback') || s.includes('chargedback')) return 'chargeback';
     if (s.includes('reembols') || s.includes('refund')) return 'refunded';
     if (s.includes('recusad') || s.includes('refused')) return 'refused';
@@ -836,6 +852,51 @@ function kiwifyCents(v: any): number | undefined {
     if (v == null || v === '') return undefined;
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n / 100 : undefined;
+}
+
+/** Carrinho abandonado da Kiwify: sem order_id, com link do checkout ou status de abandono. */
+function isKiwifyAbandonedPayload(body: any): boolean {
+    const marker = String(body.webhook_event_type || body.status || body.order_status || body.event_type || '').toLowerCase();
+    if (/abandon/.test(marker)) return true;
+    return !body.order_id && !!(body.checkout_link || body.checkout_url);
+}
+
+function normalizeKiwifyAbandoned(body: any): NormalizedOrder | null {
+    const customer = body.Customer || body.customer || {};
+    const product = body.Product || body.product || {};
+    const pick = (...vals: any[]) => vals.map(v => (v == null ? '' : String(v).trim())).find(Boolean) || undefined;
+    const email = pick(body.email, customer.email, customer.Email);
+    const phone = pick(body.phone, body.mobile, customer.mobile, customer.phone, customer.Phone);
+    const name = pick(body.name, body.full_name, customer.full_name, customer.name);
+    const checkoutUrl = pick(body.checkout_link, body.checkout_url);
+    // Sem id próprio: usa o id do carrinho; senão e-mail/telefone + produto
+    // (o mesmo cliente abandonando o mesmo produto de novo atualiza a linha).
+    const productId = pick(body.product_id, product.product_id, product.id);
+    const cartId = pick(body.id, body.cart_id, body.checkout_id)
+        || (email || phone ? `${email || phone}:${productId || pick(body.product_name, product.product_name) || ''}` : undefined);
+    if (!cartId) return null;
+    const tracking = body.TrackingParameters || body.tracking || {};
+    return {
+        platform: 'kiwify',
+        external_order_id: `cart-${cartId}`,
+        status: 'abandoned',
+        product_id: productId,
+        product_name: pick(body.product_name, product.product_name, product.name, body.offer_name),
+        gross_value: kiwifyCents(body.charge_amount) ?? kiwifyCents(body.price) ?? kiwifyCents(body.amount),
+        currency: 'BRL',
+        customer_name: name,
+        customer_email: email,
+        customer_phone: phone,
+        checkout_url: checkoutUrl,
+        utm_source: tracking.utm_source || undefined,
+        utm_medium: tracking.utm_medium || undefined,
+        utm_campaign: tracking.utm_campaign || undefined,
+        utm_content: tracking.utm_content || undefined,
+        utm_term: tracking.utm_term || undefined,
+        sck: tracking.sck || body.sck || undefined,
+        order_created_at: pick(body.created_at, body.abandoned_at),
+        raw: body,
+    };
 }
 
 /** Payload fictício do botão "Testar" do webhook da Kiwify. */

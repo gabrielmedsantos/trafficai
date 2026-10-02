@@ -12,7 +12,7 @@ import { metaIdsFromUtms } from './utm';
 
 export { parseUtmId, metaIdsFromUtms } from './utm';
 
-export type OrderStatus = 'approved' | 'pending' | 'refused' | 'refunded' | 'chargeback' | 'canceled';
+export type OrderStatus = 'approved' | 'pending' | 'refused' | 'refunded' | 'chargeback' | 'canceled' | 'abandoned';
 export type PaymentMethod = 'pix' | 'credit_card' | 'boleto' | 'other';
 
 export interface NormalizedOrder {
@@ -34,6 +34,7 @@ export interface NormalizedOrder {
     utm_content?: string;
     utm_term?: string;
     sck?: string;
+    checkout_url?: string;
     order_created_at?: string;
     approved_at?: string;
     refunded_at?: string;
@@ -91,11 +92,11 @@ export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise
         `INSERT INTO tracking_orders (
             source_id, platform, external_order_id, status, payment_method,
             product_id, product_name, gross_value, net_value, currency,
-            customer_name, customer_email_hash, customer_phone_hash,
+            customer_name, customer_email_hash, customer_phone_hash, customer_email, customer_phone, checkout_url,
             utm_source, utm_medium, utm_campaign, utm_content, utm_term, sck,
             meta_campaign_id, meta_adset_id, meta_ad_id, click_id,
             order_created_at, approved_at, refunded_at, raw
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$28,$29,$30,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
          ON CONFLICT (source_id, platform, external_order_id) DO UPDATE SET
             status = EXCLUDED.status,
             payment_method = COALESCE(EXCLUDED.payment_method, tracking_orders.payment_method),
@@ -106,6 +107,9 @@ export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise
             customer_name = COALESCE(EXCLUDED.customer_name, tracking_orders.customer_name),
             customer_email_hash = COALESCE(EXCLUDED.customer_email_hash, tracking_orders.customer_email_hash),
             customer_phone_hash = COALESCE(EXCLUDED.customer_phone_hash, tracking_orders.customer_phone_hash),
+            customer_email = COALESCE(EXCLUDED.customer_email, tracking_orders.customer_email),
+            customer_phone = COALESCE(EXCLUDED.customer_phone, tracking_orders.customer_phone),
+            checkout_url = COALESCE(EXCLUDED.checkout_url, tracking_orders.checkout_url),
             utm_source = COALESCE(EXCLUDED.utm_source, tracking_orders.utm_source),
             utm_medium = COALESCE(EXCLUDED.utm_medium, tracking_orders.utm_medium),
             utm_campaign = COALESCE(EXCLUDED.utm_campaign, tracking_orders.utm_campaign),
@@ -134,10 +138,28 @@ export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise
             ids.meta_campaign_id, ids.meta_adset_id, ids.meta_ad_id, clickId,
             o.order_created_at || null, approvedAt, refundedAt,
             o.raw ? JSON.stringify(o.raw) : null,
+            o.customer_email ? normEmail(o.customer_email) : null,
+            o.customer_phone ? String(o.customer_phone).trim() : null,
+            o.checkout_url || null,
         ]
     );
 
     const becameApproved = o.status === 'approved' && previous?.status !== 'approved';
+
+    // Recuperação: compra aprovada do mesmo cliente (e-mail ou telefone) fecha
+    // os carrinhos abandonados, Pix/boletos vencidos e recusas dele dos últimos 30 dias.
+    if (becameApproved && (o.customer_email || o.customer_phone)) {
+        const emailHash = o.customer_email ? sha256(normEmail(o.customer_email)) : null;
+        const phoneHash = o.customer_phone ? sha256(normPhone(o.customer_phone)) : null;
+        await query(
+            `UPDATE tracking_orders SET recovered_order_id = $2, updated_at = NOW()
+             WHERE source_id = $1 AND id <> $2 AND recovered_order_id IS NULL
+               AND status IN ('abandoned', 'pending', 'refused')
+               AND created_at >= NOW() - INTERVAL '30 days'
+               AND (($3::text IS NOT NULL AND customer_email_hash = $3) OR ($4::text IS NOT NULL AND customer_phone_hash = $4))`,
+            [sourceId, row!.id, emailHash, phoneHash]
+        ).catch((err: any) => logger.warn('pedido: falha ao marcar recuperação', { error: err.message }));
+    }
     logger.info('pedido gravado', { source: sourceId, platform: o.platform, order: o.external_order_id, status: o.status, from: previous?.status || null, campaign: ids.meta_campaign_id });
     return { id: row!.id, became_approved: becameApproved, click_id: clickId };
 }

@@ -494,7 +494,10 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
             COALESCE(SUM(COALESCE(o.gross_value, o.net_value, 0)) FILTER (WHERE o.status = 'refunded'), 0) AS refunded_value,
             COUNT(*) FILTER (WHERE o.status = 'chargeback') AS chargeback_count,
             COALESCE(SUM(COALESCE(o.gross_value, o.net_value, 0)) FILTER (WHERE o.status = 'chargeback'), 0) AS chargeback_value,
-            COUNT(*) AS total_orders
+            COUNT(*) FILTER (WHERE o.status <> 'abandoned') AS total_orders,
+            COUNT(*) FILTER (WHERE o.status = 'abandoned') AS abandoned_count,
+            COUNT(*) FILTER (WHERE o.status IN ('abandoned', 'pending', 'refused') AND o.recovered_order_id IS NOT NULL) AS recovered_count,
+            COUNT(*) FILTER (WHERE o.status IN ('abandoned', 'pending', 'refused')) AS recoverable_count
          FROM tracking_orders o
          WHERE o.source_id = $1 AND ${ORDER_DATE}::date BETWEEN $2 AND $3`,
         [source.id, since, until, JSON.stringify(settings.product_costs)]
@@ -621,6 +624,9 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
         chargeback_rate: approved > 0 ? (Number(tot.chargeback_count) / approved) * 100 : 0,
         approval_rate: approved + refused > 0 ? (approved / (approved + refused)) * 100 : null,
         total_orders: totalOrders,
+        abandoned_count: Number(tot.abandoned_count) || 0,
+        recovered_count: Number(tot.recovered_count) || 0,
+        recovery_rate: Number(tot.recoverable_count) > 0 ? (Number(tot.recovered_count) / Number(tot.recoverable_count)) * 100 : null,
         by_payment: byPayment.map((p: any) => ({
             method: p.method,
             approved_count: Number(p.approved_count) || 0,

@@ -13,6 +13,7 @@ const PAGES: Record<string, { title: string; subtitle: string; period: boolean }
     '/vendas/campanhas': { title: 'Campanhas', subtitle: 'Vendas, CPA e lucro por campanha, conjunto e anúncio — com status e orçamento da Meta ao vivo.', period: true },
     '/vendas/utms': { title: 'UTMs', subtitle: 'Vendas agrupadas por qualquer parâmetro UTM.', period: true },
     '/vendas/diario': { title: 'Relatório diário', subtitle: 'Resultado dia a dia no fuso de Brasília.', period: true },
+    '/vendas/recuperacao': { title: 'Recuperação de vendas', subtitle: 'Carrinhos abandonados, Pix/boleto não pagos e pagamentos recusados — chame o cliente no WhatsApp.', period: true },
     '/vendas/pedidos': { title: 'Pedidos', subtitle: 'Todos os pedidos recebidos das plataformas de checkout.', period: true },
     '/vendas/custos': { title: 'Custos e impostos', subtitle: 'Imposto, custo de produto e despesas adicionais — entram no cálculo do lucro.', period: true },
     '/vendas/integracoes': { title: 'Integrações', subtitle: 'Conecte as plataformas de checkout pra receber as vendas.', period: false },

@@ -39,6 +39,7 @@ export const STATUS_LABEL: Record<string, { label: string; color: string }> = {
     refunded: { label: 'Reembolsada', color: 'var(--accent-red)' },
     chargeback: { label: 'Chargeback', color: 'var(--accent-red)' },
     canceled: { label: 'Cancelada', color: 'var(--text-muted)' },
+    abandoned: { label: 'Carrinho abandonado', color: 'var(--accent-yellow)' },
 };
 
 // ── Datas no fuso de Brasília ───────────────────────────────────────────

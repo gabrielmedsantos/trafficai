@@ -88,13 +88,65 @@ router.get('/sources/:id/orders', async (req: Request, res: Response) => {
              FROM tracking_orders
              WHERE source_id = $1
                AND (COALESCE(approved_at, order_created_at, created_at) AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
-               AND ($4::text IS NULL OR status = $4)
+               AND (($4::text IS NULL AND status <> 'abandoned') OR status = $4)
              ORDER BY order_date DESC LIMIT $5`,
             [source.id, range.since, range.until, status, limit]
         );
         res.json({ success: true, data: rows });
     } catch (err: any) {
         logger.error('orders list falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /tracking/sources/:id/recovery?since&until — carrinhos abandonados,
+// Pix/boleto gerados e não pagos e compras recusadas, com contato do cliente
+// e se já foi recuperado (o mesmo cliente comprou depois).
+router.get('/sources/:id/recovery', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const range = reportRange(req.query);
+        if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
+        const rows = await query<any>(
+            `SELECT o.id, o.status, o.payment_method, o.product_name, o.gross_value, o.net_value,
+                    o.customer_name, o.customer_email, o.customer_phone, o.checkout_url,
+                    o.utm_campaign, o.recovery_contacted_at,
+                    o.raw->>'pix_expiration' AS pix_expiration,
+                    o.raw->>'boleto_URL' AS boleto_url,
+                    COALESCE(o.order_created_at, o.created_at) AS order_date,
+                    r.id AS recovered_order_id, r.gross_value AS recovered_value, r.approved_at AS recovered_at
+             FROM tracking_orders o
+             LEFT JOIN tracking_orders r ON r.id = o.recovered_order_id
+             WHERE o.source_id = $1
+               AND o.status IN ('abandoned', 'pending', 'refused')
+               AND (COALESCE(o.order_created_at, o.created_at) AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
+             ORDER BY order_date DESC
+             LIMIT 500`,
+            [source.id, range.since, range.until]
+        );
+        res.json({ success: true, data: rows });
+    } catch (err: any) {
+        logger.error('recovery list falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// PATCH /tracking/sources/:id/orders/:orderId/contacted  { contacted: boolean }
+router.patch('/sources/:id/orders/:orderId/contacted', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const contacted = req.body?.contacted !== false;
+        const [row] = await query<any>(
+            `UPDATE tracking_orders SET recovery_contacted_at = ${contacted ? 'NOW()' : 'NULL'}, updated_at = NOW()
+             WHERE id = $1 AND source_id = $2 RETURNING id, recovery_contacted_at`,
+            [req.params.orderId, source.id]
+        );
+        if (!row) return res.status(404).json({ success: false, error: { message: 'Pedido não encontrado' } });
+        res.json({ success: true, data: row });
+    } catch (err: any) {
+        logger.error('recovery contacted falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
