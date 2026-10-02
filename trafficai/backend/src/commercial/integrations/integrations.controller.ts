@@ -13,6 +13,7 @@ import { KommoClient } from './kommo/client';
 import { syncKommoIntegration } from './kommo/sync';
 import { EvolutionClient } from './evolution/client';
 import { UazapiClient } from './uazapi/client';
+import { getEntitlements, UAZAPI_BLOCKED_MESSAGE } from '../../billing/entitlements';
 
 const META_API_VERSION = process.env.META_API_VERSION || 'v21.0';
 const META_GRAPH_URL = `https://graph.facebook.com/${META_API_VERSION}`;
@@ -333,6 +334,7 @@ function getUazapiConfig(): { baseUrl: string; adminToken: string; webhookBase: 
 router.post('/whatsapp/uazapi/connect', async (req: Request, res: Response): Promise<void> => {
     try {
         const userId = getUserId(req);
+        if (!(await getEntitlements(userId)).whatsapp_uazapi) return fail(res, UAZAPI_BLOCKED_MESSAGE, 403);
         const { name, clientId, trackingSourceId } = req.body as {
             name?: string; clientId?: string; trackingSourceId?: string;
         };

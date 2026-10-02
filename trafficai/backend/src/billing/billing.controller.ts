@@ -7,6 +7,7 @@ import express from 'express';
 import { authMiddleware } from '../auth/auth.middleware';
 import { ValidationError } from '../shared/errors';
 import { logger } from '../shared/logger';
+import { getEntitlements } from './entitlements';
 import {
     createCheckoutSession, createPortalSession, getUserSubscription,
     handleWebhookEvent, getAiUsage, PLAN_LIMITS,
@@ -76,6 +77,7 @@ authed.get('/subscription', async (req: Request, res: Response, next: NextFuncti
                     ai_credits_used: usage.used,
                 },
                 has_stripe_customer: !!sub.stripe_customer_id,
+                features: await getEntitlements(req.user!.userId),
                 is_admin: isAdmin,
             },
         });

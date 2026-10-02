@@ -8,6 +8,7 @@ import { authMiddleware } from '../auth/auth.middleware';
 import { notificationService } from './notification.service';
 import { getVapidPublicKey, saveSubscription, removeSubscription } from './push.service';
 import { logger } from '../shared/logger';
+import { getEntitlements, UAZAPI_BLOCKED_MESSAGE } from '../billing/entitlements';
 
 const router = Router();
 router.use(authMiddleware);
@@ -58,6 +59,10 @@ router.put('/', async (req: Request, res: Response) => {
             owner_whatsapp, daily_report_approval_required,
             push_enabled,
         } = req.body;
+
+        if (whatsapp_provider === 'uazapi' && !(await getEntitlements(userId)).whatsapp_uazapi) {
+            return res.status(403).json({ success: false, error: { message: UAZAPI_BLOCKED_MESSAGE } });
+        }
 
         await query(
             `INSERT INTO notification_settings (

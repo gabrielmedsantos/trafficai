@@ -505,7 +505,7 @@ class ApiClient {
     async getSaasHistory(id: string) {
         return this.request<any[]>('GET', `/admin/saas/customers/${id}/history`);
     }
-    async updateSaasSubscription(id: string, data: { plan?: string; extend_days?: number; courtesy?: boolean; courtesy_until?: string | null }) {
+    async updateSaasSubscription(id: string, data: { plan?: string; extend_days?: number; courtesy?: boolean; courtesy_until?: string | null; allow_uazapi?: boolean | null }) {
         return this.request<any>('PATCH', `/admin/saas/customers/${id}/subscription`, data);
     }
     async setSaasSuspended(id: string, suspended: boolean) {

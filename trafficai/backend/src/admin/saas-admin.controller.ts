@@ -43,7 +43,7 @@ router.get('/customers', async (_req: Request, res: Response) => {
         const rows = await query<any>(
             `SELECT u.id, u.name, u.email, u.created_at, u.last_seen_at, u.suspended_at,
                     s.plan, s.status, s.trial_ends_at, s.current_period_end, s.cancel_at_period_end,
-                    s.courtesy, s.courtesy_until, s.stripe_customer_id IS NOT NULL AS has_stripe,
+                    s.courtesy, s.courtesy_until, s.stripe_customer_id IS NOT NULL AS has_stripe, s.allow_uazapi,
                     (SELECT COUNT(*)::int FROM ad_accounts a WHERE a.user_id = u.id AND a.is_client_active = TRUE) AS active_accounts,
                     (SELECT COUNT(*)::int FROM users t WHERE t.owner_id = u.id) AS team_size
              FROM users u
@@ -82,7 +82,10 @@ router.patch('/customers/:id/subscription', async (req: Request, res: Response) 
     try {
         const customer = await loadCustomer(req.params.id);
         if (!customer) return res.status(404).json({ success: false, error: { message: 'Cliente não encontrado' } });
-        const { plan, extend_days, courtesy, courtesy_until } = req.body || {};
+        const { plan, extend_days, courtesy, courtesy_until, allow_uazapi } = req.body || {};
+        if (allow_uazapi !== undefined && allow_uazapi !== null && typeof allow_uazapi !== 'boolean') {
+            return res.status(400).json({ success: false, error: { message: 'allow_uazapi deve ser true, false ou null' } });
+        }
         if (plan !== undefined && !PLAN_LIMITS[plan]) {
             return res.status(400).json({ success: false, error: { message: 'Plano inválido' } });
         }
@@ -111,6 +114,11 @@ router.patch('/customers/:id/subscription', async (req: Request, res: Response) 
             params.push(courtesy && courtesy_until ? courtesy_until : null);
         }
 
+        if (allow_uazapi !== undefined) {
+            sets.push(`allow_uazapi = ${++i}`);
+            params.push(allow_uazapi);
+        }
+
         const [updated] = await query<any>(
             `UPDATE user_subscriptions SET ${sets.join(', ')} WHERE user_id = $1 RETURNING plan, status, trial_ends_at, courtesy, courtesy_until`,
             params
@@ -121,7 +129,7 @@ router.patch('/customers/:id/subscription', async (req: Request, res: Response) 
             entityType: 'saas_customer',
             entityId: customer.id,
             entityLabel: customer.name || customer.email,
-            details: { from_plan: sub.plan, plan: nextPlan, extend_days: days || undefined, courtesy },
+            details: { from_plan: sub.plan, plan: nextPlan, extend_days: days || undefined, courtesy, allow_uazapi },
         });
         res.json({ success: true, data: updated });
     } catch (err: any) {

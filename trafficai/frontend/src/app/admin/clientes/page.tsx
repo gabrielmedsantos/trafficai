@@ -283,6 +283,8 @@ function ManagePanel({ customer, plans, onClose, onSaved }: { customer: any; pla
     const [courtesy, setCourtesy] = useState<boolean>(!!customer.courtesy);
     const [courtesyUntil, setCourtesyUntil] = useState<string>(customer.courtesy_until ? String(customer.courtesy_until).slice(0, 10) : '');
     const [history, setHistory] = useState<any[]>([]);
+    const initialUaz: 'auto' | 'on' | 'off' = customer.allow_uazapi === true ? 'on' : customer.allow_uazapi === false ? 'off' : 'auto';
+    const [uaz, setUaz] = useState<'auto' | 'on' | 'off'>(initialUaz);
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState('');
 
@@ -296,13 +298,14 @@ function ManagePanel({ customer, plans, onClose, onSaved }: { customer: any; pla
     const trialBase = customer.trial_ends_at && new Date(customer.trial_ends_at) > new Date() ? new Date(customer.trial_ends_at) : new Date();
     const newTrialEnd = extend ? new Date(trialBase.getTime() + extend * 86400000) : null;
     const suspended = !!customer.suspended_at;
-    const changed = plan !== (customer.plan || 'trial') || extend > 0 || courtesy !== !!customer.courtesy || (courtesy && courtesyUntil !== (customer.courtesy_until ? String(customer.courtesy_until).slice(0, 10) : ''));
+    const changed = uaz !== initialUaz || plan !== (customer.plan || 'trial') || extend > 0 || courtesy !== !!customer.courtesy || (courtesy && courtesyUntil !== (customer.courtesy_until ? String(customer.courtesy_until).slice(0, 10) : ''));
 
     async function save() {
         setSaving(true); setErr('');
         try {
             await api.updateSaasSubscription(customer.id, {
                 plan, extend_days: extend || undefined,
+                ...(uaz !== initialUaz ? { allow_uazapi: uaz === 'auto' ? null : uaz === 'on' } : {}),
                 ...(courtesy !== !!customer.courtesy || courtesy ? { courtesy, courtesy_until: courtesy && courtesyUntil ? courtesyUntil : null } : {}),
             });
             onSaved(`Plano de ${customer.name || customer.email} atualizado`);
@@ -401,6 +404,23 @@ function ManagePanel({ customer, plans, onClose, onSaved }: { customer: any; pla
                         )}
                     </span>
                 </label>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <span style={label11}>WhatsApp pela UazAPI</span>
+                    <div role="radiogroup" aria-label="UazAPI" style={{ display: 'flex', gap: 4, padding: 3, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                        {([['auto', 'Pelo plano'], ['on', 'Liberada'], ['off', 'Bloqueada']] as const).map(([k, lbl]) => (
+                            <button key={k} type="button" role="radio" aria-checked={uaz === k} onClick={() => setUaz(k)} style={{
+                                flex: 1, padding: '7px 8px', borderRadius: 8, border: 'none', cursor: 'pointer', font: '600 12.5px var(--font-sans)',
+                                background: uaz === k ? 'var(--primary)' : 'transparent', color: uaz === k ? 'var(--bg-sidebar)' : 'var(--text-muted)',
+                            }}>{lbl}</button>
+                        ))}
+                    </div>
+                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                        {uaz === 'auto'
+                            ? (plan === 'trial' ? 'No teste grátis: só Evolution (gratuita). Libera sozinha quando assinar um plano pago.' : 'Plano pago: UazAPI liberada.')
+                            : uaz === 'on' ? 'Pode conectar e usar a UazAPI, mesmo no teste.' : 'Só Evolution, mesmo em plano pago.'}
+                    </span>
+                </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <span style={label11}>Histórico</span>

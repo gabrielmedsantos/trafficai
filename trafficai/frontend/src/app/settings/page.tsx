@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { api } from '@/lib/api';
 import Link from 'next/link';
 import {
   Link2, CheckCircle, XCircle, RefreshCw, AlertCircle, Key,
@@ -106,6 +107,17 @@ export default function SettingsPage() {
   const [zapsignError, setZapsignError] = useState('');
 
   const [notif, setNotif] = useState<NotificationSettings>(defaultSettings);
+  // UazAPI só nos planos pagos (ou liberada pelo admin); teste grátis usa Evolution.
+  const [uazapiAllowed, setUazapiAllowed] = useState(true);
+  const uazapiAllowedRef = useRef(true);
+  uazapiAllowedRef.current = uazapiAllowed;
+  useEffect(() => {
+    api.getSubscription().then((s: any) => {
+      const ok = s?.features?.whatsapp_uazapi !== false;
+      setUazapiAllowed(ok);
+      if (!ok) setNotif(prev => prev.whatsapp_provider === 'uazapi' ? { ...prev, whatsapp_provider: 'evolution' } : prev);
+    }).catch(() => {});
+  }, []);
   const [savingNotif, setSavingNotif] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
   const [testingEmail, setTestingEmail] = useState(false);
@@ -185,7 +197,12 @@ export default function SettingsPage() {
       });
       const result = await res.json();
       if (result.success && result.data) {
-        setNotif({ ...defaultSettings, ...result.data });
+        setNotif(prev => {
+          const next = { ...defaultSettings, ...result.data };
+          // Sem direito à UazAPI: mostra Evolution selecionada.
+          if (!uazapiAllowedRef.current && next.whatsapp_provider === 'uazapi') next.whatsapp_provider = 'evolution';
+          return next;
+        });
       }
     } catch (e) {
       console.error(e);
@@ -626,9 +643,12 @@ export default function SettingsPage() {
                 { val: 'zapi',      label: 'Z-API',         Icon: MessageCircle },
               ].map(({ val, label, badge, Icon }) => {
                 const active = notif.whatsapp_provider === val;
+                const locked = val === 'uazapi' && !uazapiAllowed;
                 return (
-                  <button key={val} onClick={() => setN('whatsapp_provider', val as any)}
+                  <button key={val} disabled={locked} onClick={() => setN('whatsapp_provider', val as any)}
+                    title={locked ? 'Disponível nos planos pagos — no teste grátis use a Evolution API' : undefined}
                     style={{
+                      opacity: locked ? 0.45 : 1,
                       display: 'flex', alignItems: 'center', gap: '6px',
                       padding: '7px 14px', borderRadius: '8px',
                       border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
@@ -638,6 +658,7 @@ export default function SettingsPage() {
                     }}>
                     <Icon size={13} />
                     {label}
+                    {locked && <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>· planos pagos</span>}
                     {badge && active && (
                       <span style={{ fontSize: '10px', background: 'var(--primary)', color: '#fff', padding: '1px 6px', borderRadius: '8px', marginLeft: '2px' }}>
                         {badge}

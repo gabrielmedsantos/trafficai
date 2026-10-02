@@ -3744,6 +3744,10 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
     const [selectedExisting, setSelectedExisting] = useState('');
     const [error, setError] = useState('');
     const [provider, setProvider] = useState<'whatsapp_evolution' | 'whatsapp_uazapi'>('whatsapp_evolution');
+    const [uazapiAllowed, setUazapiAllowed] = useState(true);
+    useEffect(() => {
+        api.getSubscription().then((s: any) => setUazapiAllowed(s?.features?.whatsapp_uazapi !== false)).catch(() => {});
+    }, []);
 
     const load = useCallback(async () => {
         try {
@@ -3884,7 +3888,7 @@ function WhatsAppEvolutionSetup({ source, onChange }: { source: any; onChange: (
                         <label className="form-label" style={{ fontSize: 11 }}>Provedor da conexão</label>
                         <select className="form-select" value={provider} onChange={e => setProvider(e.target.value as any)} style={{ maxWidth: 320 }}>
                             <option value="whatsapp_evolution">Evolution (padrão, sem custo extra)</option>
-                            <option value="whatsapp_uazapi">Uazapi (extra, pago — resolve mais contatos @lid)</option>
+                            <option value="whatsapp_uazapi" disabled={!uazapiAllowed}>{uazapiAllowed ? 'Uazapi (extra, pago — resolve mais contatos @lid)' : 'Uazapi — disponível nos planos pagos'}</option>
                         </select>
                     </div>
                     <button type="button" className="btn btn-primary btn-sm" onClick={createNew} disabled={saving} style={{ alignSelf: 'flex-start' }}>
