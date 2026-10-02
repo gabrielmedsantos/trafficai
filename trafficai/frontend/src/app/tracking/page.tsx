@@ -5,7 +5,8 @@ import { api } from '@/lib/api';
 import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
     Zap, ShieldCheck, CircleAlert, Sparkles, Globe, ChevronDown,
-    Download, Search, ExternalLink, Filter,
+    TrendingUp, TrendingDown, Users, UserCheck, Calendar, ShoppingCart, DollarSign, Target,
+    Download, MessageCircle, Search, ExternalLink, Filter,
 } from 'lucide-react';
 import {
     ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -1138,44 +1139,182 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 </div>
                             )}
 
-                            {/* Placar: o dinheiro que saiu e o que voltou, com os custos e retornos embaixo */}
-                            <Scoreboard kpis={dash.kpis} hasSpend={!!dash.source?.has_account_link} />
-
-                            {/* Funil do WhatsApp: etapa sem dados explica o porquê e leva pra onde resolve */}
-                            <WhatsFunnel kpis={dash.kpis} onGo={(tab) => setActiveTab(tab)} />
-
-                            {/* Dia a dia + de onde veio a receita */}
+                            {/* KPIs principais — mesma ordem do RastrackDash: Investimento, Conversas Meta, Conversas reais, ROAS */}
                             <div style={{
-                                display: 'grid', gap: 12, marginBottom: 16,
-                                gridTemplateColumns: dash.daily && dash.daily.length > 0 ? 'minmax(0, 1.6fr) minmax(300px, 1fr)' : 'minmax(0, 1fr)',
+                                display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 10,
                             }}>
-                                {dash.daily && dash.daily.length > 0 && (
-                                    <PerfCard title="Dia a dia">
-                                        <ResponsiveContainer width="100%" height={240}>
-                                            <ComposedChart data={dash.daily} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.4} vertical={false} />
-                                                <XAxis
-                                                    dataKey="date"
-                                                    tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-                                                    tickFormatter={(v: string) => {
-                                                        const d = new Date(v + 'T00:00:00');
-                                                        return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-                                                    }}
-                                                />
-                                                <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-                                                <Tooltip contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 12 }} />
-                                                <Legend wrapperStyle={{ fontSize: 11 }} />
-                                                <Bar yAxisId="left" dataKey="leads" fill="var(--accent-blue)" name="Leads" radius={[3, 3, 0, 0]} />
-                                                <Bar yAxisId="left" dataKey="sales" fill="var(--accent-green)" name="Vendas" radius={[3, 3, 0, 0]} />
-                                                {dash.source?.has_account_link && (
-                                                    <Line yAxisId="right" type="monotone" dataKey="spend" stroke="var(--accent-yellow)" name="Investido (R$)" strokeWidth={2} dot={false} />
-                                                )}
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </PerfCard>
-                                )}
-                                <RevenueMix kpis={dash.kpis} hasSpend={!!dash.source?.has_account_link && dash.kpis.ad_spend > 0} />
+                                <BigKpi
+                                    icon={<DollarSign size={14} />}
+                                    label="Investimento"
+                                    value={dash.source?.has_account_link ? `R$ ${Number(dash.kpis.ad_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : '—'}
+                                    hint="Período filtrado"
+                                />
+                                <BigKpi
+                                    icon={<MessageCircle size={14} />}
+                                    label="Conversas Meta"
+                                    value={dash.kpis.conversations_meta.toLocaleString('pt-BR')}
+                                    hint={dash.kpis.cost_per_meta_conversation != null ? `R$ ${dash.kpis.cost_per_meta_conversation.toFixed(2)}/conversa` : 'Registradas pela Meta'}
+                                    color="var(--accent-blue)"
+                                />
+                                <BigKpi
+                                    icon={<MessageCircle size={14} />}
+                                    label="Conversas reais"
+                                    value={dash.kpis.conversations_real.toLocaleString('pt-BR')}
+                                    hint={dash.kpis.cost_per_real_conversation != null ? `R$ ${dash.kpis.cost_per_real_conversation.toFixed(2)}/conversa` : 'Identificadas no WhatsApp'}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={dash.kpis.roi_pct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                                    label="ROAS"
+                                    value={dash.source?.has_account_link && dash.kpis.ad_spend > 0 ? `${dash.kpis.roas.toFixed(2)}x` : '—'}
+                                    hint="Retorno de aquisição"
+                                    color={dash.kpis.roi_pct >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+                                />
+                            </div>
+
+                            {/* KPIs secundários */}
+                            <div style={{
+                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10,
+                            }}>
+                                <BigKpi
+                                    icon={<Users size={14} />}
+                                    label="Leads"
+                                    value={dash.kpis.leads.toLocaleString('pt-BR')}
+                                    hint={`${dash.kpis.qualified_rate.toFixed(0)}% qualificados`}
+                                />
+                                <BigKpi
+                                    icon={<UserCheck size={14} />}
+                                    label="Qualificados"
+                                    value={dash.kpis.qualified.toLocaleString('pt-BR')}
+                                    hint={dash.kpis.cost_per_qualified_lead != null
+                                        ? `R$ ${dash.kpis.cost_per_qualified_lead.toFixed(2)}/qualificado`
+                                        : (dash.kpis.disqualified > 0 ? `${dash.kpis.disqualified} desqualificados` : undefined)}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={<Calendar size={14} />}
+                                    label="Agendados"
+                                    value={dash.kpis.scheduled.toLocaleString('pt-BR')}
+                                    color="var(--accent-blue)"
+                                />
+                                <BigKpi
+                                    icon={<ShoppingCart size={14} />}
+                                    label="Vendas"
+                                    value={dash.kpis.sales_count.toLocaleString('pt-BR')}
+                                    hint={`${dash.kpis.conversion_rate.toFixed(1)}% conversão`}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={<DollarSign size={14} />}
+                                    label="Faturamento"
+                                    value={`R$ ${Number(dash.kpis.sales_value).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                                    hint={dash.kpis.sales_count > 0 ? `ticket médio R$ ${Number(dash.kpis.avg_ticket).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : undefined}
+                                    color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={dash.kpis.roi_pct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                                    label="ROI"
+                                    value={dash.source?.has_account_link
+                                        ? (dash.kpis.ad_spend > 0 ? `${dash.kpis.roi_pct.toFixed(0)}%` : '—')
+                                        : '—'}
+                                    hint={dash.source?.has_account_link && dash.kpis.ad_spend > 0
+                                        ? `${dash.kpis.roas.toFixed(2)}x ROAS`
+                                        : undefined}
+                                    color={dash.kpis.roi_pct >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+                                />
+                            </div>
+
+                            {/* Métricas secundárias */}
+                            {dash.source?.has_account_link && dash.kpis.ad_spend > 0 && (
+                                <div style={{
+                                    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 16,
+                                }}>
+                                    <SubKpi label="Investido" value={`R$ ${Number(dash.kpis.ad_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} />
+                                    <SubKpi label="CPL" value={dash.kpis.cpl > 0 ? `R$ ${Number(dash.kpis.cpl).toFixed(2)}` : '—'} />
+                                    <SubKpi label="CPA" value={dash.kpis.cpa > 0 ? `R$ ${Number(dash.kpis.cpa).toFixed(2)}` : '—'} />
+                                    <SubKpi
+                                        label="Lucro líquido"
+                                        value={`R$ ${Number(dash.kpis.revenue_minus_spend).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                        color={dash.kpis.revenue_minus_spend >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Primeira compra vs recompra, receita paga vs orgânica, taxa de rastreamento —
+                                sempre visível (mostra zero em vez de sumir) pra não parecer que o recurso não existe. */}
+                            <div style={{ marginBottom: 16 }}>
+                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+                                    Aquisição x recorrência
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10 }}>
+                                    <BigKpi
+                                        icon={<Sparkles size={14} />}
+                                        label="Primeira compra"
+                                        value={`${dash.kpis.first_purchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.first_purchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                        color="var(--accent-blue)"
+                                    />
+                                    <BigKpi
+                                        icon={<RefreshCw size={14} />}
+                                        label="Recompra"
+                                        value={`${dash.kpis.repurchase_count.toLocaleString('pt-BR')} · R$ ${Number(dash.kpis.repurchase_value).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`}
+                                    />
+                                    <BigKpi
+                                        icon={<Target size={14} />}
+                                        label="ROAS aquisição"
+                                        value={dash.source?.has_account_link && dash.kpis.ad_spend > 0 ? `${dash.kpis.roas_acquisition.toFixed(2)}x` : '—'}
+                                        color="var(--accent-blue)"
+                                    />
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                                    <BigKpi icon={<DollarSign size={14} />} label="Receita via anúncio" value={`R$ ${Number(dash.kpis.paid_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} color="var(--accent-blue)" />
+                                    <BigKpi icon={<Globe size={14} />} label="Receita orgânica" value={`R$ ${Number(dash.kpis.organic_revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`} />
+                                    <BigKpi icon={<Activity size={14} />} label="Taxa de rastreamento" value={dash.kpis.tracking_rate != null ? `${dash.kpis.tracking_rate.toFixed(0)}%` : '—'} />
+                                </div>
+                            </div>
+
+                            {/* Chart diário */}
+                            {dash.daily && dash.daily.length > 0 && (
+                                <div style={{
+                                    background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                                    borderRadius: 8, padding: 12, marginBottom: 16,
+                                }}>
+                                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+                                        Leads, vendas e investimento por dia
+                                    </div>
+                                    <ResponsiveContainer width="100%" height={220}>
+                                        <ComposedChart data={dash.daily} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.4} />
+                                            <XAxis
+                                                dataKey="date"
+                                                tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
+                                                tickFormatter={(v: string) => {
+                                                    const d = new Date(v + 'T00:00:00');
+                                                    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+                                                }}
+                                            />
+                                            <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    background: 'var(--bg-primary)', border: '1px solid var(--border)',
+                                                    borderRadius: 6, fontSize: 12,
+                                                }}
+                                            />
+                                            <Legend wrapperStyle={{ fontSize: 11 }} />
+                                            <Bar yAxisId="left" dataKey="leads" fill="var(--accent-blue)" name="Leads" />
+                                            <Bar yAxisId="left" dataKey="sales" fill="var(--accent-green)" name="Vendas" />
+                                            {dash.source?.has_account_link && (
+                                                <Line yAxisId="right" type="monotone" dataKey="spend" stroke="var(--accent-yellow)" name="Investido (R$)" strokeWidth={2} dot={false} />
+                                            )}
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
+
+                            {/* Funil */}
+                            <div style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Funil de conversão</div>
+                                <Funnel kpis={dash.kpis} />
                             </div>
 
                             {/* Performance por campanha — "Origem da venda" */}
@@ -4303,203 +4442,6 @@ function MiniKpi({ label, value, color }: { label: string; value: string; color?
     );
 }
 
-// ─── Performance: placar, funil do WhatsApp e origem da receita ─────────────
-
-const brl0 = (v: number) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
-const brl2 = (v: number) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const eyebrow: React.CSSProperties = { fontSize: 11.5, fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--text-muted)' };
-
-function PerfCard({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
-    return (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 20px', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
-                {right}
-            </div>
-            {children}
-        </div>
-    );
-}
-
-function Scoreboard({ kpis, hasSpend }: { kpis: any; hasSpend: boolean }) {
-    const spendOk = hasSpend && kpis.ad_spend > 0;
-    const good = 'var(--accent-green)', bad = 'var(--accent-red)';
-    const main = [
-        { label: 'Investido', value: hasSpend ? brl0(kpis.ad_spend) : '—', hint: hasSpend ? 'no período' : 'conta Meta não vinculada' },
-        { label: 'Faturado', value: brl0(kpis.sales_value), hint: `${Number(kpis.sales_count).toLocaleString('pt-BR')} venda(s)` },
-        { label: 'Lucro líquido', value: spendOk ? brl0(kpis.revenue_minus_spend) : '—', hint: 'faturado − investido', color: spendOk ? (kpis.revenue_minus_spend >= 0 ? good : bad) : undefined },
-        { label: 'ROAS', value: spendOk ? `${kpis.roas.toFixed(2)}x` : '—', hint: spendOk ? `cada R$ 1 voltou ${brl2(kpis.roas)}` : 'retorno sobre o anúncio', color: spendOk ? (kpis.roas >= 1 ? good : bad) : undefined, accent: true },
-    ];
-    const sub = [
-        { label: 'ROI', value: spendOk ? `${kpis.roi_pct.toFixed(0)}%` : '—', color: spendOk ? (kpis.roi_pct >= 0 ? good : bad) : undefined },
-        { label: 'CPL', value: spendOk && kpis.cpl > 0 ? brl2(kpis.cpl) : '—' },
-        { label: 'CPA', value: spendOk && kpis.cpa > 0 ? brl2(kpis.cpa) : '—' },
-        { label: 'Ticket médio', value: kpis.sales_count > 0 ? brl0(kpis.avg_ticket) : '—' },
-        { label: 'Conversão lead → venda', value: `${Number(kpis.conversion_rate || 0).toFixed(1)}%` },
-    ];
-    return (
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                {main.map((m) => (
-                    <div key={m.label} style={{
-                        padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 4,
-                        borderRight: '1px solid var(--border)', marginRight: -1,
-                        background: m.accent ? (m.color === bad ? 'rgba(239,68,68,0.06)' : 'rgba(0,210,122,0.06)') : undefined,
-                    }}>
-                        <div style={eyebrow}>{m.label}</div>
-                        <div className="num" style={{ fontSize: 28, fontWeight: 800, letterSpacing: -0.4, lineHeight: 1.15, color: m.color || 'var(--text-primary)' }}>{m.value}</div>
-                        <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{m.hint}</div>
-                    </div>
-                ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.015)' }}>
-                {sub.map((s) => (
-                    <div key={s.label} style={{ padding: '11px 20px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, borderRight: '1px solid var(--border)', marginRight: -1 }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.label}</span>
-                        <span className="num" style={{ fontSize: 14.5, fontWeight: 700, color: s.color || 'var(--text-primary)' }}>{s.value}</span>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-function WhatsFunnel({ kpis, onGo }: { kpis: any; onGo: (tab: ModalTabKey) => void }) {
-    const steps: { label: string; value: number; color: string; detail?: string; empty: string; go?: { tab: ModalTabKey; label: string } }[] = [
-        {
-            label: 'Conversas Meta', value: kpis.conversations_meta, color: 'var(--primary)',
-            detail: kpis.cost_per_meta_conversation != null ? `${brl2(kpis.cost_per_meta_conversation)} / conversa` : undefined,
-            empty: 'A Meta não registrou conversas iniciadas no período.',
-        },
-        {
-            label: 'Conversas reais', value: kpis.conversations_real, color: 'var(--accent-cyan)',
-            detail: kpis.cost_per_real_conversation != null ? `${brl2(kpis.cost_per_real_conversation)} / conversa` : undefined,
-            empty: 'Nenhuma conversa identificada no WhatsApp — confira se o WhatsApp está conectado a esta fonte.',
-            go: { tab: 'setup', label: 'Ver Setup' },
-        },
-        {
-            label: 'Leads', value: kpis.leads, color: 'var(--accent-blue)',
-            detail: [kpis.cpl > 0 ? `${brl2(kpis.cpl)} / lead` : null, `${Number(kpis.qualified_rate || 0).toFixed(0)}% qualificados`].filter(Boolean).join(' · '),
-            empty: 'Nenhum lead registrado no período.',
-        },
-        {
-            label: 'Qualificados', value: kpis.qualified, color: 'var(--accent-purple)',
-            detail: kpis.cost_per_qualified_lead != null ? `${brl2(kpis.cost_per_qualified_lead)} / qualificado`
-                : (kpis.disqualified > 0 ? `${kpis.disqualified} desqualificados` : undefined),
-            empty: 'Sem lead qualificado — crie uma regra que diga o que conta como qualificado.',
-            go: { tab: 'conversion_rules', label: 'Criar regra' },
-        },
-        {
-            label: 'Agendados', value: kpis.scheduled, color: 'var(--accent-orange)',
-            empty: 'Sem agendamento — opcional, se a venda passa por visita ou reunião.',
-            go: { tab: 'conversion_rules', label: 'Criar regra' },
-        },
-        {
-            label: 'Vendas', value: kpis.sales_count, color: 'var(--accent-green)',
-            detail: kpis.cpa > 0 ? `${brl2(kpis.cpa)} / venda` : undefined,
-            empty: 'Nenhuma venda no período.',
-        },
-    ];
-    const max = Math.max(...steps.map((s) => s.value || 0), 1);
-    const missing = steps.filter((s) => !s.value).length;
-    return (
-        <div style={{ marginBottom: 12 }}>
-            <PerfCard title="Funil do WhatsApp" right={
-                <span style={{ fontSize: 12.5, color: missing ? 'var(--accent-yellow)' : 'var(--text-muted)', fontWeight: 600 }}>
-                    {missing ? `${missing} etapa(s) sem dados` : '% sobre a etapa anterior'}
-                </span>
-            }>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {steps.map((s, i) => {
-                        const prev = steps.slice(0, i).reverse().find((p) => p.value > 0);
-                        const conv = s.value > 0 && prev ? `${((s.value / prev.value) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% de ${prev.label.toLowerCase()}` : null;
-                        return (
-                            <div key={s.label} style={{ display: 'grid', gridTemplateColumns: '140px minmax(0, 1fr) 72px minmax(120px, 170px)', gap: 14, alignItems: 'center' }}>
-                                <div style={{ fontSize: 13.5, fontWeight: 600, color: s.value ? 'var(--text-primary)' : 'var(--text-muted)' }}>{s.label}</div>
-                                {s.value > 0 ? (
-                                    <div style={{ height: 28, borderRadius: 7, background: 'var(--bg-hover)', display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                                        <div style={{ width: `${Math.max((s.value / max) * 100, 0.8)}%`, height: '100%', borderRadius: 7, background: s.color, transition: 'width .3s', flexShrink: 0 }} />
-                                        {conv && <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{conv}</span>}
-                                    </div>
-                                ) : (
-                                    <div style={{ minHeight: 28, borderRadius: 7, border: '1px dashed var(--border-strong)', display: 'flex', alignItems: 'center', padding: '4px 12px', fontSize: 12.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>
-                                        {s.empty}
-                                    </div>
-                                )}
-                                <div className="num" style={{ fontSize: 18, fontWeight: 700, textAlign: 'right', color: s.value ? (s.label === 'Vendas' ? 'var(--accent-green)' : 'var(--text-primary)') : 'var(--text-subtle)' }}>
-                                    {Number(s.value || 0).toLocaleString('pt-BR')}
-                                </div>
-                                <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                                    {!s.value && s.go
-                                        ? <button type="button" onClick={() => onGo(s.go!.tab)} style={{ background: 'none', border: 0, padding: 0, color: 'var(--accent-blue)', fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>{s.go.label} →</button>
-                                        : (s.detail || '')}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </PerfCard>
-        </div>
-    );
-}
-
-function SplitBar({ left, right, leftColor, rightColor }: {
-    left: { label: string; value: number; text: string }; right: { label: string; value: number; text: string };
-    leftColor: string; rightColor: string;
-}) {
-    const total = (left.value || 0) + (right.value || 0);
-    const pct = total > 0 ? (left.value / total) * 100 : 50;
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: leftColor }} />{left.label}</span>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{right.label}<span style={{ width: 8, height: 8, borderRadius: 2, background: rightColor }} /></span>
-            </div>
-            <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', background: 'var(--bg-hover)' }}>
-                {total > 0 && <>
-                    <div style={{ width: `${pct}%`, background: leftColor }} />
-                    <div style={{ flex: 1, background: rightColor }} />
-                </>}
-            </div>
-            <div className="num" style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 700 }}>
-                <span>{left.text}</span><span>{right.text}</span>
-            </div>
-        </div>
-    );
-}
-
-function RevenueMix({ kpis, hasSpend }: { kpis: any; hasSpend: boolean }) {
-    return (
-        <PerfCard title="De onde veio a receita">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <SplitBar
-                    left={{ label: 'Via anúncio', value: kpis.paid_revenue, text: brl0(kpis.paid_revenue) }}
-                    right={{ label: 'Orgânica', value: kpis.organic_revenue, text: brl0(kpis.organic_revenue) }}
-                    leftColor="var(--primary)" rightColor="var(--text-subtle)"
-                />
-                <SplitBar
-                    left={{ label: 'Primeira compra', value: kpis.first_purchase_value, text: `${kpis.first_purchase_count} · ${brl0(kpis.first_purchase_value)}` }}
-                    right={{ label: 'Recompra', value: kpis.repurchase_value, text: `${kpis.repurchase_count} · ${brl0(kpis.repurchase_value)}` }}
-                    leftColor="var(--accent-blue)" rightColor="var(--accent-purple)"
-                />
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>ROAS aquisição</span>
-                        <span className="num" style={{ fontSize: 18, fontWeight: 700 }}>{hasSpend ? `${kpis.roas_acquisition.toFixed(2)}x` : '—'}</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>só primeira compra</span>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Taxa de rastreamento</span>
-                        <span className="num" style={{ fontSize: 18, fontWeight: 700 }}>{kpis.tracking_rate != null ? `${kpis.tracking_rate.toFixed(0)}%` : '—'}</span>
-                        <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>conversas ligadas a um anúncio</span>
-                    </div>
-                </div>
-            </div>
-        </PerfCard>
-    );
-}
-
-
 function BigKpi({ icon, label, value, hint, color }: {
     icon: React.ReactNode; label: string; value: string; hint?: string; color?: string;
 }) {
@@ -4526,6 +4468,65 @@ function BigKpi({ icon, label, value, hint, color }: {
             {hint && (
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>
             )}
+        </div>
+    );
+}
+
+function SubKpi({ label, value, color }: { label: string; value: string; color?: string }) {
+    return (
+        <div style={{
+            padding: '10px 12px',
+            background: 'var(--bg-tertiary)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+        }}>
+            <div style={{ fontSize: 10.5, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>
+                {label}
+            </div>
+            <div className="num" style={{ fontSize: 17, fontWeight: 600, color: color || 'var(--text-primary)', marginTop: 2 }}>
+                {value}
+            </div>
+        </div>
+    );
+}
+
+function Funnel({ kpis }: { kpis: any }) {
+    const steps = [
+        { label: 'Leads', value: kpis.leads, color: 'var(--accent-blue)' },
+        { label: 'Qualificados', value: kpis.qualified, color: 'var(--accent-cyan, #06b6d4)' },
+        { label: 'Agendados', value: kpis.scheduled, color: 'var(--accent-purple, #a855f7)' },
+        { label: 'Vendas', value: kpis.sales_count, color: 'var(--accent-green)' },
+    ];
+    const max = Math.max(...steps.map(s => s.value), 1);
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {steps.map((s, i) => {
+                const pct = (s.value / max) * 100;
+                const convFromPrev = i > 0 && steps[i - 1].value > 0
+                    ? ((s.value / steps[i - 1].value) * 100).toFixed(0) + '%'
+                    : null;
+                return (
+                    <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 110, fontSize: 12, color: 'var(--text-secondary)' }}>{s.label}</div>
+                        <div style={{
+                            flex: 1, height: 22, background: 'var(--bg-tertiary)',
+                            borderRadius: 4, overflow: 'hidden', position: 'relative',
+                        }}>
+                            <div style={{
+                                width: `${Math.max(pct, 1)}%`, height: '100%',
+                                background: s.color, transition: 'width 0.3s',
+                                display: 'flex', alignItems: 'center', paddingLeft: 8,
+                                fontSize: 11, fontWeight: 600, color: '#000', whiteSpace: 'nowrap',
+                            }}>
+                                {s.value.toLocaleString('pt-BR')}
+                            </div>
+                        </div>
+                        <div style={{ width: 60, fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
+                            {convFromPrev || '—'}
+                        </div>
+                    </div>
+                );
+            })}
         </div>
     );
 }
