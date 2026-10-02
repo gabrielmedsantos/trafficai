@@ -575,6 +575,21 @@ function SourceDetail({ source, onClose, onEdit }: {
     }, [activeTab, eventsLoaded, loadEvents]);
 
     const [testDetail, setTestDetail] = useState<any>(null);
+    const [userProfile, setUserProfile] = useState<any>(null);
+    const [userProfileLoading, setUserProfileLoading] = useState(false);
+
+    async function openUserProfile(externalId: string) {
+        setUserProfileLoading(true);
+        try {
+            const data = await api.getTrackingUserProfile(source.id, externalId);
+            setUserProfile(data);
+        } catch (err: any) {
+            console.error('Failed to load user profile:', err);
+        } finally {
+            setUserProfileLoading(false);
+        }
+    }
+
     async function runTest() {
         setTesting(true); setTestResult('');
         try {
@@ -2413,6 +2428,35 @@ function SourceDetail({ source, onClose, onEdit }: {
                         Acompanhe o que foi enviado, o que está aguardando e o que precisa de atenção antes de chegar à Meta.
                     </p>
 
+                    {/* Volume de eventos (PageViews / Checkouts) */}
+                    {stats?.by_event && (
+                        <div style={{ marginBottom: 20 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Volume de eventos</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                                {(() => {
+                                    const pageViews = stats.by_event.find((r: any) => r.event_name === 'PageView');
+                                    const checkouts = stats.by_event.find((r: any) => r.event_name === 'InitiateCheckout');
+                                    return (
+                                        <>
+                                            <div className="card" style={{ padding: '16px 18px' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>PageViews</div>
+                                                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)' }}>
+                                                    {pageViews ? Number(pageViews.total).toLocaleString('pt-BR') : '0'}
+                                                </div>
+                                            </div>
+                                            <div className="card" style={{ padding: '16px 18px' }}>
+                                                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 6 }}>Checkouts</div>
+                                                <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)' }}>
+                                                    {checkouts ? Number(checkouts.total).toLocaleString('pt-BR') : '0'}
+                                                </div>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        </div>
+                    )}
+
                     {stats?.totals && (
                         <>
                             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>Fluxo para a Meta</div>
@@ -2425,13 +2469,16 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 <BigKpi icon={<CircleAlert size={14} />} label="Falhas esgotadas" value={Number(stats.totals.retry_exhausted).toLocaleString('pt-BR')} hint="Precisam de correção manual" color={Number(stats.totals.retry_exhausted) > 0 ? 'var(--accent-red)' : undefined} />
                                 <BigKpi icon={<Activity size={14} />} label="EMQ médio" value={Number(stats.totals.avg_emq).toFixed(1)} hint="Qualidade de correspondência" />
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
-                                Hoje só rastreamos os estados enviado/falha (com retry automático) — não temos ainda os buckets
-                                "bloqueados/não elegíveis/sombra/descartados" da referência original.
-                            </div>
                         </>
                     )}
                 </div>
+
+                {/* Mapa de regiões do Brasil */}
+                {stats?.by_state && stats.by_state.length > 0 && (
+                    <Section title="Regiões (últimos 7 dias)">
+                        <BrazilMap byState={stats.by_state} />
+                    </Section>
+                )}
 
                 {/* Breakdown */}
                 {stats?.by_event && stats.by_event.length > 0 && (
@@ -2551,27 +2598,50 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 <table>
                                     <thead>
                                         <tr>
+                                            <th>Quando</th>
                                             <th>Evento</th>
+                                            <th>Campanha</th>
                                             <th>Status</th>
                                             <th className="num">EMQ</th>
-                                            <th>Origem</th>
-                                            <th className="num">Quando</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {events.map(e => (
                                             <tr key={e.id} onClick={() => setInspectEventId(e.id)} style={{ cursor: 'pointer' }}>
+                                                <td className="num" style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                                                    {new Date(e.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                </td>
                                                 <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
-                                                    {e.event_name}
-                                                    {e.value != null && (
-                                                        <span className="num" style={{ fontSize: 11, color: 'var(--accent-green)', marginLeft: 6 }}>
-                                                            +{e.currency || 'R$'} {Number(e.value).toFixed(2)}
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                        <span style={{
+                                                            fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                                                            background: e.event_name === 'Purchase' ? 'rgba(34,197,94,.18)' : e.event_name === 'InitiateCheckout' ? 'rgba(234,179,8,.18)' : 'rgba(148,163,184,.15)',
+                                                            color: e.event_name === 'Purchase' ? 'var(--accent-green)' : e.event_name === 'InitiateCheckout' ? 'var(--accent-yellow)' : 'var(--text-secondary)',
+                                                        }}>{e.event_name}</span>
+                                                        {e.value != null && (
+                                                            <span className="num" style={{ fontSize: 11, color: 'var(--accent-green)' }}>
+                                                                +{e.currency || 'R$'} {Number(e.value).toFixed(2)}
+                                                            </span>
+                                                        )}
+                                                        {Number(e.retry_count) > 0 && (
+                                                            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>(r{e.retry_count})</span>
+                                                        )}
+                                                    </span>
+                                                </td>
+                                                <td style={{ fontSize: 12, color: 'var(--text-secondary)', maxWidth: 220 }}>
+                                                    {e.meta_campaign_name ? (
+                                                        <span title={e.attribution_reason || ''} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
+                                                            {e.meta_campaign_name}
+                                                            {e.attribution_confidence && e.attribution_confidence !== 'none' && (
+                                                                <span style={{
+                                                                    marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 8,
+                                                                    background: e.attribution_confidence === 'high' ? 'rgba(34,197,94,.15)' : e.attribution_confidence === 'medium' ? 'rgba(234,179,8,.15)' : 'rgba(239,68,68,.15)',
+                                                                    color: e.attribution_confidence === 'high' ? 'var(--accent-green)' : e.attribution_confidence === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-red)',
+                                                                }}>{e.attribution_confidence}</span>
+                                                            )}
                                                         </span>
-                                                    )}
-                                                    {Number(e.retry_count) > 0 && (
-                                                        <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 6 }}>
-                                                            (r{e.retry_count})
-                                                        </span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-muted)' }}>—</span>
                                                     )}
                                                 </td>
                                                 <td>
@@ -2589,24 +2659,6 @@ function SourceDetail({ source, onClose, onEdit }: {
                                                     )}
                                                 </td>
                                                 <td className="num">{e.emq_score || 0}</td>
-                                                <td style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                                    {e.action_source}
-                                                    {e.attribution_confidence && e.attribution_confidence !== 'none' && (
-                                                        <span
-                                                            title={e.attribution_reason || ''}
-                                                            style={{
-                                                                marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 8,
-                                                                background: e.attribution_confidence === 'high' ? 'rgba(34,197,94,.15)' : e.attribution_confidence === 'medium' ? 'rgba(234,179,8,.15)' : 'rgba(239,68,68,.15)',
-                                                                color: e.attribution_confidence === 'high' ? 'var(--accent-green)' : e.attribution_confidence === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-red)',
-                                                            }}
-                                                        >
-                                                            {e.attribution_confidence}
-                                                        </span>
-                                                    )}
-                                                </td>
-                                                <td className="num" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                                    {fmtRelative(e.created_at)}
-                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -2642,6 +2694,14 @@ function SourceDetail({ source, onClose, onEdit }: {
                         </>
                     )}
                 </Section>
+
+                {/* User Profile Modal */}
+                {userProfile && (
+                    <UserProfileModal
+                        data={userProfile}
+                        onClose={() => setUserProfile(null)}
+                    />
+                )}
 
                 {/* Recent errors */}
                 {stats?.recent_errors && stats.recent_errors.length > 0 && (
@@ -3298,6 +3358,236 @@ function PayloadJson({ value }: { value: any }) {
             >
                 {copied ? <Check size={13} color="var(--accent-blue)" /> : <Copy size={13} />}
             </button>
+        </div>
+    );
+}
+
+// ─── Brazil Map — SVG do Brasil por estado com densidade de eventos ─────────
+const BRAZIL_STATES: Record<string, { name: string; path: string }> = {
+    AC: { name: 'Acre', path: 'M 85 195 L 95 185 L 115 190 L 120 205 L 105 215 L 85 210 Z' },
+    AL: { name: 'Alagoas', path: 'M 385 285 L 395 280 L 400 290 L 390 295 Z' },
+    AP: { name: 'Amapá', path: 'M 245 95 L 260 90 L 270 105 L 255 115 L 245 110 Z' },
+    AM: { name: 'Amazonas', path: 'M 120 145 L 180 135 L 220 150 L 230 185 L 200 210 L 140 205 L 115 180 Z' },
+    BA: { name: 'Bahia', path: 'M 340 245 L 380 235 L 395 265 L 385 295 L 350 305 L 330 280 Z' },
+    CE: { name: 'Ceará', path: 'M 365 195 L 385 190 L 395 210 L 380 220 L 365 215 Z' },
+    DF: { name: 'Distrito Federal', path: 'M 295 265 L 305 262 L 308 272 L 298 275 Z' },
+    ES: { name: 'Espírito Santo', path: 'M 365 305 L 375 300 L 380 315 L 370 320 Z' },
+    GO: { name: 'Goiás', path: 'M 270 245 L 310 240 L 320 275 L 295 290 L 265 275 Z' },
+    MA: { name: 'Maranhão', path: 'M 285 165 L 325 160 L 340 185 L 320 205 L 285 195 Z' },
+    MT: { name: 'Mato Grosso', path: 'M 200 215 L 250 210 L 265 255 L 240 285 L 195 270 L 185 240 Z' },
+    MS: { name: 'Mato Grosso do Sul', path: 'M 215 290 L 255 285 L 265 320 L 235 335 L 210 315 Z' },
+    MG: { name: 'Minas Gerais', path: 'M 310 285 L 355 275 L 370 310 L 350 340 L 315 335 L 300 310 Z' },
+    PA: { name: 'Pará', path: 'M 220 115 L 285 110 L 310 145 L 295 175 L 245 180 L 215 155 Z' },
+    PB: { name: 'Paraíba', path: 'M 395 215 L 410 212 L 415 225 L 400 228 Z' },
+    PR: { name: 'Paraná', path: 'M 255 345 L 295 340 L 305 370 L 275 380 L 250 365 Z' },
+    PE: { name: 'Pernambuco', path: 'M 385 235 L 415 230 L 420 245 L 395 250 Z' },
+    PI: { name: 'Piauí', path: 'M 325 185 L 355 180 L 365 215 L 345 235 L 320 220 Z' },
+    RJ: { name: 'Rio de Janeiro', path: 'M 345 335 L 370 330 L 375 350 L 355 355 Z' },
+    RN: { name: 'Rio Grande do Norte', path: 'M 395 200 L 415 195 L 420 210 L 400 215 Z' },
+    RS: { name: 'Rio Grande do Sul', path: 'M 245 385 L 285 380 L 295 420 L 265 435 L 240 415 Z' },
+    RO: { name: 'Rondônia', path: 'M 145 215 L 175 210 L 185 240 L 160 255 L 140 240 Z' },
+    RR: { name: 'Roraima', path: 'M 185 105 L 210 100 L 220 125 L 200 135 L 185 125 Z' },
+    SC: { name: 'Santa Catarina', path: 'M 270 375 L 300 370 L 310 395 L 285 405 L 265 390 Z' },
+    SP: { name: 'São Paulo', path: 'M 285 335 L 325 330 L 335 360 L 305 370 L 280 355 Z' },
+    SE: { name: 'Sergipe', path: 'M 380 270 L 390 267 L 393 278 L 383 281 Z' },
+    TO: { name: 'Tocantins', path: 'M 285 195 L 315 190 L 325 230 L 300 245 L 280 225 Z' },
+};
+
+function BrazilMap({ byState }: { byState: Array<{ state: string; total: number; sent: number; purchases: number; revenue: number }> }) {
+    const maxTotal = Math.max(...byState.map(s => Number(s.total)), 1);
+    const stateMap = new Map(byState.map(s => [s.state.toUpperCase(), s]));
+    const [hovered, setHovered] = useState<string | null>(null);
+
+    return (
+        <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+            <svg viewBox="60 80 380 380" style={{ width: 320, height: 320, flexShrink: 0 }}>
+                {Object.entries(BRAZIL_STATES).map(([code, { name, path }]) => {
+                    const data = stateMap.get(code);
+                    const total = data ? Number(data.total) : 0;
+                    const intensity = total / maxTotal;
+                    const fill = total === 0
+                        ? 'var(--bg-surface-2)'
+                        : `rgba(34, 197, 94, ${0.15 + intensity * 0.7})`;
+                    const isHovered = hovered === code;
+                    return (
+                        <g key={code}>
+                            <path
+                                d={path}
+                                fill={fill}
+                                stroke={isHovered ? 'var(--accent-green)' : 'var(--border)'}
+                                strokeWidth={isHovered ? 2 : 1}
+                                style={{ cursor: total > 0 ? 'pointer' : 'default', transition: 'all 0.15s' }}
+                                onMouseEnter={() => setHovered(code)}
+                                onMouseLeave={() => setHovered(null)}
+                            />
+                            <text
+                                x={path.match(/M (\d+)/)?.[1] ? Number(path.match(/M (\d+)/)![1]) + 10 : 0}
+                                y={path.match(/M \d+ (\d+)/)?.[1] ? Number(path.match(/M \d+ (\d+)/)![1]) + 15 : 0}
+                                fontSize="9"
+                                fill={total > 0 ? '#fff' : 'var(--text-muted)'}
+                                fontWeight={isHovered ? 700 : 500}
+                                style={{ pointerEvents: 'none' }}
+                            >
+                                {code}
+                            </text>
+                        </g>
+                    );
+                })}
+            </svg>
+            <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>
+                    {hovered ? `${BRAZIL_STATES[hovered]?.name} (${hovered})` : 'Eventos por estado'}
+                </div>
+                {hovered && stateMap.has(hovered) ? (
+                    (() => {
+                        const d = stateMap.get(hovered)!;
+                        return (
+                            <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                                <div><strong>Total:</strong> {Number(d.total).toLocaleString('pt-BR')}</div>
+                                <div><strong>Enviados:</strong> {Number(d.sent).toLocaleString('pt-BR')}</div>
+                                <div><strong>Purchases:</strong> {Number(d.purchases).toLocaleString('pt-BR')}</div>
+                                <div><strong>Receita:</strong> R$ {Number(d.revenue).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</div>
+                            </div>
+                        );
+                    })()
+                ) : (
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                        Passe o mouse sobre um estado para ver os detalhes.
+                        <div style={{ marginTop: 10 }}>
+                            {byState.slice(0, 8).map(s => (
+                                <div key={s.state} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0' }}>
+                                    <span>{s.state}</span>
+                                    <span style={{ fontWeight: 600 }}>{Number(s.total).toLocaleString('pt-BR')}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ─── User Profile Modal — perfil completo + histórico expandível ─────────────
+function UserProfileModal({ data, onClose }: { data: any; onClose: () => void }) {
+    const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', h);
+        return () => window.removeEventListener('keydown', h);
+    }, [onClose]);
+
+    if (!data) return null;
+    const { profile, history } = data;
+
+    function toggle(id: string) {
+        setExpanded(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    }
+
+    return (
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+            <div className="modal-box" style={{ maxWidth: 680, maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                    <div style={{ minWidth: 0 }}>
+                        <div className="modal-title">Perfil do usuário</div>
+                        <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 2, fontFamily: 'var(--font-mono, monospace)' }}>
+                            {data.external_id}
+                        </div>
+                    </div>
+                    <button className="modal-close" onClick={onClose} type="button"><X size={16} /></button>
+                </div>
+
+                {/* Dados do usuário */}
+                <AuditSection title="Dados">
+                    <AuditField label="Local" value={profile.location} />
+                    <AuditField label="Origem" value={profile.origin} />
+                    <AuditField label="Última página" value={profile.last_page || '—'} mono />
+                    <AuditField label="Primeiro acesso" value={new Date(profile.first_seen).toLocaleString('pt-BR')} />
+                    <AuditField label="fbp" value={profile.fbp || '—'} mono />
+                    <AuditField label="fbc" value={profile.fbc || '—'} mono />
+                    <AuditField label="IP" value={profile.ip || '—'} mono />
+                    <AuditField label="Navegador" value={profile.user_agent ? profile.user_agent.slice(0, 80) + '…' : '—'} mono />
+                </AuditSection>
+
+                {/* Histórico de eventos */}
+                <AuditSection title={`Histórico de eventos (${history.length})`}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {history.map((ev: any) => {
+                            const isOpen = expanded.has(ev.id);
+                            return (
+                                <div key={ev.id} style={{
+                                    border: '1px solid var(--border)',
+                                    borderRadius: 'var(--radius-md)',
+                                    background: 'var(--bg-surface-2)',
+                                    overflow: 'hidden',
+                                }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => toggle(ev.id)}
+                                        style={{
+                                            width: '100%', padding: '10px 14px',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                            background: 'transparent', border: 'none', cursor: 'pointer',
+                                            fontSize: 12.5, color: 'var(--text-primary)',
+                                        }}
+                                    >
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                            <span style={{
+                                                fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                                                background: ev.event_name === 'Purchase' ? 'rgba(34,197,94,.18)' : ev.event_name === 'InitiateCheckout' ? 'rgba(234,179,8,.18)' : 'rgba(148,163,184,.15)',
+                                                color: ev.event_name === 'Purchase' ? 'var(--accent-green)' : ev.event_name === 'InitiateCheckout' ? 'var(--accent-yellow)' : 'var(--text-secondary)',
+                                            }}>{ev.event_name}</span>
+                                            <span style={{ color: 'var(--text-muted)' }}>
+                                                {new Date(ev.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                            </span>
+                                            {ev.value != null && (
+                                                <span style={{ color: 'var(--accent-green)', fontWeight: 600 }}>
+                                                    +{ev.currency || 'R$'} {Number(ev.value).toFixed(2)}
+                                                </span>
+                                            )}
+                                            {ev.utm && (
+                                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ev.utm}</span>
+                                            )}
+                                        </span>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                            <span className={`badge ${ev.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`} style={{ fontSize: 10 }}>
+                                                {ev.meta_status}
+                                            </span>
+                                            <ChevronDown size={14} style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                                        </span>
+                                    </button>
+                                    {isOpen && (
+                                        <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--border)' }}>
+                                            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, margin: '12px 0 8px' }}>
+                                                Meta — enviado
+                                            </div>
+                                            <PayloadJson value={ev.meta_request} />
+                                            {ev.meta_response && (
+                                                <>
+                                                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, margin: '12px 0 8px' }}>
+                                                        Meta — resposta
+                                                    </div>
+                                                    <PayloadJson value={ev.meta_response} />
+                                                </>
+                                            )}
+                                            {ev.meta_error && (
+                                                <div style={{ marginTop: 10, padding: '8px 10px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.28)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--accent-red)' }}>
+                                                    <strong>Erro:</strong> {ev.meta_error}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </AuditSection>
+            </div>
         </div>
     );
 }

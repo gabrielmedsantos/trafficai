@@ -608,6 +608,23 @@ class ApiClient {
             offset: Number(json.meta?.offset) || (params?.offset ?? 0),
         };
     }
+    async getTrackingUserProfile(sourceId: string, externalId: string) {
+        return this.request<{
+            external_id: string;
+            profile: {
+                location: string; origin: string; last_page: string | null;
+                first_seen: string; last_seen: string;
+                fbp: string | null; fbc: string | null;
+                ip: string | null; user_agent: string | null; event_count: number;
+            };
+            history: Array<{
+                id: string; event_name: string; created_at: string;
+                value: number | null; currency: string | null;
+                meta_status: string; meta_request: any; meta_response: any;
+                meta_error: string | null; meta_fbtrace_id: string | null; utm: string | null;
+            }>;
+        }>('GET', `/tracking/sources/${sourceId}/user/${encodeURIComponent(externalId)}`);
+    }
     async getTrackingHealth(sourceId: string) {
         return this.request<{
             status: { state: string; detail: string; severity: 'ok' | 'info' | 'warn' | 'error' };

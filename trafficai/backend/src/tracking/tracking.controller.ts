@@ -1665,11 +1665,26 @@ router.get('/sources/:id/stats', async (req: Request, res: Response) => {
             [id]
         );
 
+        // Breakdown por estado (para mapa de regiões)
+        const byState = await query<any>(
+            `SELECT UPPER(state) AS state, COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE meta_status = 'sent') AS sent,
+                    COUNT(*) FILTER (WHERE event_name = 'Purchase') AS purchases,
+                    COALESCE(SUM(value) FILTER (WHERE event_name = 'Purchase'), 0) AS revenue
+             FROM tracking_events
+             WHERE source_id = $1 AND created_at >= NOW() - ($2 || ' days')::INTERVAL
+               AND state IS NOT NULL AND state <> ''
+             GROUP BY UPPER(state)
+             ORDER BY total DESC`,
+            [id, String(daysBack)]
+        );
+
         res.json({
             success: true,
             data: {
                 totals: totals[0],
                 by_event: byEvent,
+                by_state: byState,
                 daily,
                 recent_errors: recentErrors,
                 period_days: daysBack,
@@ -1677,6 +1692,102 @@ router.get('/sources/:id/stats', async (req: Request, res: Response) => {
         });
     } catch (err: any) {
         logger.error('tracking: stats falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/user/:externalId ─────────────────────────────
+// Perfil completo de um usuário: dados + histórico de TODOS os eventos dele,
+// cada um com o payload exato enviado à Meta (para auditoria).
+router.get('/sources/:id/user/:externalId', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, externalId } = req.params;
+        const own = await query<any>(
+            `SELECT id, pixel_id, test_event_code FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!own.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const source = own[0];
+
+        // Todos os eventos desse usuário, do mais recente ao mais antigo
+        const events = await query<any>(
+            `SELECT id, event_name, event_id, event_time, action_source,
+                    event_source_url, value, currency, custom_data, user_data_hashed,
+                    client_ip, client_user_agent, city, state, country, zip,
+                    fbp, fbc, emq_score, meta_status, meta_response, meta_error,
+                    meta_fbtrace_id, retry_count, created_at,
+                    campaign_id, meta_campaign_name, attribution_confidence, attribution_reason
+             FROM tracking_events
+             WHERE source_id = $1 AND external_id = $2
+             ORDER BY created_at DESC
+             LIMIT 200`,
+            [id, externalId]
+        );
+        if (!events.length) return res.status(404).json({ success: false, error: { message: 'Usuário sem eventos' } });
+
+        // Perfil = dados do evento MAIS RECENTE (local, origem, última página, etc.)
+        const latest = events[0];
+        const origin = latest.attribution_confidence && latest.attribution_confidence !== 'none'
+            ? `${latest.meta_campaign_name || 'campanha'} (${latest.attribution_confidence})`
+            : 'direto / desconhecido';
+        const location = [latest.city, latest.state, latest.country].filter(Boolean).join(', ') || '—';
+
+        // Reconstrói o payload Meta de cada evento (mesma lógica do /events/:eventId)
+        const history = events.map((ev: any) => {
+            const sentPayload: any = {
+                event_name: ev.event_name,
+                event_time: Number(ev.event_time),
+                event_id: ev.event_id,
+                action_source: ev.action_source,
+            };
+            if (ev.event_source_url) sentPayload.event_source_url = ev.event_source_url;
+            if (ev.user_data_hashed && Object.keys(ev.user_data_hashed).length > 0) sentPayload.user_data = ev.user_data_hashed;
+            if (ev.custom_data && Object.keys(ev.custom_data).length > 0) sentPayload.custom_data = ev.custom_data;
+            const metaRequest: any = {
+                method: 'POST',
+                url: `https://graph.facebook.com/v19.0/${source.pixel_id || 'PIXEL_ID'}/events`,
+                body: { data: [sentPayload] },
+            };
+            if (source.test_event_code) metaRequest.body.test_event_code = source.test_event_code;
+            return {
+                id: ev.id,
+                event_name: ev.event_name,
+                created_at: ev.created_at,
+                value: ev.value,
+                currency: ev.currency,
+                meta_status: ev.meta_status,
+                meta_request: metaRequest,
+                meta_response: ev.meta_response,
+                meta_error: ev.meta_error,
+                meta_fbtrace_id: ev.meta_fbtrace_id,
+                utm: ev.attribution_confidence && ev.attribution_confidence !== 'none'
+                    ? ev.meta_campaign_name || ev.attribution_reason || null
+                    : null,
+            };
+        });
+
+        res.json({
+            success: true,
+            data: {
+                external_id: externalId,
+                profile: {
+                    location,
+                    origin,
+                    last_page: latest.event_source_url || null,
+                    first_seen: events[events.length - 1].created_at,
+                    last_seen: latest.created_at,
+                    fbp: latest.fbp || null,
+                    fbc: latest.fbc || null,
+                    ip: latest.client_ip || null,
+                    user_agent: latest.client_user_agent || null,
+                    event_count: events.length,
+                },
+                history,
+            },
+        });
+    } catch (err: any) {
+        logger.error('tracking: user profile falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
