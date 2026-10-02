@@ -1569,3 +1569,8 @@ select option:hover {
 .tai-scroll::-webkit-scrollbar { height: 10px; }
 .tai-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 6px; }
 .tai-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+/* "Entrar como": faixa amarela de 40px no topo empurra menu e conteúdo */
+body.tai-imp .sidebar { top: 40px; height: calc(100vh - 40px); }
+body.tai-imp .main-content { padding-top: calc(32px + 40px); }
+body.tai-imp .mobile-topbar { top: 40px; }
+@media (max-width: 700px) { .tai-imp-detail { display: none; } }

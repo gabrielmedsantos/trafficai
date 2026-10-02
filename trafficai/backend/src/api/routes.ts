@@ -20,6 +20,7 @@ import { financialController } from '../financial/financial.controller';
 import { tasksController } from '../tasks/tasks.controller';
 import { teamController } from '../team/team.controller';
 import { auditController } from '../audit/audit.controller';
+import { saasAdminController } from '../admin/saas-admin.controller';
 import { trackingController } from '../tracking/tracking.controller';
 import { trackingPublicController } from '../tracking/tracking.public';
 import { boardController } from '../board/board.controller';
@@ -71,7 +72,8 @@ router.use('/google-ads', googleAdsController);
 router.use('/google/oauth', googleOAuthPublicController);       // GET /google/oauth/callback (público)
 router.use('/google', googleOAuthController);                    // /google/oauth/{status,connect,disconnect}, /google/drive/upload, /google/calendar/events
 router.use('/billing/webhook', billingPublicController);        // POST /billing/webhook (público — Stripe)
-router.use('/billing', billingController);                       // GET /billing/subscription, POST /billing/checkout, /billing/portal, GET /billing/plans
+router.use('/billing', billingController);
+router.use('/admin/saas', saasAdminController);                       // GET /billing/subscription, POST /billing/checkout, /billing/portal, GET /billing/plans
 router.use('/meta-signup', metaSignupController);
 router.use('/prediction', predictionController);
 router.use('/alerts', alertsController);

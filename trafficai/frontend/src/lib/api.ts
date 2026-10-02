@@ -56,9 +56,24 @@ function storeRenewedToken(res: Response): void {
  * Sessão vencida/inválida → volta pro login com aviso, em vez de deixar o
  * painel aberto com todas as chamadas falhando (tela vazia até deslogar).
  */
+/** Volta pra conta do admin depois de "Entrar como" (sessão de suporte). */
+export function endImpersonation(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+        const admin = sessionStorage.getItem('__tai_admin_token__');
+        if (!admin) return false;
+        localStorage.setItem('trafficai_token', admin);
+        sessionStorage.removeItem('__tai_admin_token__');
+        window.location.assign('/admin/clientes');
+        return true;
+    } catch { return false; }
+}
+
 function handleUnauthorized(path: string): void {
     if (typeof window === 'undefined') return;
     if (path.startsWith('/auth/login') || path.startsWith('/auth/register')) return;
+    // Sessão de suporte venceu: volta pra conta do admin em vez de deslogar.
+    if (endImpersonation()) return;
     const here = window.location.pathname;
     if (here === '/' || PUBLIC_PREFIXES.some(p => here.startsWith(p))) return;
     try {
@@ -66,6 +81,13 @@ function handleUnauthorized(path: string): void {
         sessionStorage.setItem('__tai_after_login__', here + window.location.search);
     } catch { /* sem storage */ }
     window.location.assign('/?expired=1');
+}
+
+/** Conta suspensa pelo admin: sai e mostra o aviso no login. */
+function handleSuspended(): void {
+    if (typeof window === 'undefined' || window.location.pathname === '/') return;
+    try { localStorage.removeItem('trafficai_token'); } catch { /* sem storage */ }
+    window.location.assign('/?suspended=1');
 }
 
 class ApiClient {
@@ -99,6 +121,7 @@ class ApiClient {
         storeRenewedToken(res);
         if (res.status === 401 && this.getToken()) handleUnauthorized(path);
         const json: ApiResponse<T> = await res.json();
+        if (res.status === 403 && json.error?.code === 'ACCOUNT_SUSPENDED') handleSuspended();
 
         // 402 Payment Required — trial expirou / plano inativo → redireciona
         if (res.status === 402 && json.error) {
@@ -123,6 +146,7 @@ class ApiClient {
         storeRenewedToken(res);
         if (res.status === 401 && this.getToken()) handleUnauthorized(path);
         const json: ApiResponse<T> = await res.json();
+        if (res.status === 403 && json.error?.code === 'ACCOUNT_SUSPENDED') handleSuspended();
         if (res.status === 402 && json.error) {
             handlePlanBlocked(json.error);
             throw new Error(json.error.message || 'Plano inativo');
@@ -473,6 +497,22 @@ class ApiClient {
     }
     async testSalesNotify(sourceId: string) {
         return this.request<{ push: number; whatsapp: boolean }>('POST', `/tracking/sources/${sourceId}/sales-notify/test`);
+    }
+    // ── Admin do SaaS ──
+    async getSaasCustomers() {
+        return this.request<any[]>('GET', '/admin/saas/customers');
+    }
+    async getSaasHistory(id: string) {
+        return this.request<any[]>('GET', `/admin/saas/customers/${id}/history`);
+    }
+    async updateSaasSubscription(id: string, data: { plan?: string; extend_days?: number; courtesy?: boolean; courtesy_until?: string | null }) {
+        return this.request<any>('PATCH', `/admin/saas/customers/${id}/subscription`, data);
+    }
+    async setSaasSuspended(id: string, suspended: boolean) {
+        return this.request<any>('POST', `/admin/saas/customers/${id}/suspend`, { suspended });
+    }
+    async impersonateSaas(id: string) {
+        return this.request<{ token: string; name: string; expires_in: number }>('POST', `/admin/saas/customers/${id}/impersonate`);
     }
     async getSalesRecovery(sourceId: string, params: { since: string; until: string }) {
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/recovery?${new URLSearchParams(params).toString()}`);

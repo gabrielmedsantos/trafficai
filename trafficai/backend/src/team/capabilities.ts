@@ -39,7 +39,7 @@ export function hasCapability(user: CapableUser, cap: CapabilityKey): boolean {
 export function requireCapability(cap: CapabilityKey) {
     return async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const userId = (req as any).user?.userId;
+            const userId = (req as any).user?.actorId || (req as any).user?.userId;
             const rows = await query<CapableUser>(`SELECT role, capabilities FROM users WHERE id = $1`, [userId]);
             const user = rows[0];
             if (!user || !hasCapability(user, cap)) {

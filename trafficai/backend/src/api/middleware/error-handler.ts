@@ -18,7 +18,7 @@ export function errorHandler(err: Error | AppError, _req: Request, res: Response
             success: false,
             error: {
                 message: err.message,
-                code: err.statusCode,
+                code: (err as any).code || err.statusCode,
             },
         });
         return;

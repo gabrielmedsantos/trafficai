@@ -138,7 +138,7 @@ const AREAS = [
         id: 'gestao',
         label: 'Gestão',
         icon: Building2,
-        routes: ['/clientes', '/financeiro', '/team', '/board'],
+        routes: ['/clientes', '/financeiro', '/team', '/board', '/audit-log', '/admin'],
         groups: [
             {
                 label: 'CRM & Financeiro',
@@ -153,6 +153,13 @@ const AREAS = [
                     { href: '/team',        label: 'Time',         icon: Users, color: C.purple },
                     { href: '/board',       label: 'Demandas',     icon: KanbanSquare, color: C.orange },
                     { href: '/audit-log',   label: 'Auditoria',    icon: History, adminOnly: true, color: C.neutral },
+                ],
+            },
+            {
+                label: 'Admin do SaaS',
+                platformOnly: true,
+                items: [
+                    { href: '/admin/clientes', label: 'Clientes do SaaS', icon: Briefcase, color: C.orange },
                 ],
             },
         ],
@@ -323,7 +330,7 @@ export default function Sidebar() {
 
             {/* Navegação */}
             <nav className="sidebar-nav">
-                {currentArea.groups.map((group: any) => (
+                {currentArea.groups.filter((group: any) => !group.platformOnly || (user?.role === 'admin' && !user?.is_team_member && !user?.impersonated_by)).map((group: any) => (
                     <div key={group.label} className="sidebar-group-panel">
                         <div className="nav-group-label">{group.label}</div>
                         {group.items.filter((item: any) => (!item.capability || can(item.capability)) && (!item.adminOnly || user?.role === 'admin')).map((item: any) => {

@@ -50,8 +50,8 @@ authed.get('/subscription', async (req: Request, res: Response, next: NextFuncti
         );
         const clientsCount = clientsRow[0]?.n || 0;
 
-        // Admin flag — bypassa cobrança
-        const roleRow = await dbQuery<{ role: string }>(
+        // Admin flag — bypassa cobrança (dono admin; nunca durante "Entrar como")
+        const roleRow = req.user!.imp ? [] : await dbQuery<{ role: string }>(
             `SELECT role FROM users WHERE id = $1`,
             [req.user!.userId]
         );

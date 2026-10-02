@@ -6,8 +6,11 @@ import { Zap, ArrowRight } from 'lucide-react';
 
 export default function LoginPage() {
     const [expired, setExpired] = useState(false);
+    const [suspended, setSuspended] = useState(false);
     useEffect(() => {
-        setExpired(new URLSearchParams(window.location.search).get('expired') === '1');
+        const q = new URLSearchParams(window.location.search);
+        setExpired(q.get('expired') === '1');
+        setSuspended(q.get('suspended') === '1');
     }, []);
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
@@ -145,6 +148,14 @@ export default function LoginPage() {
                             : 'Comece agora — leva menos de um minuto.'}
                     </p>
 
+                    {suspended && isLogin && (
+                        <div role="status" style={{
+                            marginBottom: 20, padding: '10px 12px', fontSize: 13, borderRadius: 8,
+                            background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.3)', color: 'var(--text-primary)',
+                        }}>
+                            Esta conta está suspensa. Fale com o suporte da Alfamax pra reativar.
+                        </div>
+                    )}
                     {expired && isLogin && (
                         <div role="status" style={{
                             marginBottom: 20, padding: '10px 12px', fontSize: 13, borderRadius: 8,

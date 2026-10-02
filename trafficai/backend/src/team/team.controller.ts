@@ -9,6 +9,8 @@ import { query } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
 import { CAPABILITIES } from './capabilities';
+import { actorIdOf } from '../auth/auth.middleware';
+import { invalidateIdentity } from '../auth/identity';
 import { recordAudit } from '../audit/audit.service';
 
 const router = Router();
@@ -19,9 +21,12 @@ async function getUserRole(userId: string): Promise<string> {
     return rows[0]?.role || 'member';
 }
 
+/** Dono dos dados (a equipe trabalha nas contas dele). */
+const ownerOf = (req: Request) => (req as any).user.userId as string;
+
 async function requireAdmin(req: Request, res: Response): Promise<boolean> {
-    const userId = (req as any).user.userId;
-    const role = await getUserRole(userId);
+    // Papel de quem está logado — não do dono dos dados.
+    const role = await getUserRole(actorIdOf(req));
     if (role !== 'admin') {
         res.status(403).json({ success: false, error: { message: 'Apenas administradores podem gerenciar o time' } });
         return false;
@@ -40,7 +45,9 @@ router.get('/members', async (req: Request, res: Response) => {
         const rows = await query<any>(
             `SELECT id, name, email, role, department, job_title, avatar_color, capabilities, created_at
              FROM users
-             ORDER BY name ASC`
+             WHERE id = $1 OR owner_id = $1
+             ORDER BY (id = $1) DESC, name ASC`,
+            [ownerOf(req)]
         );
         res.json({ success: true, data: rows });
     } catch (error: any) {
@@ -83,8 +90,8 @@ router.post('/members', async (req: Request, res: Response) => {
         const password_hash = await bcrypt.hash(password, 10);
 
         const rows = await query<any>(
-            `INSERT INTO users (name, email, password_hash, role, department, job_title, avatar_color, capabilities)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `INSERT INTO users (name, email, password_hash, role, department, job_title, avatar_color, capabilities, owner_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
              RETURNING id, name, email, role, department, job_title, avatar_color, capabilities, created_at`,
             [
                 name,
@@ -95,6 +102,7 @@ router.post('/members', async (req: Request, res: Response) => {
                 job_title || null,
                 avatar_color || '#6366f1',
                 capabilities ?? null,
+                ownerOf(req),
             ]
         );
 
@@ -151,11 +159,11 @@ router.patch('/members/:id', async (req: Request, res: Response) => {
         }
 
         fields.push(`updated_at = NOW()`);
-        params.push(id);
+        params.push(id, ownerOf(req));
 
         const rows = await query<any>(
             `UPDATE users SET ${fields.join(', ')}
-             WHERE id = $${idx}
+             WHERE id = $${idx} AND (id = $${idx + 1} OR owner_id = $${idx + 1})
              RETURNING id, name, email, role, department, job_title, avatar_color, capabilities, updated_at`,
             params
         );
@@ -164,6 +172,7 @@ router.patch('/members/:id', async (req: Request, res: Response) => {
             return res.status(404).json({ success: false, error: { message: 'Membro não encontrado' } });
         }
 
+        invalidateIdentity(rows[0].id);
         recordAudit({
             userId: (req as any).user.userId,
             action: 'team.member_updated',
@@ -185,9 +194,9 @@ router.delete('/members/:id', async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     try {
         const { id } = req.params;
-        const userId = (req as any).user.userId;
+        const userId = actorIdOf(req);
 
-        if (id === userId) {
+        if (id === userId || id === ownerOf(req)) {
             return res.status(400).json({ success: false, error: { message: 'Você não pode remover a si mesmo' } });
         }
 
@@ -199,8 +208,8 @@ router.delete('/members/:id', async (req: Request, res: Response) => {
         }
 
         const deleted = await query<any>(
-            `DELETE FROM users WHERE id = $1 RETURNING id, name, email`,
-            [id]
+            `DELETE FROM users WHERE id = $1 AND owner_id = $2 RETURNING id, name, email`,
+            [id, ownerOf(req)]
         );
 
         if (!deleted.length) {

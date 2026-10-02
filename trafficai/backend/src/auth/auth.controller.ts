@@ -95,16 +95,28 @@ router.get('/meta/callback', async (req: Request, res: Response, next: NextFunct
 router.get('/me', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
         const { authRepository } = await import('./auth.repository');
-        const user = await authRepository.findById(req.user!.userId);
+        const actorId = req.user!.actorId || req.user!.userId;
+        const user = await authRepository.findById(actorId);
         if (!user) {
             return res.status(404).json({ success: false, error: 'User not found' });
+        }
+        // Conexão Meta é do dono dos dados (membro do time usa a do dono).
+        const owner = actorId === req.user!.userId ? user : await authRepository.findById(req.user!.userId);
+        let impersonatedBy: { id: string; name: string } | null = null;
+        if (req.user!.imp) {
+            const admin = await authRepository.findById(req.user!.imp);
+            impersonatedBy = admin ? { id: admin.id, name: admin.name || admin.email } : { id: req.user!.imp, name: 'Admin' };
         }
         const { password_hash, access_token, ...safeUser } = user;
         res.json({
             success: true,
             data: {
                 ...safeUser,
-                meta_connected: !!access_token && !!user.token_expiration && new Date(user.token_expiration) > new Date(),
+                // Durante "Entrar como" o papel é o do cliente — nunca o do admin.
+                role: (user as any).role,
+                is_team_member: actorId !== req.user!.userId,
+                impersonated_by: impersonatedBy,
+                meta_connected: !!owner?.access_token && !!owner?.token_expiration && new Date(owner.token_expiration) > new Date(),
             },
         });
     } catch (err) {

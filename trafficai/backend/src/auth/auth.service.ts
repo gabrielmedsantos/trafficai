@@ -18,6 +18,11 @@ const META_REDIRECT_URI = process.env.META_REDIRECT_URI || '';
 export interface JwtPayload {
     userId: string;
     email: string;
+    /** Quem está logado (membro do time trabalha nos dados do dono = userId). */
+    actorId?: string;
+    /** Admin que está "vendo como" este usuário (sessão de suporte). */
+    imp?: string;
+    iat?: number;
 }
 
 export interface AuthTokenResponse {
@@ -69,6 +74,9 @@ export class AuthService {
         const isValid = await bcrypt.compare(password, user.password_hash);
         if (!isValid) {
             throw new AuthError('Invalid email or password');
+        }
+        if ((user as any).suspended_at) {
+            throw new AppError('Conta suspensa. Fale com o suporte da Alfamax.', 403);
         }
 
         const token = this.generateToken(user);
@@ -223,6 +231,11 @@ export class AuthService {
         } catch {
             throw new AuthError('Invalid or expired token');
         }
+    }
+
+    /** Token de "Entrar como": 1h, marcado com o admin, nunca renovado. */
+    impersonationToken(target: { id: string; email: string }, adminId: string): string {
+        return jwt.sign({ userId: target.id, email: target.email, imp: adminId }, JWT_SECRET, { expiresIn: '1h' } as any);
     }
 
     /**

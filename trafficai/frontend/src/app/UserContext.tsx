@@ -9,6 +9,8 @@ interface CurrentUser {
     email: string;
     role: 'admin' | 'member';
     capabilities?: string[] | null;
+    is_team_member?: boolean;
+    impersonated_by?: { id: string; name: string } | null;
 }
 
 interface UserContextType {

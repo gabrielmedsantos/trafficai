@@ -4,7 +4,8 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { authService, JwtPayload } from './auth.service';
-import { AuthError } from '../shared/errors';
+import { AuthError, AppError } from '../shared/errors';
+import { loadIdentity } from './identity';
 
 // Extend Express Request type
 declare global {
@@ -16,7 +17,10 @@ declare global {
 }
 
 /**
- * Middleware to authenticate incoming requests via JWT Bearer token
+ * Autentica pelo JWT e resolve a identidade:
+ *   req.user.userId  = de quem são os dados (dono, pra membro do time)
+ *   req.user.actorId = quem está logado (papel e permissões)
+ *   req.user.imp     = admin que está "vendo como" (sessão de suporte)
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
     const authHeader = req.headers.authorization;
@@ -26,8 +30,29 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     }
 
     const token = authHeader.split(' ')[1];
-    req.user = authService.verifyToken(token);
-    const renewed = authService.renewIfStale(req.user);
-    if (renewed) res.setHeader('X-Renewed-Token', renewed);
-    next();
+    const payload = authService.verifyToken(token);
+
+    loadIdentity(payload.userId).then((ident) => {
+        if (!ident) return next(new AuthError('Invalid or expired token'));
+        // Conta suspensa: bloqueia o próprio usuário (o admin "vendo como" passa).
+        if (ident.suspended && !payload.imp) {
+            return next(Object.assign(new AppError('Conta suspensa. Fale com o suporte da Alfamax.', 403), { code: 'ACCOUNT_SUSPENDED' }));
+        }
+        req.user = {
+            ...payload,
+            userId: ident.ownerId || payload.userId,
+            actorId: payload.userId,
+        };
+        // Sessão de "Entrar como" tem prazo fixo — não renova.
+        if (!payload.imp) {
+            const renewed = authService.renewIfStale(payload);
+            if (renewed) res.setHeader('X-Renewed-Token', renewed);
+        }
+        next();
+    }).catch(next);
+}
+
+/** Id de quem está logado (pra papel/permissão). */
+export function actorIdOf(req: Request): string {
+    return req.user?.actorId || req.user!.userId;
 }

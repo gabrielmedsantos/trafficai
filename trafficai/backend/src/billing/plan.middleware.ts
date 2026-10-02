@@ -12,6 +12,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { getUserSubscription } from './stripe.service';
 import { query } from '../database/connection';
+import { loadIdentity } from '../auth/identity';
 import { logger } from '../shared/logger';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
@@ -60,9 +61,11 @@ export async function planGuard(req: Request, res: Response, next: NextFunction)
     }
 
     let userId: string;
+    let impersonating = false;
     try {
-        const payload = jwt.verify(authHeader.slice(7), JWT_SECRET) as { userId: string };
+        const payload = jwt.verify(authHeader.slice(7), JWT_SECRET) as { userId: string; imp?: string };
         userId = payload.userId;
+        impersonating = !!payload.imp;
     } catch {
         // Token inválido — deixa authMiddleware falhar
         next();
@@ -70,19 +73,27 @@ export async function planGuard(req: Request, res: Response, next: NextFunction)
     }
 
     try {
-        // Admins (owners/staff internos) sempre passam — não pagam pra usar o próprio produto
-        try {
-            const roleRows = await query<{ role: string }>(
-                `SELECT role FROM users WHERE id = $1`,
-                [userId]
-            );
-            if (roleRows[0]?.role === 'admin') {
-                next();
-                return;
-            }
-        } catch { /* se falhar consulta de role, segue pro check de subscription */ }
+        // Admins (owners/staff internos) sempre passam — não pagam pra usar o próprio produto.
+        // "Entrar como" não passa: o admin vê o bloqueio que o cliente vê.
+        // Membro do time usa o plano do dono (owner_id).
+        const ident = await loadIdentity(userId);
+        if (ident?.role === 'admin' && !impersonating) {
+            next();
+            return;
+        }
+        if (ident?.ownerId) {
+            const owner = await loadIdentity(ident.ownerId);
+            if (owner?.role === 'admin') { next(); return; }
+            userId = ident.ownerId;
+        }
 
         const sub = await getUserSubscription(userId);
+
+        // Cortesia liberada pelo admin do SaaS (sem Stripe)
+        if (sub?.courtesy && (!sub.courtesy_until || new Date(sub.courtesy_until) > new Date())) {
+            next();
+            return;
+        }
 
         // Sub não pôde ser criada / não encontrada (não deveria acontecer)
         if (!sub) {
