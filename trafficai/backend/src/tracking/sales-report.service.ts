@@ -31,6 +31,10 @@ export interface SalesNotifySettings {
     refused: boolean;
     push: boolean;
     whatsapp: boolean;
+    // O que aparece no texto da notificação (o valor sempre aparece)
+    show_account: boolean;
+    show_product: boolean;
+    show_campaign: boolean;
 }
 
 export interface SalesSettings {
@@ -41,7 +45,10 @@ export interface SalesSettings {
     notify: SalesNotifySettings;
 }
 
-const NOTIFY_DEFAULTS: SalesNotifySettings = { approved: true, pix: true, boleto: false, abandoned: false, refused: false, push: true, whatsapp: false };
+const NOTIFY_DEFAULTS: SalesNotifySettings = {
+    approved: true, pix: true, boleto: false, abandoned: false, refused: false, push: true, whatsapp: false,
+    show_account: true, show_product: true, show_campaign: true,
+};
 
 export function normalizeSalesSettings(raw: any): SalesSettings {
     const r = raw && typeof raw === 'object' ? raw : {};

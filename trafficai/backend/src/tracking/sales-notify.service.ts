@@ -44,7 +44,10 @@ function kindOf(n: SaleNotice): Kind | null {
 const brl = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** Monta título + linhas da notificação (mesmo texto no push e no WhatsApp). */
-export function buildSaleNotice(sourceName: string, n: SaleNotice): { kind: Kind; title: string; lines: string[]; url: string } | null {
+export interface NoticeFields { show_account: boolean; show_product: boolean; show_campaign: boolean }
+const ALL_FIELDS: NoticeFields = { show_account: true, show_product: true, show_campaign: true };
+
+export function buildSaleNotice(sourceName: string, n: SaleNotice, fields: NoticeFields = ALL_FIELDS): { kind: Kind; title: string; lines: string[]; url: string } | null {
     const kind = kindOf(n);
     if (!kind) return null;
     const value = n.gross_value ?? n.net_value;
@@ -54,9 +57,10 @@ export function buildSaleNotice(sourceName: string, n: SaleNotice): { kind: Kind
             ? ` · você recebe ${brl(n.net_value)}` : '';
         lines.push(`Valor: ${brl(value)}${net}`);
     }
-    lines.push([sourceName, n.product_name].filter(Boolean).join(' · '));
+    const who = [fields.show_account ? sourceName : null, fields.show_product ? n.product_name : null].filter(Boolean).join(' · ');
+    if (who) lines.push(who);
     const campaign = parseUtmId(n.utm_campaign).name;
-    if (campaign) lines.push(`Campanha: ${campaign}`);
+    if (campaign && fields.show_campaign) lines.push(`Campanha: ${campaign}`);
     return { kind, title: KIND[kind].title, lines, url: KIND[kind].url };
 }
 
@@ -71,7 +75,7 @@ export async function notifySale(sourceId: string, n: SaleNotice): Promise<void>
         );
         if (!src) return;
         const prefs = normalizeSalesSettings(src.sales_settings).notify;
-        const notice = buildSaleNotice(src.name, n);
+        const notice = buildSaleNotice(src.name, n, prefs);
         if (!notice || !prefs[notice.kind]) return;
 
         const tasks: Promise<unknown>[] = [];
@@ -103,7 +107,7 @@ export async function sendTestSaleNotice(sourceId: string): Promise<{ push: numb
     const notice = buildSaleNotice(src.name, {
         order_id: 'teste', status: 'approved', gross_value: 197, net_value: 179.31,
         product_name: 'Produto de exemplo', utm_campaign: 'Campanha de exemplo|000000',
-    })!;
+    }, prefs)!;
     const lines = [...notice.lines, '(notificação de teste)'];
     const push = prefs.push
         ? (await sendPushToUser(src.user_id, { title: notice.title, body: lines.join('\n'), url: notice.url, tag: 'sale-teste' })).sent

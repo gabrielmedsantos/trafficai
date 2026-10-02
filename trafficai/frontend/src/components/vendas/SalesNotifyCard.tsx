@@ -6,7 +6,16 @@ import { Bell, Send } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, SectionTitle } from './shared';
 
-type Prefs = { approved: boolean; pix: boolean; boleto: boolean; abandoned: boolean; refused: boolean; push: boolean; whatsapp: boolean };
+type Prefs = {
+    approved: boolean; pix: boolean; boleto: boolean; abandoned: boolean; refused: boolean; push: boolean; whatsapp: boolean;
+    show_account: boolean; show_product: boolean; show_campaign: boolean;
+};
+
+const FIELDS: { key: keyof Prefs; label: string; example: string }[] = [
+    { key: 'show_account', label: 'Conta', example: 'CA5 - Dr Airton Rafael' },
+    { key: 'show_product', label: 'Produto', example: 'IA LUCRATIVA' },
+    { key: 'show_campaign', label: 'Campanha', example: 'H3 | Engajamento | Whatsapp' },
+];
 
 const EVENTS: { key: keyof Prefs; label: string; example: string }[] = [
     { key: 'approved', label: '💰 Venda aprovada', example: 'Valor: R$ 1.275,48' },
@@ -82,6 +91,30 @@ export function SalesNotifyCard({ sourceId }: { sourceId: string }) {
                                 </label>
                             ))}
                         </div>
+                    </div>
+                    <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Mostrar na notificação</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+                                <input type="checkbox" checked disabled /> Valor <span style={{ fontSize: 11.5 }}>· sempre aparece</span>
+                            </label>
+                            {FIELDS.map((f) => (
+                                <label key={f.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                                    {check(f.key)} {f.label}
+                                    <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>· {f.example}</span>
+                                </label>
+                            ))}
+                        </div>
+                        {prefs && (
+                            <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 10, background: 'var(--bg-surface-2)', border: '1px solid var(--border)', fontSize: 12.5, lineHeight: 1.5, maxWidth: 340 }}>
+                                <div style={{ fontWeight: 700 }}>💰 Venda aprovada!</div>
+                                <div>Valor: R$ 197,00</div>
+                                {(prefs.show_account || prefs.show_product) && (
+                                    <div>{[prefs.show_account ? 'CA5 - Dr Airton Rafael' : null, prefs.show_product ? 'IA LUCRATIVA' : null].filter(Boolean).join(' · ')}</div>
+                                )}
+                                {prefs.show_campaign && <div>Campanha: H3 | Engajamento | Whatsapp</div>}
+                            </div>
+                        )}
                     </div>
                     <div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Por onde</div>
