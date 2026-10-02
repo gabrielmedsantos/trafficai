@@ -62,6 +62,10 @@ export const TEMPLATE_VARIABLES = [
     { key: 'month_cpl',            label: 'CPL do mês',                      example: 'R$ 58,69' },
     { key: 'month_action_label',   label: 'Label da ação (mês)',             example: 'lead' },
     { key: 'month_breakdown_block', label: 'Detalhamento por objetivo (mês) — só aparece quando há mais de 1', example: '📌 Por objetivo:\n• Conversas iniciadas: 1.017 · R$ 4.118,85 investido · R$ 4,05/conversa\n• Visitas ao perfil: 320 · R$ 304,00 investido · R$ 0,95/visita' },
+    { key: 'today_results_block',  label: 'Resultados de ontem, uma linha por objetivo', example: '💬 41 conversas · R$ 3,48 cada\n👤 64 visitas ao perfil · R$ 0,57 cada' },
+    { key: 'last7_results_block',  label: 'Resultados dos últimos 7 dias, uma linha por objetivo', example: '💬 402 conversas · R$ 4,04 cada\n👤 447 visitas ao perfil · R$ 0,64 cada' },
+    { key: 'month_results_block',  label: 'Resultados do mês, uma linha por objetivo', example: '💬 1.017 conversas · R$ 4,05 cada' },
+    { key: 'month_section',        label: 'Bloco do mês (some nos 2 primeiros dias, quando repete ontem)', example: '\n\n🗓️ *Outubro* (01/10 a 15/10)\n💰 R$ 2.680,00 investidos\n💬 610 conversas · R$ 4,39 cada' },
     { key: 'active_ads',           label: 'Anúncios ativos / em análise',    example: '8' },
     { key: 'top_ads_block',        label: 'Bloco top criativos (ontem)',    example: '🥇 ADS-GERAL IA\n   💰 R$ 141,66 · 57 conv. · R$ 2,46/conv\n\n🥈 ADS-NIUVS\n   💰 R$ 136,00 · 34 conv. · R$ 4,00/conv' },
     { key: 'top_ads_block_7d',     label: 'Bloco top criativos (7 dias)',   example: '🥇 ADS-GERAL IA · R$ 990/7d · 380 conv\n🥈 ADS-NIUVS · R$ 950/7d · 240 conv' },
@@ -145,33 +149,18 @@ const TPL_WHATSAPP_FOCUS = [
 
 export function getDefaultTemplate(): string {
     return [
-        '{greeting} *{client_name}*, tudo bem?',
+        '{greeting}, *{client_name}*!',
         '',
-        'Resumo de Ontem:',
-        '> [{today_label}]',
+        '📅 *Ontem* ({today_label})',
+        '💰 {today_spend} investidos',
+        '{today_results_block}',
+        '👁️ {today_impressions} impressões',
         '',
-        '💰 Investimento {today_spend}',
-        '⚡️ Impressões: {today_impressions}',
-        '📊 Total {today_leads} {today_action_label}',
-        '💰 Custo por {today_action_label} {today_cpl}{today_breakdown_block}',
+        '📈 *Últimos 7 dias* ({last7_label})',
+        '💰 {last7_spend} investidos',
+        '{last7_results_block}{month_section}',
         '',
-        'Resumo de nossas campanhas nos últimos 7 dias:',
-        '> [{last7_label}]',
-        '',
-        '💰 Investimento {last7_spend}',
-        '⚡️ Impressões: {last7_impressions}',
-        '📊 Total {last7_leads} {last7_action_label}',
-        '💰 Custo por {last7_action_label} {last7_cpl}{last7_breakdown_block}',
-        '',
-        'Resumo desse mês:',
-        '> [{month_label}]',
-        '',
-        '💰 Investimento {month_spend}',
-        '⚡️ Impressões: {month_impressions}',
-        '📊 Total {month_leads} {month_action_label}',
-        '💰 Custo por {month_action_label} {month_cpl}{month_breakdown_block}',
-        '',
-        '📄 Relatório visual completo:',
+        '📄 Relatório completo:',
         '{report_link}',
     ].join('\n');
 }
@@ -242,6 +231,46 @@ function formatBreakdownBlock(groups: TemplateMetrics['objective_breakdown'], le
     return `\n\n📌 Por objetivo:\n${lines.join('\n')}`;
 }
 
+// ─── Bloco de resultados do template padrão ────────────────────────────────
+// Uma linha por objetivo, com ícone próprio e custo unitário:
+//   💬 41 conversas · R$ 3,48 cada
+//   👤 64 visitas ao perfil · R$ 0,57 cada
+
+const MONTHS_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+function objectiveIcon(label: string): string {
+    const l = label.toLowerCase();
+    if (/convers|mensage/.test(l)) return '💬';
+    if (/perfil/.test(l)) return '👤';
+    if (/lead|cadastr|formul/.test(l)) return '📝';
+    if (/compra|venda|purchase/.test(l)) return '🛒';
+    if (/clique|visita/.test(l)) return '👆';
+    if (/segui/.test(l)) return '➕';
+    if (/vídeo|video|thruplay/.test(l)) return '▶️';
+    if (/engaj|curtid/.test(l)) return '❤️';
+    return '🎯';
+}
+
+/** "Visitas ao perfil" → "visita ao perfil"; "Conversões" → "conversão" (só a 1ª palavra). */
+function singularLabel(label: string): string {
+    const [first, ...rest] = label.toLowerCase().split(' ');
+    const one = first.endsWith('ões') ? first.slice(0, -3) + 'ão' : first.replace(/s$/, '');
+    return [one, ...rest].join(' ');
+}
+
+function formatResultsBlock(m: TemplateMetrics, level: 'auto' | 'account' | 'campaign'): string {
+    const fmtBRL = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const groups = level === 'account' || !m.objective_breakdown?.length
+        ? (m.leads > 0 ? [{ label: m.primary_action_label, count: m.leads, cost_per: m.cost_per_lead }] : [])
+        : m.objective_breakdown.filter(g => g.count > 0);
+    if (!groups.length) return '📊 Sem resultados no período';
+    return groups.map(g => {
+        const name = g.count === 1 ? singularLabel(g.label) : g.label.toLowerCase();
+        const cost = g.cost_per > 0 ? ` · ${fmtBRL(g.cost_per)} cada` : '';
+        return `${objectiveIcon(g.label)} ${g.count.toLocaleString('pt-BR')} ${name}${cost}`;
+    }).join('\n');
+}
+
 export function buildTemplateVars(data: {
     client_name: string;
     greeting: string;
@@ -260,7 +289,26 @@ export function buildTemplateVars(data: {
     const fmtNum = (v: number) => v.toLocaleString('pt-BR');
     const todaySingular = data.today.metrics.leads === 1 ? data.today.metrics.primary_action_label.replace(/s$/, '') : data.today.metrics.primary_action_label;
 
+    // Mês só aparece quando acrescenta algo: no dia 1 e 2 ele repete "ontem"
+    // (ou os 7 dias), e a mensagem fica longa à toa.
+    const monthStart = data.month.label.slice(0, 5);
+    const monthIdx = Number(monthStart.slice(3, 5)) - 1;
+    const monthRedundant = data.month.label === data.today.label
+        || data.month.label === `${data.today.label} a ${data.today.label}`
+        || data.month.label === data.last7d.label;
+    const month_section = monthRedundant ? '' : [
+        '',
+        '',
+        `🗓️ *${MONTHS_PT[monthIdx] || 'Mês'}* (${data.month.label})`,
+        `💰 ${fmtBRL(data.month.metrics.spend)} investidos`,
+        formatResultsBlock(data.month.metrics, level),
+    ].join('\n');
+
     return {
+        today_results_block: formatResultsBlock(data.today.metrics, level),
+        last7_results_block: formatResultsBlock(data.last7d.metrics, level),
+        month_results_block: formatResultsBlock(data.month.metrics, level),
+        month_section,
         client_name: data.client_name.toUpperCase(),
         greeting: data.greeting,
         // Today
@@ -751,7 +799,7 @@ export class DailyWhatsAppService {
     }
 
     private greetingPrefix(): string {
-        const hour = new Date().getHours();
+        const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
         if (hour < 12) return 'Bom dia';
         if (hour < 18) return 'Boa tarde';
         return 'Boa noite';
