@@ -57,7 +57,7 @@ export function normalizePaymentMethod(raw: any): PaymentMethod | undefined {
  * Retorna o id do pedido e se acabou de virar aprovado (pra disparar Purchase
  * uma vez só, mesmo se a plataforma reenviar o webhook).
  */
-export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise<{ id: string; became_approved: boolean; click_id: string | null }> {
+export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise<{ id: string; became_approved: boolean; click_id: string | null; previous_status: string | null; utm_campaign: string | null }> {
     let ids = metaIdsFromUtms(o);
     let clickId: string | null = null;
 
@@ -161,7 +161,7 @@ export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise
         ).catch((err: any) => logger.warn('pedido: falha ao marcar recuperação', { error: err.message }));
     }
     logger.info('pedido gravado', { source: sourceId, platform: o.platform, order: o.external_order_id, status: o.status, from: previous?.status || null, campaign: ids.meta_campaign_id });
-    return { id: row!.id, became_approved: becameApproved, click_id: clickId };
+    return { id: row!.id, became_approved: becameApproved, click_id: clickId, previous_status: previous?.status || null, utm_campaign: o.utm_campaign || null };
 }
 
 export async function linkOrderPurchaseEvent(orderId: string, eventId: string): Promise<void> {

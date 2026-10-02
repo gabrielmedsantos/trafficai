@@ -26,6 +26,7 @@ import {
     NormalizedOrder, OrderStatus,
 } from './sales-orders.service';
 import { normalizeSalesSettings } from './sales-report.service';
+import { notifySale } from './sales-notify.service';
 
 const router = Router();
 
@@ -401,6 +402,7 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             const cart = normalizeKiwifyAbandoned(b);
             if (!cart) return res.json({ success: true, data: { ignored: true, reason: 'carrinho sem identificador' } });
             const saved = await upsertOrder(source.id, cart);
+            if (saved.previous_status !== 'abandoned') void notifySale(source.id, { ...cart, order_id: saved.id, utm_campaign: saved.utm_campaign });
             return res.json({ success: true, data: { order_id: saved.id, status: 'abandoned' } });
         }
 
@@ -416,6 +418,9 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 return res.json({ success: true, data: { test: true, message: 'Teste recebido. Conexão funcionando — pedidos de teste não entram no relatório nem vão pra Meta.' } });
             }
             const saved = await upsertOrder(source.id, k.order);
+            // Aviso de venda/Pix/recusa no celular — só na mudança de situação
+            // (a Kiwify às vezes reenvia o mesmo webhook).
+            if (saved.previous_status !== k.order.status) void notifySale(source.id, { ...k.order, order_id: saved.id, utm_campaign: saved.utm_campaign });
             // Pendente/recusado/reembolso só atualizam o pedido (dashboard);
             // Purchase na Meta só na transição pra aprovado — reenvio do mesmo
             // webhook aprovado não duplica.

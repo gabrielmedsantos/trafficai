@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Circle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useVendas, Card, CopyField, API_BASE, brtToday, shiftDate } from '@/components/vendas/shared';
+import { SalesNotifyCard } from '@/components/vendas/SalesNotifyCard';
 
 const PLATFORMS = [
     {
@@ -44,6 +45,7 @@ export default function IntegracoesPage() {
 
     return (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 12, alignItems: 'start' }}>
+            {sourceId && <SalesNotifyCard sourceId={sourceId} />}
             {PLATFORMS.map((p) => {
                 const last = lastByPlatform[p.key];
                 return (

@@ -238,6 +238,27 @@ export class NotificationService {
 
     // ─── WHATSAPP ─────────────────────────────────────────────────────────────
 
+    /**
+     * Texto livre pro WhatsApp de notificações do usuário (mesmo número e
+     * provedor dos alertas). Usado pelas notificações de venda, que têm
+     * formato próprio e não passam pelo filtro de severidade dos alertas.
+     */
+    async sendWhatsAppText(userId: string, text: string): Promise<boolean> {
+        const settings = await this.getSettings(userId);
+        if (!settings?.whatsapp_number) return false;
+        const envEvolutionConfigured = !!process.env.EVOLUTION_API_BASE_URL && !!process.env.EVOLUTION_API_KEY;
+        const provider = settings.whatsapp_provider || (envEvolutionConfigured ? 'evolution' : 'uazapi');
+        try {
+            if (provider === 'uazapi') await this.sendViaUazapi(settings, text);
+            else if (provider === 'zapi') await this.sendViaZapi(settings, text);
+            else await this.sendViaEvolution(settings, text);
+            return true;
+        } catch (error: any) {
+            logger.warn('WhatsApp de venda falhou', { userId, error: error.response?.data?.message || error.message });
+            return false;
+        }
+    }
+
     private async sendWhatsApp(settings: NotificationSettings, alert: AlertPayload): Promise<void> {
         const message = this.buildWhatsAppMessage(alert);
 

@@ -22,6 +22,7 @@ import {
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
 import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
 import axios from 'axios';
+import { sendTestSaleNotice } from './sales-notify.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -147,6 +148,19 @@ router.patch('/sources/:id/orders/:orderId/contacted', async (req: Request, res:
         res.json({ success: true, data: row });
     } catch (err: any) {
         logger.error('recovery contacted falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /tracking/sources/:id/sales-notify/test — exemplo de "Venda aprovada!"
+router.post('/sources/:id/sales-notify/test', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const r = await sendTestSaleNotice(source.id);
+        res.json({ success: true, data: r });
+    } catch (err: any) {
+        logger.error('teste de notificação de venda falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

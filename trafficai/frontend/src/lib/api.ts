@@ -471,6 +471,9 @@ class ApiClient {
         const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/orders?${q}`);
     }
+    async testSalesNotify(sourceId: string) {
+        return this.request<{ push: number; whatsapp: boolean }>('POST', `/tracking/sources/${sourceId}/sales-notify/test`);
+    }
     async getSalesRecovery(sourceId: string, params: { since: string; until: string }) {
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/recovery?${new URLSearchParams(params).toString()}`);
     }

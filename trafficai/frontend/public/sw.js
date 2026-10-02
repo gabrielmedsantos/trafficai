@@ -3,7 +3,7 @@
 // Não faz cache agressivo — só o suficiente pra o "Instalar App" funcionar e pra dar
 // uma experiência offline mínima (mostra tela cacheada se o servidor cair).
 
-const CACHE = 'trafficai-v3';
+const CACHE = 'trafficai-v4';
 const ESSENTIAL = [
   '/',
   '/agenda',
@@ -35,11 +35,17 @@ self.addEventListener('push', (event) => {
   try { payload = event.data.json(); } catch { payload = { title: 'TrafficAI', body: event.data.text() }; }
 
   const title = payload.title || 'TrafficAI';
+  const tag = payload.tag || 'trafficai-alert';
+  // Venda (tag sale-*) tem comportamento próprio: cada uma toca/vibra e fica
+  // empilhada, igual app de checkout — alerta de conta continua discreto.
+  const isSale = tag.indexOf('sale-') === 0;
   const options = {
     body: payload.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    tag: payload.tag || 'trafficai-alert',
+    tag,
+    renotify: isSale,
+    vibrate: isSale ? [80, 40, 80] : undefined,
     data: { url: payload.url || '/alerts' },
   };
 

@@ -23,12 +23,25 @@ export type ReportGroup =
 
 export type MetaLevel = 'campaign' | 'adset' | 'ad';
 
+export interface SalesNotifySettings {
+    approved: boolean;
+    pix: boolean;
+    boleto: boolean;
+    abandoned: boolean;
+    refused: boolean;
+    push: boolean;
+    whatsapp: boolean;
+}
+
 export interface SalesSettings {
     tax_rate: number;
     product_costs: Record<string, number>;
     purchase_value: 'gross' | 'net';
     purchase_products: string[];
+    notify: SalesNotifySettings;
 }
+
+const NOTIFY_DEFAULTS: SalesNotifySettings = { approved: true, pix: true, boleto: false, abandoned: false, refused: false, push: true, whatsapp: false };
 
 export function normalizeSalesSettings(raw: any): SalesSettings {
     const r = raw && typeof raw === 'object' ? raw : {};
@@ -47,6 +60,11 @@ export function normalizeSalesSettings(raw: any): SalesSettings {
         purchase_products: Array.isArray(r.purchase_products)
             ? r.purchase_products.map((p: any) => String(p).trim()).filter(Boolean)
             : [],
+        notify: Object.fromEntries(
+            (Object.keys(NOTIFY_DEFAULTS) as (keyof SalesNotifySettings)[]).map(k => [
+                k, typeof r.notify?.[k] === 'boolean' ? r.notify[k] : NOTIFY_DEFAULTS[k],
+            ])
+        ) as unknown as SalesNotifySettings,
     };
 }
 
