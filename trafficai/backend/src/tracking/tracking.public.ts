@@ -7,7 +7,7 @@
 //   POST /track/webhook/:token     — ingest de CRM (assinado por HMAC)
 // ==============================
 
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
 import { query } from '../database/connection';
@@ -29,6 +29,16 @@ import { normalizeSalesSettings } from './sales-report.service';
 import { notifySale } from './sales-notify.service';
 
 const router = Router();
+
+// O pixel manda o JSON como text/plain: é o único tipo que o navegador envia
+// cross-origin sem preflight (sendBeacon com application/json é descartado em
+// silêncio). Aqui o texto vira objeto antes das rotas.
+router.use(express.text({ type: 'text/plain', limit: '256kb' }), (req: Request, _res: Response, next) => {
+    if (typeof req.body === 'string') {
+        try { req.body = JSON.parse(req.body); } catch { req.body = {}; }
+    }
+    next();
+});
 
 // ─── Rate limit por token ──────────────────────────────────────────────────
 // Protege cada fonte individualmente — alguém floodando o token de um cliente
@@ -401,6 +411,19 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             }
             const cart = normalizeKiwifyAbandoned(b);
             if (!cart) return res.json({ success: true, data: { ignored: true, reason: 'carrinho sem identificador' } });
+            // Carrinho abandonado não traz preço: usa o último valor conhecido do mesmo produto.
+            if (cart.gross_value == null && (cart.product_id || cart.product_name)) {
+                try {
+                    const [last] = await query<{ gross_value: string }>(
+                        `SELECT gross_value FROM tracking_orders
+                         WHERE source_id = $1 AND gross_value IS NOT NULL AND status <> 'abandoned'
+                           AND (($2::text IS NOT NULL AND product_id = $2) OR ($3::text IS NOT NULL AND product_name = $3))
+                         ORDER BY created_at DESC LIMIT 1`,
+                        [source.id, cart.product_id || null, cart.product_name || null]
+                    );
+                    if (last) cart.gross_value = Number(last.gross_value);
+                } catch { /* sem valor, segue */ }
+            }
             const saved = await upsertOrder(source.id, cart);
             if (saved.previous_status !== 'abandoned') void notifySale(source.id, { ...cart, order_id: saved.id, utm_campaign: saved.utm_campaign });
             return res.json({ success: true, data: { order_id: saved.id, status: 'abandoned' } });
@@ -873,7 +896,9 @@ function normalizeKiwifyAbandoned(body: any): NormalizedOrder | null {
     const email = pick(body.email, customer.email, customer.Email);
     const phone = pick(body.phone, body.mobile, customer.mobile, customer.phone, customer.Phone);
     const name = pick(body.name, body.full_name, customer.full_name, customer.name);
-    const checkoutUrl = pick(body.checkout_link, body.checkout_url);
+    // A Kiwify manda só o código do checkout ("Mg9PoAU") — o link é pay.kiwify.com.br/<código>.
+    const rawLink = pick(body.checkout_link, body.checkout_url);
+    const checkoutUrl = rawLink && !/^https?:\/\//i.test(rawLink) ? `https://pay.kiwify.com.br/${rawLink.replace(/^\/+/, '')}` : rawLink;
     // Sem id próprio: usa o id do carrinho; senão e-mail/telefone + produto
     // (o mesmo cliente abandonando o mesmo produto de novo atualiza a linha).
     const productId = pick(body.product_id, product.product_id, product.id);
@@ -1145,14 +1170,18 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   // ── Event dispatch ────────────────────────────────────────────────────
   function send(url, body){
     try {
-      var blob = new Blob([JSON.stringify(body)], { type: 'application/json' });
+      // text/plain = "simple request": vai cross-origin sem preflight. Com
+      // application/json o navegador descartava o beacon em silêncio.
+      var text = JSON.stringify(body);
+      var ok = false;
       if (navigator.sendBeacon) {
-        navigator.sendBeacon(url, blob);
-      } else {
-        fetch(url, { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'}, keepalive:true });
+        try { ok = navigator.sendBeacon(url, new Blob([text], { type: 'text/plain;charset=UTF-8' })); } catch(e0){ ok = false; }
+      }
+      if (!ok) {
+        fetch(url, { method:'POST', body: text, headers:{'Content-Type':'text/plain;charset=UTF-8'}, keepalive:true, mode:'cors', credentials:'omit' }).catch(function(){});
       }
     } catch(e) {
-      try { fetch(url, { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'application/json'} }); } catch(e2){}
+      try { fetch(url, { method:'POST', body: JSON.stringify(body), headers:{'Content-Type':'text/plain;charset=UTF-8'}, credentials:'omit' }).catch(function(){}); } catch(e2){}
     }
   }
 
