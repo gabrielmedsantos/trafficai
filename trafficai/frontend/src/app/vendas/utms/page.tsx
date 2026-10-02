@@ -21,7 +21,7 @@ export default function UtmsPage() {
     return (
         <>
             {error && <ErrorBox>{error}</ErrorBox>}
-            <Card style={{ padding: 0 }}>
+            <Card flat style={{ padding: 0 }}>
                 <Tabs tabs={FIELDS} active={group} onChange={setGroup} />
                 <ReportTable
                     rows={data?.rows || []}

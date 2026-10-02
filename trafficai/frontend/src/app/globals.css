@@ -1501,3 +1501,61 @@ select option:hover {
    ============================================================ */
 .ad-thumb-hover:hover { background: rgba(10, 14, 26, 0.15) !important; }
 .ad-thumb-hover:hover .ad-thumb-hover-icon { opacity: 1 !important; }
+
+/* ── Tracking (redesign A): movimento ─────────────────────────────────────
+   Entradas em sequência, barras que crescem, contagem, venda ao vivo.
+   Tudo desliga com prefers-reduced-motion. */
+.tai-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+@keyframes tai-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+.tai-rise { animation: tai-rise .6s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes tai-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.tai-bar { transform-origin: bottom; animation: tai-grow .8s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes tai-growx { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.tai-barx { transform-origin: left; animation: tai-growx .9s cubic-bezier(.2,.7,.2,1) both; }
+@keyframes tai-draw { to { stroke-dashoffset: 0; } }
+.tai-draw { stroke-dasharray: 1200; stroke-dashoffset: 1200; animation: tai-draw 1.6s .3s cubic-bezier(.4,0,.2,1) forwards; }
+.tai-card { transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease; }
+.tai-card:hover { transform: translateY(-3px); border-color: rgba(255,255,255,.16) !important; box-shadow: 0 14px 34px rgba(0,0,0,.42); }
+@keyframes tai-pulse { 0% { box-shadow: 0 0 0 0 rgba(0,210,122,.55); } 70% { box-shadow: 0 0 0 9px rgba(0,210,122,0); } 100% { box-shadow: 0 0 0 0 rgba(0,210,122,0); } }
+.tai-live { animation: tai-pulse 1.8s infinite; }
+@keyframes tai-toast-in { from { opacity: 0; transform: translate(28px,0) scale(.96); } to { opacity: 1; transform: none; } }
+.tai-toast { animation: tai-toast-in .45s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes tai-flash { 0% { box-shadow: 0 0 0 1px rgba(0,210,122,.95), 0 0 40px rgba(0,210,122,.35); } 100% { box-shadow: 0 0 0 1px rgba(0,210,122,0), 0 0 0 rgba(0,210,122,0); } }
+.tai-flash { animation: tai-flash 1.8s ease-out; }
+@keyframes tai-feed-new { from { opacity: 0; transform: translateY(-10px); background: rgba(0,210,122,.16); } to { opacity: 1; transform: none; background: transparent; } }
+.tai-feed-new { animation: tai-feed-new .9s ease-out both; }
+.tai-reveal { animation: tai-rise linear both; animation-timeline: view(); animation-range: entry 0% cover 22%; }
+@keyframes tai-ring { from { stroke-dashoffset: 264; } }
+.tai-ring { animation: tai-ring 1.4s .3s cubic-bezier(.3,.7,.2,1) both; }
+@keyframes tai-panel-in { from { transform: translateX(100%); } to { transform: none; } }
+.tai-panel { animation: tai-panel-in .35s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes tai-fade { from { opacity: 0; } to { opacity: 1; } }
+.tai-shade { animation: tai-fade .25s ease-out both; }
+.tai-row { transition: background .15s ease; }
+.tai-row:hover { background: rgba(255,255,255,.035); }
+.tai-switch { transition: background .2s ease; }
+.tai-knob { transition: transform .2s cubic-bezier(.3,.7,.2,1); }
+.tai-budget:hover { border-color: rgba(14,165,233,.6) !important; background: rgba(14,165,233,.08) !important; }
+.tai-wa { transition: filter .15s, transform .15s; }
+.tai-wa:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.tai-chip { transition: background .15s, color .15s, border-color .15s; }
+.tai-chip:hover { color: var(--text-primary); border-color: rgba(255,255,255,.2) !important; }
+@media (prefers-reduced-motion: reduce) {
+  .tai-rise, .tai-bar, .tai-barx, .tai-draw, .tai-live, .tai-toast, .tai-flash, .tai-feed-new, .tai-reveal, .tai-ring, .tai-panel, .tai-shade { animation: none !important; }
+  .tai-draw { stroke-dashoffset: 0; }
+  .tai-card, .tai-card:hover { transition: none; transform: none; }
+}
+/* Grades do Tracking — encolhem no tablet/celular */
+.tai-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.tai-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.tai-grid-rec { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 14px; }
+.tai-span-2 { grid-column: span 2; }
+@media (max-width: 1100px) {
+  .tai-grid-4, .tai-grid-rec { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tai-grid-3 { grid-template-columns: minmax(0, 1fr); }
+  .tai-grid-3 > .tai-span-2 { grid-column: auto; }
+}
+@media (max-width: 600px) {
+  .tai-grid-4, .tai-grid-rec { grid-template-columns: minmax(0, 1fr); }
+  .tai-span-2 { grid-column: auto; }
+}

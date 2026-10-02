@@ -169,34 +169,106 @@ export function useSalesReport(group: Group) {
 }
 
 // ── UI base ─────────────────────────────────────────────────────────────
-export function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
+export function Card({ children, style, delay, className, reveal, flat }: {
+    children: React.ReactNode; style?: React.CSSProperties; delay?: number; className?: string; reveal?: boolean; flat?: boolean;
+}) {
+    // Cartão do redesign: superfície com borda, sobe ao passar o mouse e entra
+    // em sequência (delay em ms) — ou ao aparecer na rolagem (reveal).
     return (
-        <div style={{
-            background: 'var(--bg-surface-2)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)', padding: '12px 14px', ...style,
+        <div className={`${flat ? '' : 'tai-card'} ${reveal ? 'tai-reveal' : 'tai-rise'} ${className || ''}`} style={{
+            background: 'var(--bg-surface)', border: '1px solid var(--border)',
+            borderRadius: 14, padding: '18px 20px', animationDelay: delay ? `${delay}ms` : undefined, ...style,
         }}>{children}</div>
     );
 }
 
-export function Kpi({ icon, label, value, hint, color }: { icon?: React.ReactNode; label: string; value: string; hint?: React.ReactNode; color?: string }) {
+export function Kpi({ icon, label, value, hint, color, delay }: { icon?: React.ReactNode; label: string; value: string; hint?: React.ReactNode; color?: string; delay?: number }) {
     return (
-        <Card style={{ minHeight: 78 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: 600 }}>
+        <Card delay={delay} style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                 {icon && <span style={{ color: color || 'var(--text-muted)', display: 'flex' }}>{icon}</span>}{label}
             </div>
-            <div className="num" style={{ fontSize: 22, fontWeight: 700, color: color || 'var(--text-primary)', marginTop: 4, lineHeight: 1.15 }}>{value}</div>
-            {hint && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{hint}</div>}
+            <div className="tai-mono" style={{ fontSize: 22, fontWeight: 600, color: color || 'var(--text-primary)', lineHeight: 1.15 }}>{value}</div>
+            {hint && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{hint}</div>}
         </Card>
     );
 }
 
 export function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
     return (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>{children}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{children}</h2>
             {right}
         </div>
     );
+}
+
+/** Conta do valor anterior até o novo (ease-out ~1s). Respeita reduced-motion. */
+export function useCountUp(target: number, duration = 1000): number {
+    const [shown, setShown] = useState(0);
+    const fromRef = React.useRef(0);
+    const shownRef = React.useRef(0);
+    useEffect(() => {
+        const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (reduce || !Number.isFinite(target)) { shownRef.current = target; setShown(target); return; }
+        fromRef.current = shownRef.current;
+        const start = performance.now();
+        let raf = 0;
+        const step = (now: number) => {
+            const t = Math.min(1, (now - start) / duration);
+            const e = 1 - Math.pow(1 - t, 3);
+            const v = fromRef.current + (target - fromRef.current) * e;
+            shownRef.current = v;
+            setShown(v);
+            if (t < 1) raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [target, duration]);
+    return shown;
+}
+
+/** Número em reais que conta ao carregar e ao mudar. */
+export function CountBRL({ value, style }: { value: number | null | undefined; style?: React.CSSProperties }) {
+    const v = useCountUp(value ?? 0);
+    return <span className="tai-mono" style={style}>{value == null ? 'N/A' : brl(v)}</span>;
+}
+
+/**
+ * Pedidos de hoje com polling (30s): devolve os mais recentes e avisa quando
+ * chega uma venda aprovada nova (pra toast + brilho no card de lucro).
+ */
+export function useLiveOrders(sourceId: string, enabled: boolean, onNewSale: (o: any) => void) {
+    const [orders, setOrders] = useState<any[]>([]);
+    const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+    const seen = React.useRef<Set<string> | null>(null);
+    const cb = React.useRef(onNewSale);
+    cb.current = onNewSale;
+    useEffect(() => {
+        seen.current = null;
+        setOrders([]);
+        if (!sourceId || !enabled) return;
+        let alive = true;
+        const load = async () => {
+            try {
+                const today = brtToday();
+                const list = (await api.getSalesOrders(sourceId, { since: today, until: today, limit: '50' })) || [];
+                if (!alive) return;
+                const ids = new Set<string>(list.map((o: any) => `${o.id}:${o.status}`));
+                if (seen.current) {
+                    const fresh = list.filter((o: any) => !seen.current!.has(`${o.id}:${o.status}`));
+                    setFreshIds(new Set(fresh.map((o: any) => o.id)));
+                    fresh.filter((o: any) => o.status === 'approved').forEach((o: any) => cb.current(o));
+                }
+                seen.current = ids;
+                setOrders(list);
+            } catch { /* mantém o que já tinha */ }
+        };
+        load();
+        const t = setInterval(load, 30000);
+        return () => { alive = false; clearInterval(t); };
+    }, [sourceId, enabled]);
+    return { orders, freshIds };
 }
 
 export function ShareList({ items, empty }: { items: { label: string; count: number; pct: number; color?: string; extra?: string }[]; empty: string }) {
@@ -263,9 +335,10 @@ export function Tabs<T extends string>({ tabs, active, onChange, right }: {
             <div role="tablist" style={{ display: 'flex', gap: 2, overflowX: 'auto' }}>
                 {tabs.map((t) => (
                     <button key={t.key} role="tab" aria-selected={active === t.key} type="button" onClick={() => onChange(t.key)} style={{
-                        padding: '8px 12px 10px', fontSize: 13, fontWeight: 600, background: 'transparent', border: 'none',
-                        borderBottom: active === t.key ? '2px solid var(--accent-blue)' : '2px solid transparent',
-                        color: active === t.key ? 'var(--accent-blue)' : 'var(--text-muted)', cursor: 'pointer', marginBottom: -1, whiteSpace: 'nowrap',
+                        padding: '14px 12px 12px', fontSize: 13.5, fontWeight: 600, background: 'transparent', border: 'none',
+                        borderBottom: active === t.key ? '2px solid var(--primary)' : '2px solid transparent',
+                        color: active === t.key ? 'var(--text-primary)' : 'var(--text-muted)', cursor: 'pointer', marginBottom: -1, whiteSpace: 'nowrap',
+                        transition: 'color .15s, border-color .2s',
                     }}>{t.label}</button>
                 ))}
             </div>
@@ -403,7 +476,7 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
                         </td></tr>
                     )}
                     {sorted.map((r) => (
-                        <tr key={r.key} style={{ borderTop: '1px solid var(--border)', opacity: loading ? 0.6 : 1 }}>
+                        <tr key={r.key} className="tai-row" style={{ borderTop: '1px solid rgba(255,255,255,0.05)', opacity: loading ? 0.6 : 1 }}>
                             {leading?.map((l) => <td key={l.label} style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap' }}>{l.render(r)}</td>)}
                             <td style={{ padding: '9px 12px', maxWidth: 380 }}>{renderFirst(r)}</td>
                             {columns.map((c) => (

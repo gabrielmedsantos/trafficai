@@ -48,7 +48,7 @@ export default function PixelPage() {
         <>
             {error && <ErrorBox>{error}</ErrorBox>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 12, alignItems: 'start' }}>
-                <Card style={{ padding: '16px 18px' }}>
+                <Card flat style={{ padding: '16px 18px' }}>
                     <SectionTitle>Instalação</SectionTitle>
                     <CopyField
                         label="1. Script na página de vendas (antes do </head>)"
@@ -69,7 +69,7 @@ export default function PixelPage() {
                     </div>
                 </Card>
 
-                <Card style={{ padding: '16px 18px' }}>
+                <Card flat style={{ padding: '16px 18px' }}>
                     <SectionTitle>Evento Purchase</SectionTitle>
                     {!settings ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Carregando…</div> : (
                         <>

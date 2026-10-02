@@ -60,7 +60,7 @@ export default function PedidosPage() {
                         style={{ ...selectStyle, padding: '6px 8px 6px 26px', fontSize: 12, width: 240 }} />
                 </div>
             </div>
-            <Card style={{ padding: 0 }}>
+            <Card flat style={{ padding: 0 }}>
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                         <thead>

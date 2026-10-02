@@ -8,7 +8,7 @@ export default function DiarioPage() {
     return (
         <>
             {error && <ErrorBox>{error}</ErrorBox>}
-            <Card style={{ padding: 0 }}>
+            <Card flat style={{ padding: 0 }}>
                 <ReportTable
                     rows={data?.rows || []}
                     loading={loading}

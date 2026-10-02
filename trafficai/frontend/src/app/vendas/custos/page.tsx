@@ -96,7 +96,7 @@ export default function CustosPage() {
         <>
             {error && <ErrorBox>{error}</ErrorBox>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 12, alignItems: 'start' }}>
-                <Card style={{ padding: '16px 18px' }}>
+                <Card flat style={{ padding: '16px 18px' }}>
                     <SectionTitle>Imposto e custo de produto</SectionTitle>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 14 }}>
                         Imposto sobre o faturamento (%)
@@ -127,7 +127,7 @@ export default function CustosPage() {
                     </button>
                 </Card>
 
-                <Card style={{ padding: '16px 18px' }}>
+                <Card flat style={{ padding: '16px 18px' }}>
                     <SectionTitle right={<span className="num" style={{ fontSize: 12, fontWeight: 700 }}>{brl(expTotal)} no período</span>}>Despesas adicionais</SectionTitle>
                     <form onSubmit={addExpense} style={{ display: 'grid', gridTemplateColumns: '130px 1fr 110px auto', gap: 6, marginBottom: 12 }}>
                         <input type="date" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} style={selectStyle} aria-label="Data" />

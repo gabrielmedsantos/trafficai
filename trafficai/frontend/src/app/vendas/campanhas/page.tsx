@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Pencil } from 'lucide-react';
+import { Search, Check } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
     useSalesReport, useVendas, Card, Tabs, ReportTable, NameCell, ErrorBox, financialColumns,
-    brl, Row, selectStyle,
+    brl, Row, selectStyle, signColor,
 } from '@/components/vendas/shared';
 
 type Level = 'campaign' | 'adset' | 'ad';
@@ -34,13 +34,13 @@ function StatusSwitch({ row, onChange, busy }: { row: Row; onChange: (next: 'ACT
             disabled={busy}
             onClick={() => onChange(on ? 'PAUSED' : 'ACTIVE')}
             title={inherited ? EFFECTIVE_LABEL[row.effective_status!] || row.effective_status! : on ? 'Ativo — clique pra pausar' : 'Pausado — clique pra ativar'}
+            className="tai-switch"
             style={{
-                width: 34, height: 19, borderRadius: 999, border: 'none', padding: 2, cursor: busy ? 'wait' : 'pointer',
-                background: on ? (inherited ? 'var(--accent-yellow)' : 'var(--accent-green)') : 'var(--border)',
-                display: 'inline-flex', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'background .15s', opacity: busy ? 0.6 : 1,
+                width: 36, height: 20, borderRadius: 999, border: 'none', padding: 2, cursor: busy ? 'wait' : 'pointer', display: 'flex',
+                background: on ? (inherited ? 'var(--accent-yellow)' : 'var(--accent-green)') : '#2a2e35', opacity: busy ? 0.6 : 1,
             }}
         >
-            <span style={{ width: 15, height: 15, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,.3)' }} />
+            <span className="tai-knob" style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,.4)', transform: `translateX(${on ? 16 : 0}px)` }} />
         </button>
     );
 }
@@ -76,11 +76,14 @@ function BudgetCell({ row, level, onSave, busy }: { row: Row; level: Level; onSa
             disabled={!editable || busy}
             onClick={() => { setVal(String(row.budget).replace('.', ',')); setEditing(true); }}
             title={editable ? 'Editar orçamento diário' : 'Orçamento vitalício — edite no Gerenciador'}
-            style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: editable ? 'pointer' : 'default', padding: 0, font: 'inherit', textAlign: 'right' }}
+            className={editable ? 'tai-budget' : undefined}
+            style={{
+                padding: '5px 9px', background: 'transparent', border: editable ? '1px dashed rgba(255,255,255,0.14)' : '1px solid transparent', borderRadius: 6,
+                color: 'var(--text-primary)', cursor: editable ? 'pointer' : 'default', font: 'inherit', textAlign: 'right', whiteSpace: 'nowrap',
+            }}
         >
-            <span className="num">{brl(row.budget)}</span>
-            {editable && <Pencil size={10} style={{ marginLeft: 4, color: 'var(--text-muted)' }} />}
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{row.budget_type === 'daily' ? 'diário' : 'vitalício'}</div>
+            <span className="tai-mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{brl(row.budget)}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.budget_type === 'daily' ? '/dia' : ' total'}</span>
         </button>
     );
 }
@@ -94,6 +97,9 @@ export default function CampanhasPage() {
     const [media, setMedia] = useState(false);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [actionError, setActionError] = useState('');
+    const [toast, setToast] = useState('');
+    const toastTimer = React.useRef<any>(null);
+    const flashToast = (t: string) => { setToast(t); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(''), 2600); };
     const [overrides, setOverrides] = useState<Record<string, Partial<Row>>>({});
 
     useEffect(() => {
@@ -123,6 +129,7 @@ export default function CampanhasPage() {
         }));
         try {
             await api.updateSalesMetaObject(sourceId, row.meta_id, patch);
+            flashToast(patch.status ? `${patch.status === 'ACTIVE' ? 'Ativado' : 'Pausado'} na Meta: ${row.name}` : `Orçamento atualizado: ${brl(patch.daily_budget!)}/dia`);
         } catch (e: any) {
             setOverrides(o => ({ ...o, [row.key]: prev || {} }));
             setActionError(`${row.name}: ${e.message || 'falha ao alterar na Meta'}`);
@@ -132,10 +139,29 @@ export default function CampanhasPage() {
     }
 
     const current = LEVELS.find(l => l.key === level)!;
+    const maxProfit = Math.max(1, ...rows.map(r => Math.abs(r.profit)));
+    const totals = rows.reduce((a, r) => ({ profit: a.profit + r.profit, revenue: a.revenue + r.revenue, spend: a.spend + r.spend }), { profit: 0, revenue: 0, spend: 0 });
     const hasMeta = !!source?.account_id;
 
     return (
         <>
+            {toast && (
+                <div className="tai-toast" role="status" aria-live="polite" style={{ position: 'fixed', top: 24, right: 32, zIndex: 50, display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', background: 'var(--bg-surface)', border: '1px solid rgba(14,165,233,0.45)', borderRadius: 12, boxShadow: '0 18px 40px rgba(0,0,0,0.55)', fontSize: 13 }}>
+                    <Check size={16} color="var(--accent-blue)" /> {toast}
+                </div>
+            )}
+            <div className="tai-rise" style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                {[
+                    { label: 'Lucro no período', value: brl(totals.profit), color: signColor(totals.profit) },
+                    { label: 'ROAS geral', value: totals.spend ? (totals.revenue / totals.spend).toFixed(2).replace('.', ',') : 'N/A', color: 'var(--text-primary)' },
+                    { label: 'Gastos', value: brl(totals.spend), color: 'var(--text-primary)' },
+                ].map((p) => (
+                    <div key={p.label} style={{ display: 'flex', flexDirection: 'column', padding: '8px 14px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{p.label}</span>
+                        <span className="tai-mono" style={{ fontSize: 16, fontWeight: 600, color: p.color }}>{p.value}</span>
+                    </div>
+                ))}
+            </div>
             {error && <ErrorBox>{error}</ErrorBox>}
             {actionError && <ErrorBox>{actionError}</ErrorBox>}
             {!hasMeta && source && (
@@ -148,7 +174,7 @@ export default function CampanhasPage() {
                     Não consegui ler conjuntos/anúncios da Meta agora (token expirado ou limite de requisições). Reconecte a conta em Contas ou tente em instantes.
                 </Card>
             )}
-            <Card style={{ padding: 0 }}>
+            <Card flat style={{ padding: 0 }}>
                 <Tabs
                     tabs={LEVELS}
                     active={level}
@@ -178,7 +204,17 @@ export default function CampanhasPage() {
                         { label: 'Status', width: 70, render: (r) => <StatusSwitch row={r} busy={busyId === r.key} onChange={(s) => change(r, { status: s })} /> },
                         ...(level !== 'ad' ? [{ label: 'Orçamento', width: 110, render: (r: Row) => <BudgetCell row={r} level={level} busy={busyId === r.key} onSave={(v) => change(r, { daily_budget: v })} /> }] : []),
                     ] : undefined}
-                    renderFirst={(r) => <NameCell name={r.name} sub={[r.parent_name, r.meta_id].filter(Boolean).join(' · ')} />}
+                    renderFirst={(r) => (
+                        <div style={{ opacity: r.status === 'PAUSED' ? 0.6 : 1 }}>
+                            <NameCell name={r.name} sub={null} />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                                <div style={{ width: 90, height: 4, borderRadius: 2, background: 'var(--bg-surface-2)', overflow: 'hidden', flexShrink: 0 }}>
+                                    <div className="tai-barx" style={{ width: `${(Math.abs(r.profit) / maxProfit) * 100}%`, height: '100%', background: r.profit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }} />
+                                </div>
+                                <span style={{ fontSize: 10.5, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[r.parent_name, r.meta_id].filter(Boolean).join(' · ')}</span>
+                            </div>
+                        </div>
+                    )}
                     columns={financialColumns({ media })}
                     emptyText={`Nenhum(a) ${current.singular.toLowerCase()} com gasto ou venda no período.`}
                 />

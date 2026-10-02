@@ -20,6 +20,9 @@ const PAGES: Record<string, { title: string; subtitle: string; period: boolean }
     '/vendas/pixel': { title: 'Pixel e UTMs', subtitle: 'Instalação do script, parâmetros dos anúncios e regras do evento de compra.', period: false },
 };
 
+const QUICK = ['today', 'yesterday', '7d', '30d', 'month'];
+const QUICK_LABEL: Record<string, string> = { today: 'Hoje', yesterday: 'Ontem', '7d': '7 dias', '30d': '30 dias', month: 'Mês' };
+
 function Header() {
     const pathname = usePathname() || '/vendas';
     const page = PAGES[pathname] || PAGES['/vendas'];
@@ -29,9 +32,16 @@ function Header() {
     const label: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 };
 
     return (
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
+        <div className="tai-rise" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
             <div style={{ minWidth: 0 }}>
-                <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>{page.title}</h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{page.title}</h1>
+                    {pathname === '/vendas' && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 11.5, fontWeight: 600, color: 'var(--accent-green)', background: 'rgba(0,210,122,0.1)', border: '1px solid rgba(0,210,122,0.25)', padding: '3px 10px 3px 8px', borderRadius: 999 }}>
+                            <span className="tai-live" style={{ width: 7, height: 7, borderRadius: 4, background: 'var(--accent-green)' }} />Ao vivo
+                        </span>
+                    )}
+                </div>
                 <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-muted)' }}>{page.subtitle}</p>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -57,12 +67,23 @@ function Header() {
                 )}
                 {page.period && (
                     <>
-                        <label style={label}>
-                            Período
-                            <select value={periodKey} onChange={(e) => setPeriodKey(e.target.value)} style={{ ...selectStyle, minWidth: 160 }}>
-                                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                        <div role="radiogroup" aria-label="Período" style={{ display: 'flex', gap: 2, padding: 3, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
+                            {QUICK.map((k) => {
+                                const on = periodKey === k;
+                                return (
+                                    <button key={k} type="button" role="radio" aria-checked={on} onClick={() => setPeriodKey(k)} style={{
+                                        border: 'none', cursor: 'pointer', padding: '7px 12px', borderRadius: 8, font: '600 12.5px var(--font-sans)',
+                                        background: on ? 'var(--primary)' : 'transparent', color: on ? 'var(--bg-sidebar)' : 'var(--text-muted)',
+                                        transition: 'background .15s, color .15s',
+                                    }}>{QUICK_LABEL[k]}</button>
+                                );
+                            })}
+                            <select aria-label="Outro período" value={QUICK.includes(periodKey) ? '' : periodKey} onChange={(e) => e.target.value && setPeriodKey(e.target.value)}
+                                style={{ border: 'none', cursor: 'pointer', padding: '0 8px', borderRadius: 8, font: '600 12.5px var(--font-sans)', background: QUICK.includes(periodKey) ? 'transparent' : 'var(--primary)', color: QUICK.includes(periodKey) ? 'var(--text-muted)' : 'var(--bg-sidebar)' }}>
+                                <option value="">Outro…</option>
+                                {PERIODS.filter((p) => !QUICK.includes(p.key)).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
                             </select>
-                        </label>
+                        </div>
                         {periodKey === 'custom' && (
                             <>
                                 <label style={label}>
