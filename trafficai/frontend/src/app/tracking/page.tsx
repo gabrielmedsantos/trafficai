@@ -4610,6 +4610,25 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
         api.metaSignupPixels().then(setDiscoveredPixels).catch(() => setDiscoveredPixels([]));
     }, []);
 
+    // Pixels da conta escolhida, direto da Meta — cobre contas ativadas pelo
+    // login normal, que o Cadastro Incorporado não lista.
+    const [accountPixelsMsg, setAccountPixelsMsg] = useState('');
+    useEffect(() => {
+        setAccountPixelsMsg('');
+        if (!form.account_id) return;
+        api.getAccountPixels(form.account_id).then((list) => {
+            if (!list.length) { setAccountPixelsMsg('Essa conta não tem pixel na Meta. Crie um no Gerenciador de Eventos.'); return; }
+            const acc = accounts.find((a: any) => a.id === form.account_id);
+            setDiscoveredPixels((cur) => {
+                const known = new Set(cur.map(p => p.pixel_id));
+                const extra = list.filter(p => !known.has(p.pixel_id)).map(p => ({ pixel_id: p.pixel_id, pixel_name: p.pixel_name, business_name: acc?.account_name || null }));
+                return [...extra, ...cur];
+            });
+            if (list.length === 1 && !form.pixel_id) pickDiscoveredPixel(list[0].pixel_id);
+        }).catch((e) => setAccountPixelsMsg(e.message || 'Não consegui listar os pixels dessa conta.'));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [form.account_id]);
+
     function pickDiscoveredPixel(pixelId: string) {
         setSelectedPixel(pixelId);
         if (pixelId) {
@@ -4848,6 +4867,10 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
                 </div>
 
                 <div className="form-group">
+                    {accountPixelsMsg && <span className="form-hint" style={{ color: 'var(--accent-yellow)' }}>{accountPixelsMsg}</span>}
+                </div>
+
+                <div className="form-group">
                     <label className="form-label">Domínio do site</label>
                     <input
                         type="text" className="form-input"
@@ -4872,7 +4895,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
                         : '';
                     return (
                         <div className="form-group" style={{ position: 'relative' }}>
-                            <label className="form-label">Pixels descobertos (Cadastro Incorporado)</label>
+                            <label className="form-label">Pixel da conta</label>
                             <input
                                 type="text"
                                 className="form-input"

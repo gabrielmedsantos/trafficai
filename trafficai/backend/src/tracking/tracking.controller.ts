@@ -20,7 +20,8 @@ import {
     listConversionRules, createConversionRule, updateConversionRule, deleteConversionRule, listRuleExecutions,
 } from './conversion-rules/conversion-rules.service';
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
-import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject } from './sales-report.service';
+import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
+import axios from 'axios';
 
 const router = Router();
 router.use(authMiddleware);
@@ -122,6 +123,33 @@ router.patch('/sources/:id/meta-objects/:metaId', async (req: Request, res: Resp
         const msg = err.response?.data?.error?.error_user_msg || err.response?.data?.error?.message || err.message;
         logger.warn('vendas: alterar objeto Meta falhou', { error: msg });
         res.status(400).json({ success: false, error: { message: msg || 'Falha ao alterar na Meta' } });
+    }
+});
+
+// GET /tracking/account-pixels?account_id=<uuid local> — pixels da conta de
+// anúncio direto da Meta, com o token da conta já conectada. Cobre contas
+// ativadas pelo login normal (o Cadastro Incorporado só descobre os pixels
+// do BM que passou pelo fluxo dele).
+router.get('/account-pixels', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const accountId = String(req.query.account_id || '');
+        const [acc] = await query<any>(`SELECT meta_account_id FROM ad_accounts WHERE id = $1 AND user_id = $2`, [accountId, userId]);
+        if (!acc) return res.status(404).json({ success: false, error: { message: 'Conta não encontrada' } });
+        const token = await getUserAdsToken(userId);
+        if (!token) return res.status(400).json({ success: false, error: { message: 'Conta Meta desconectada — reconecte em Contas' } });
+        const r: any = await axios.get(`https://graph.facebook.com/v21.0/${actId(acc.meta_account_id)}/adspixels`, {
+            params: { fields: 'id,name,last_fired_time', limit: 100, access_token: token },
+            timeout: 20000,
+        });
+        const pixels = (r.data?.data || []).map((p: any) => ({
+            pixel_id: String(p.id), pixel_name: p.name || String(p.id), last_fired_time: p.last_fired_time || null,
+        }));
+        res.json({ success: true, data: pixels });
+    } catch (err: any) {
+        const msg = err.response?.data?.error?.message || err.message;
+        logger.warn('tracking: listar pixels da conta falhou', { error: msg });
+        res.status(400).json({ success: false, error: { message: `Não consegui listar os pixels na Meta: ${msg}` } });
     }
 });
 

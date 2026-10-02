@@ -471,6 +471,9 @@ class ApiClient {
         const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/orders?${q}`);
     }
+    async getAccountPixels(accountId: string) {
+        return this.request<{ pixel_id: string; pixel_name: string; last_fired_time: string | null }[]>('GET', `/tracking/account-pixels?account_id=${encodeURIComponent(accountId)}`);
+    }
     async updateSalesMetaObject(sourceId: string, metaId: string, change: { status?: 'ACTIVE' | 'PAUSED'; daily_budget?: number }) {
         return this.request<any>('PATCH', `/tracking/sources/${sourceId}/meta-objects/${metaId}`, change);
     }

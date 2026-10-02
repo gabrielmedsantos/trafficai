@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { RefreshCw } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { RefreshCw, Plus } from 'lucide-react';
+import { NovaFonteModal } from '@/components/vendas/NovaFonteModal';
 import Sidebar from '@/components/Sidebar';
 import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox } from '@/components/vendas/shared';
 
@@ -21,7 +22,9 @@ const PAGES: Record<string, { title: string; subtitle: string; period: boolean }
 function Header() {
     const pathname = usePathname() || '/vendas';
     const page = PAGES[pathname] || PAGES['/vendas'];
-    const { sources, sourceId, setSourceId, periodKey, setPeriodKey, since, until, setCustomRange, reload } = useVendas();
+    const { sources, sourceId, setSourceId, periodKey, setPeriodKey, since, until, setCustomRange, reload, reloadSources } = useVendas();
+    const router = useRouter();
+    const [creating, setCreating] = useState(false);
     const label: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 };
 
     return (
@@ -37,6 +40,20 @@ function Header() {
                         {sources.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                     </select>
                 </label>
+                <button type="button" className="btn btn-secondary" onClick={() => setCreating(true)} style={{ padding: '8px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Plus size={14} /> Nova fonte
+                </button>
+                {creating && (
+                    <NovaFonteModal
+                        sources={sources}
+                        onClose={() => setCreating(false)}
+                        onCreated={async (id) => {
+                            setCreating(false);
+                            await reloadSources(id);
+                            router.push('/vendas/pixel');
+                        }}
+                    />
+                )}
                 {page.period && (
                     <>
                         <label style={label}>
@@ -72,8 +89,8 @@ function Body({ children }: { children: React.ReactNode }) {
     if (sourcesLoaded && !sources.length) {
         return (
             <EmptyBox>
-                Nenhuma fonte de tracking ainda. Crie uma em <Link href="/tracking" style={{ color: 'var(--accent-blue)' }}>Fontes e WhatsApp</Link> e
-                vincule a conta de anúncio do cliente.
+                Nenhuma fonte de tracking ainda. Clique em <b>Nova fonte</b> no topo e escolha a conta do cliente — ou crie em{' '}
+                <Link href="/tracking" style={{ color: 'var(--accent-blue)' }}>Fontes e WhatsApp</Link> para configurar CRM e WhatsApp.
             </EmptyBox>
         );
     }

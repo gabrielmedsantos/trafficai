@@ -80,6 +80,7 @@ interface VendasCtx {
     setCustomRange: (since: string, until: string) => void;
     reloadToken: number;
     reload: () => void;
+    reloadSources: (selectId?: string) => Promise<void>;
 }
 
 const Ctx = createContext<VendasCtx | null>(null);
@@ -99,16 +100,22 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     const [custom, setCustom] = useState<[string, string]>([brtToday(), brtToday()]);
     const [reloadToken, setReloadToken] = useState(0);
 
+    const loadSources = useCallback(async (selectId?: string) => {
+        try {
+            const list = (await api.getTrackingSources()) || [];
+            setSources(list);
+            const want = selectId || readLS('vendas_source');
+            const pick = list.find((s: any) => s.id === want) || list[0];
+            if (pick) { setSourceIdState(pick.id); if (selectId) writeLS('vendas_source', pick.id); }
+        } catch { /* página mostra estado vazio */ }
+        setSourcesLoaded(true);
+    }, []);
+
     useEffect(() => {
         const savedPeriod = readLS('vendas_period');
         if (PERIODS.some(p => p.key === savedPeriod) && savedPeriod !== 'custom') setPeriodKeyState(savedPeriod);
-        api.getTrackingSources().then((list) => {
-            setSources(list || []);
-            const saved = readLS('vendas_source');
-            const pick = (list || []).find((s: any) => s.id === saved) || (list || [])[0];
-            if (pick) setSourceIdState(pick.id);
-        }).catch(() => { /* página mostra estado vazio */ }).finally(() => setSourcesLoaded(true));
-    }, []);
+        loadSources();
+    }, [loadSources]);
 
     const setSourceId = useCallback((id: string) => { setSourceIdState(id); writeLS('vendas_source', id); }, []);
     const setPeriodKey = useCallback((k: string) => { setPeriodKeyState(k); writeLS('vendas_period', k); }, []);
@@ -126,6 +133,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         sources, sourcesLoaded, sourceId, source: sources.find(s => s.id === sourceId) || null, setSourceId,
         periodKey, setPeriodKey, since, until, setCustomRange,
         reloadToken, reload: () => setReloadToken(t => t + 1),
+        reloadSources: loadSources,
     };
     return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
