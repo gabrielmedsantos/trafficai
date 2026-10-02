@@ -115,7 +115,7 @@ router.patch('/customers/:id/subscription', async (req: Request, res: Response) 
         }
 
         if (allow_uazapi !== undefined) {
-            sets.push(`allow_uazapi = ${++i}`);
+            sets.push(`allow_uazapi = $${++i}`);
             params.push(allow_uazapi);
         }
 
