@@ -1489,22 +1489,38 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
         };
 
         // Monta o histórico com payloads
-        const history = events.map(ev => ({
-            id: ev.id,
-            event_name: ev.event_name,
-            created_at: ev.created_at,
-            value: ev.value,
-            currency: ev.currency,
-            meta_status: ev.meta_status,
-            meta_request: ev.custom_data,
-            meta_response: ev.meta_response,
-            meta_error: ev.meta_error,
-            meta_fbtrace_id: ev.meta_fbtrace_id,
-            utm: [ev.utm_source, ev.utm_medium, ev.utm_campaign].filter(Boolean).join(' / ') || null,
-            fbp: ev.fbp,
-            fbc: ev.fbc,
-            session_id: ev.session_id,
-        }));
+        const history = events.map(ev => {
+            // Extrai UTMs da event_source_url se existir
+            let utmString = null;
+            if (ev.event_source_url) {
+                try {
+                    const url = new URL(ev.event_source_url);
+                    const utmSource = url.searchParams.get('utm_source');
+                    const utmMedium = url.searchParams.get('utm_medium');
+                    const utmCampaign = url.searchParams.get('utm_campaign');
+                    const utms = [utmSource, utmMedium, utmCampaign].filter(Boolean);
+                    if (utms.length > 0) utmString = utms.join(' / ');
+                } catch (e) {
+                    // URL inválida, ignora
+                }
+            }
+            return {
+                id: ev.id,
+                event_name: ev.event_name,
+                created_at: ev.created_at,
+                value: ev.value,
+                currency: ev.currency,
+                meta_status: ev.meta_status,
+                meta_request: ev.custom_data,
+                meta_response: ev.meta_response,
+                meta_error: ev.meta_error,
+                meta_fbtrace_id: ev.meta_fbtrace_id,
+                utm: utmString,
+                fbp: ev.fbp,
+                fbc: ev.fbc,
+                session_id: ev.session_id,
+            };
+        });
 
         res.json({
             success: true,
