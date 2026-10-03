@@ -633,7 +633,13 @@ class ApiClient {
         if (params?.limit) qs.set('limit', String(params.limit));
         if (params?.offset) qs.set('offset', String(params.offset));
         if (params?.search) qs.set('search', params.search);
-        const json = await this.request<any>('GET', `/tracking/sources/${sourceId}/leads?${qs.toString()}`);
+        // request() já extrai json.data, então precisamos fazer fetch direto para pegar meta também
+        const url = `${this.baseUrl}/tracking/sources/${sourceId}/leads?${qs.toString()}`;
+        const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
+        storeRenewedToken(res);
+        if (res.status === 401 && this.getToken()) handleUnauthorized(`/tracking/sources/${sourceId}/leads`);
+        const json = await res.json() as ApiResponse<any> & { meta?: { total?: number; limit?: number; offset?: number } };
+        if (!json.success) throw new Error(json.error?.message || 'API request failed');
         return {
             data: json.data || [],
             total: Number(json.meta?.total) || 0,
