@@ -1,5 +1,5 @@
 // ==============================
-// TrafficAI — Webhooks de Hotmart, Eduzz e Cakto
+// TrafficAI — Webhooks de Hotmart, Eduzz, Cakto e Zouti
 // Cada plataforma vira o mesmo NormalizedOrder da Kiwify; daqui o fluxo é um
 // só (pedido, Purchase na Meta só na aprovação, notificação, recuperação).
 //
@@ -12,11 +12,14 @@
 //    createdAt, paidAt } }; carrinho: event 'sun.cart_abandonment'.
 //  - Cakto: { secret, event, data: { id, refId, customer, product, offer, amount, baseAmount,
 //    fees, commissions[], paymentMethod, status, checkoutUrl, createdAt, paidAt } }.
+//  - Zouti: { event: 'ORDER_PAID'|'ORDER_REFUNDED'|etc, order_id, customer{name,email,phone},
+//    amount, currency, product{name,id}, payment_method, utm{...}, sck, created_at, paid_at }
+//    Validação HMAC-SHA256 via header x-zouti-signature (t=timestamp,v1=hash).
 // ==============================
 
 import { NormalizedOrder, OrderStatus, normalizePaymentMethod, metaIdsFromUtms } from './sales-orders.service';
 
-export type Platform = 'hotmart' | 'eduzz' | 'cakto' | 'other';
+export type Platform = 'hotmart' | 'eduzz' | 'cakto' | 'zouti' | 'other';
 
 export type PlatformResult =
     | { kind: 'order'; order: NormalizedOrder }
@@ -69,12 +72,23 @@ const CAKTO_EVENTS = new Set([
     'subscription_paused', 'subscription_resumed', 'subscription_late', 'subscription_late_recovered',
 ]);
 
+// Zouti: eventos em UPPER_SNAKE_CASE com order_id no corpo.
+// Documentação pública indisponível — formato inferido do exemplo do usuário
+// ({ event: 'ORDER_PAID', order_id: 'ord_abc' }) + padrão de gateways BR.
+// O parser é tolerante e loga o payload bruto pra ajuste fino no 1º evento real.
+const ZOUTI_EVENTS = new Set([
+    'ORDER_PAID', 'ORDER_REFUNDED', 'ORDER_CANCELED', 'ORDER_CANCELLED',
+    'ORDER_CHARGEBACK', 'ORDER_PENDING', 'ORDER_EXPIRED', 'ORDER_CREATED',
+    'ORDER_APPROVED', 'ORDER_REJECTED', 'ORDER_DECLINED',
+]);
+
 export function detectPlatform(b: any): Platform | null {
     if (!b || typeof b !== 'object') return null;
     const ev = String(b.event || '');
     if (/^PURCHASE_|^SUBSCRIPTION_CANCELLATION$|^SWITCH_PLAN$/.test(ev) && b.data && typeof b.data === 'object') return 'hotmart';
     if (/^myeduzz\.invoice_|^sun\.cart_abandonment$/.test(ev)) return 'eduzz';
     if (CAKTO_EVENTS.has(ev) && b.data && typeof b.data === 'object') return 'cakto';
+    if (ZOUTI_EVENTS.has(ev) && (b.order_id || b.id)) return 'zouti';
     // Formato próprio do TrafficAI pra qualquer outro checkout/automação (n8n, Make…)
     if (ev === 'order' && (b.order_id || b.id)) return 'other';
     return null;
@@ -85,6 +99,7 @@ export function parsePlatformWebhook(platform: Platform, b: any): PlatformResult
         case 'hotmart': return parseHotmart(b);
         case 'eduzz': return parseEduzz(b);
         case 'cakto': return parseCakto(b);
+        case 'zouti': return parseZouti(b);
         case 'other': return parseGeneric(b);
     }
 }
@@ -297,6 +312,58 @@ function parseGeneric(b: any): PlatformResult {
         raw: b,
     };
     return status === 'abandoned' ? { kind: 'cart', order } : { kind: 'order', order };
+}
+
+// ─── Zouti ──────────────────────────────────────────────────────────────
+// Plataforma de pagamento BR. Webhook com header x-zouti-signature
+// (t=timestamp,v1=hmac_sha256). Eventos em UPPER_SNAKE_CASE.
+// Formato inferido do exemplo do usuário + padrão de gateways BR — parser
+// tolerante que loga o payload bruto pra ajuste fino no 1º evento real.
+function zoutiStatus(ev: string): OrderStatus | null {
+    const e = ev.toUpperCase();
+    if (e === 'ORDER_PAID' || e === 'ORDER_APPROVED') return 'approved';
+    if (e === 'ORDER_REFUNDED') return 'refunded';
+    if (e === 'ORDER_CHARGEBACK') return 'chargeback';
+    if (e === 'ORDER_CANCELED' || e === 'ORDER_CANCELLED' || e === 'ORDER_EXPIRED') return 'canceled';
+    if (e === 'ORDER_REJECTED' || e === 'ORDER_DECLINED') return 'refused';
+    if (e === 'ORDER_PENDING' || e === 'ORDER_CREATED') return 'pending';
+    return null;
+}
+function parseZouti(b: any): PlatformResult {
+    const ev = String(b.event || '');
+    const st = zoutiStatus(ev);
+    if (!st) return { kind: 'ignore', reason: `evento Zouti ${ev} sem mapeamento de status` };
+    const c = b.customer || b.buyer || {};
+    const p = b.product || b.item || {};
+    if (looksLikeTest(c.email, p.name || b.product_name)) return { kind: 'test' };
+    const orderId = String(b.order_id || b.id || '');
+    if (!orderId) return { kind: 'ignore', reason: 'webhook Zouti sem order_id' };
+    // Valor: tenta amount, total, price, value — em centavos ou reais.
+    const rawVal = num(b.amount) ?? num(b.total) ?? num(b.price) ?? num(b.value);
+    // Zouti pode mandar em centavos (inteiro grande) — heuristic: se > 10000 e inteiro, divide por 100.
+    const grossValue = rawVal != null && rawVal > 10000 && Number.isInteger(rawVal) ? rawVal / 100 : rawVal;
+    const order: NormalizedOrder = {
+        platform: 'zouti',
+        external_order_id: orderId,
+        status: st,
+        payment_method: normalizePaymentMethod(b.payment_method || b.paymentMethod || b.payment_type),
+        product_id: pick(p.id, b.product_id),
+        product_name: pick(p.name, b.product_name, b.description),
+        gross_value: grossValue,
+        net_value: num(b.net_amount) ?? num(b.netAmount),
+        currency: pick(b.currency) || 'BRL',
+        customer_name: pick(c.name, c.full_name, b.customer_name),
+        customer_email: pick(c.email, b.customer_email),
+        customer_phone: pick(c.phone, c.cellphone, b.customer_phone),
+        checkout_url: pick(b.checkout_url, b.checkoutUrl),
+        ...utmFrom(b.utm || b),
+        sck: pick(b.sck, b.session_id, b.tracking_code),
+        order_created_at: iso(b.created_at || b.createdAt),
+        approved_at: st === 'approved' ? iso(b.paid_at || b.paidAt || b.approved_at) : undefined,
+        refunded_at: st === 'refunded' ? iso(b.refunded_at || b.refundedAt) : undefined,
+        raw: b,
+    };
+    return { kind: 'order', order };
 }
 
 /** Evento Purchase pra Meta a partir do pedido aprovado (mesmo formato da Kiwify). */

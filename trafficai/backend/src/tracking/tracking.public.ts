@@ -302,12 +302,54 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 return crypto.timingSafeEqual(ba, bb);
             };
 
-            // (1) HMAC assinado
-            const signature = (req.headers['x-tai-signature'] as string) || '';
-            if (signature) {
-                const raw = JSON.stringify(req.body || {});
-                const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
-                if (safeEq(signature, expected)) authenticated = true;
+            // (0) Zouti HMAC — header x-zouti-signature: t=timestamp,v1=hash
+            // Validação específica da Zouti com proteção contra replay (5 min).
+            // O raw body deve ser usado (não o JSON parseado) para o cálculo do HMAC.
+            const zoutiSig = (req.headers['x-zouti-signature'] as string) || '';
+            if (zoutiSig && secret.startsWith('whsec_')) {
+                try {
+                    const parts = Object.fromEntries(zoutiSig.split(',').map(p => {
+                        const [k, ...rest] = p.split('=');
+                        return [k.trim(), rest.join('=').trim()];
+                    }));
+                    const timestamp = parts['t'];
+                    const signature = parts['v1'];
+
+                    if (timestamp && signature) {
+                        // Proteção contra replay: rejeita se timestamp fora dos últimos 5 minutos
+                        const ts = Number(timestamp);
+                        const now = Date.now();
+                        const fiveMinutes = 5 * 60 * 1000;
+
+                        if (Math.abs(now - ts) <= fiveMinutes) {
+                            // Zouti usa o raw body (bytes crus) para o HMAC, não o JSON stringify
+                            // Precisamos reconstruir o raw body ou usar o que chegou
+                            const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+                            const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+
+                            if (safeEq(signature, expected)) {
+                                authenticated = true;
+                                logger.info('webhook Zouti: assinatura HMAC válida', { source: source.id, timestamp: ts });
+                            } else {
+                                logger.warn('webhook Zouti: assinatura HMAC inválida', { source: source.id, expected, received: signature });
+                            }
+                        } else {
+                            logger.warn('webhook Zouti: timestamp fora da janela de 5 minutos', { source: source.id, timestamp: ts, now });
+                        }
+                    }
+                } catch (e: any) {
+                    logger.warn('webhook Zouti: erro ao validar assinatura', { source: source.id, error: e.message });
+                }
+            }
+
+            // (1) HMAC assinado (padrão TrafficAI)
+            if (!authenticated) {
+                const signature = (req.headers['x-tai-signature'] as string) || '';
+                if (signature) {
+                    const raw = JSON.stringify(req.body || {});
+                    const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+                    if (safeEq(signature, expected)) authenticated = true;
+                }
             }
 
             // (2) Authorization: Bearer <secret>
