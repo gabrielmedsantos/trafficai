@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '@/lib/api';
 import {
     Activity, Plus, X, Copy, Check, Trash2, Pencil, RefreshCw, Clock,
@@ -4924,8 +4925,8 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
         }
     }
 
-    return (
-        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1200 }}>
+    return createPortal(
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 9999 }}>
             <form className="modal-box" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()} onSubmit={submit}>
                 <div className="modal-header">
                     <div className="modal-title">
@@ -5303,6 +5304,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
                     </div>
                 </div>
             </form>
-        </div>
+        </div>,
+        document.body
     );
 }
