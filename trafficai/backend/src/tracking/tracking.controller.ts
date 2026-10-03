@@ -1531,12 +1531,15 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
         const { id } = req.params;
         const { limit = '50', offset = '0', search = '' } = req.query;
 
+        logger.info('tracking: /leads chamado', { userId, sourceId: id, limit, offset, search });
+
         // Verifica se o source pertence ao usuário
         const sourceCheck = await queryOne<{ id: string }>(
             `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
             [id, userId]
         );
         if (!sourceCheck) {
+            logger.warn('tracking: /leads source não encontrado', { userId, sourceId: id });
             return res.status(404).json({ success: false, error: { message: 'Fonte não encontrada' } });
         }
 
