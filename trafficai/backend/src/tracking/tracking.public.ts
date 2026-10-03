@@ -1411,15 +1411,70 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     }).observe(document.documentElement, { childList: true, subtree: true });
   } catch(e){}
 
+  // ── Detecção automática de AddToCart e InitiateCheckout por texto ─────
+  // Padrão UTMFY: detecta cliques em botões/links com texto configurável.
+  // Textos padrão em PT-BR para e-commerce brasileiro.
+  var ADD_TO_CART_TEXTS = ['adicionar ao carrinho', 'add ao carrinho', 'comprar agora', 'quero comprar', 'adicionar', 'add to cart', 'add to bag'];
+  var CHECKOUT_TEXTS = ['finalizar compra', 'checkout', 'pagar agora', 'ir para pagamento', 'continuar', 'prosseguir', 'encomendar agora', 'buy now', 'place order'];
+
+  function getText(el) {
+    if (!el) return '';
+    var text = (el.textContent || el.innerText || '').trim().toLowerCase();
+    // Também verifica value de inputs/buttons
+    if (el.value) text += ' ' + String(el.value).toLowerCase();
+    // Verifica aria-label e title
+    if (el.getAttribute) {
+      var aria = el.getAttribute('aria-label') || '';
+      var title = el.getAttribute('title') || '';
+      text += ' ' + aria.toLowerCase() + ' ' + title.toLowerCase();
+    }
+    return text;
+  }
+
+  function matchesText(text, patterns) {
+    for (var i = 0; i < patterns.length; i++) {
+      if (text.indexOf(patterns[i]) !== -1) return true;
+    }
+    return false;
+  }
+
+  var addToCartTracked = false;
   var checkoutTracked = false;
   document.addEventListener('click', function(e){
     var el = e.target;
+    var clickedText = '';
     while (el && el !== document) {
+      // Coleta texto do elemento clicado e pais próximos
+      if (!clickedText) clickedText = getText(el);
+
+      // Link de checkout externo (Kiwify, Hotmart, etc.)
       if (el.tagName === 'A' && isCheckoutLink(el)) {
         el.href = decorate(el.href);
-        if (!checkoutTracked) { checkoutTracked = true; track('InitiateCheckout', { custom_data: { checkout_url: el.href.split('?')[0] } }); }
+        if (!checkoutTracked) {
+          checkoutTracked = true;
+          track('InitiateCheckout', { custom_data: { checkout_url: el.href.split('?')[0] } });
+        }
         return;
       }
+
+      // Botão/link com texto de AddToCart
+      if ((el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT') && !addToCartTracked) {
+        if (matchesText(clickedText, ADD_TO_CART_TEXTS)) {
+          addToCartTracked = true;
+          track('AddToCart', { custom_data: { content_name: clickedText.slice(0, 100) } });
+          return;
+        }
+      }
+
+      // Botão/link com texto de InitiateCheckout (não é link externo)
+      if ((el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT') && !checkoutTracked) {
+        if (matchesText(clickedText, CHECKOUT_TEXTS)) {
+          checkoutTracked = true;
+          track('InitiateCheckout', { custom_data: { trigger: 'text_detection' } });
+          return;
+        }
+      }
+
       el = el.parentNode;
     }
   }, true);
