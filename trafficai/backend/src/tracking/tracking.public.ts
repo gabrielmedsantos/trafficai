@@ -1091,16 +1091,28 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   var EP_CLICK = API + '/api/v1/track/click/' + TOKEN;
 
   // ── Inicialização do Meta Pixel (fbq) — necessário para PixelHelper detectar ──
-  // Padrão oficial Meta: cria fila fbq, carrega fbevents.js e chama init.
-  // O fbevents.js processa a fila automaticamente quando carrega — não precisa esperar.
-  if (PIXEL_ID && !window.fbq) {
-    !function(f,b,e,v,n,t,s){
-      if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];
-      t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);
-    }(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init', PIXEL_ID);
-    fbq('track', 'PageView');
+  // Snippet oficial Meta completo: cria fbq + _fbq, enfileira init+track,
+  // e injeta fbevents.js no <head> com async+defer (mesmo padrão da UTMFY).
+  if (PIXEL_ID) {
+    if (!window.fbq) {
+      window.fbq = function() {
+        window.fbq.callMethod ? window.fbq.callMethod.apply(window.fbq, arguments) : window.fbq.queue.push(arguments);
+      };
+      window.fbq.push = window.fbq;
+      window.fbq.loaded = true;
+      window.fbq.version = '2.0';
+      window.fbq.queue = [];
+      window._fbq = window.fbq;
+    }
+    window.fbq('init', PIXEL_ID);
+    window.fbq('track', 'PageView');
+    if (!document.querySelector('script[src*="fbevents.js"]')) {
+      var fbs = document.createElement('script');
+      fbs.async = true;
+      fbs.defer = true;
+      fbs.src = 'https://connect.facebook.net/en_US/fbevents.js';
+      (document.head || document.documentElement).appendChild(fbs);
+    }
   }
 
   // ── Cookies e storage ─────────────────────────────────────────────────
