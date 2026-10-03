@@ -944,7 +944,7 @@ function SourceDetail({ source, onClose, onEdit }: {
 
     const pixelUrl = `${API_BASE}/track/pixel/${source.public_token}.js`;
     const webhookUrl = `${API_BASE}/track/webhook/${source.public_token}`;
-    const embed = `<script async src="${pixelUrl}"></script>`;
+    const embed = `<script>(function(){if(!window.fbq){window.fbq=function(){window.fbq.callMethod?window.fbq.callMethod.apply(window.fbq,arguments):window.fbq.queue.push(arguments)};window.fbq.push=window.fbq;window.fbq.loaded=!0;window.fbq.version='2.0';window.fbq.queue=[];window._fbq=window.fbq}var s=document.createElement('script');s.src='${pixelUrl}';s.async=true;s.defer=true;(document.head||document.documentElement).appendChild(s)})();</script>`;
 
     return (
         <div>

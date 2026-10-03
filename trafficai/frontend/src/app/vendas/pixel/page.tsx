@@ -37,7 +37,7 @@ export default function PixelPage() {
     }
 
     if (!source) return null;
-    const pixelSnippet = `<script async src="${API_BASE}/track/pixel/${source.public_token}.js"></script>`;
+    const pixelSnippet = `<script>(function(){if(!window.fbq){window.fbq=function(){window.fbq.callMethod?window.fbq.callMethod.apply(window.fbq,arguments):window.fbq.queue.push(arguments)};window.fbq.push=window.fbq;window.fbq.loaded=!0;window.fbq.version='2.0';window.fbq.queue=[];window._fbq=window.fbq}var s=document.createElement('script');s.src='${API_BASE}/track/pixel/${source.public_token}.js';s.async=true;s.defer=true;(document.head||document.documentElement).appendChild(s)})();</script>`;
     const selected: string[] = settings?.purchase_products || [];
     const toggleProduct = (name: string) => setSettings((s: any) => ({
         ...s, purchase_products: selected.includes(name) ? selected.filter(p => p !== name) : [...selected, name],
