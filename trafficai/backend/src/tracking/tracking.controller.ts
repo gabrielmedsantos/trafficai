@@ -1462,8 +1462,7 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                     event_source_url, value, currency, custom_data, user_data_hashed,
                     client_ip, client_user_agent, city, state, country, zip,
                     fbp, fbc, session_id, emq_score, meta_status, meta_response,
-                    meta_error, meta_fbtrace_id, created_at,
-                    utm_source, utm_medium, utm_campaign, utm_content, utm_term
+                    meta_error, meta_fbtrace_id, created_at
              FROM tracking_events
              WHERE source_id = $1 AND ${groupColumn} = $2
              ORDER BY created_at ASC`,
