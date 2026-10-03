@@ -1606,8 +1606,8 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
             meta: { total, limit: lim, offset: off }
         });
     } catch (err: any) {
-        logger.error('tracking: listar leads falhou', { error: err.message });
-        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+        logger.error('tracking: listar leads falhou', { error: err.message, stack: err.stack, sourceId: req.params.id, userId: (req as any).user.userId });
+        res.status(500).json({ success: false, error: { message: 'Erro interno: ' + err.message } });
     }
 });
 
