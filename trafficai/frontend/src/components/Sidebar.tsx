@@ -38,6 +38,7 @@ import {
     Receipt,
     Code2,
     RotateCcw,
+    ShieldCheck,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -116,6 +117,7 @@ const AREAS = [
                     { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },
                     { href: '/vendas/pedidos',    label: 'Pedidos',           icon: ShoppingCart, color: C.green },
                     { href: '/vendas/recuperacao', label: 'Recuperação',      icon: RotateCcw, color: C.orange },
+                    { href: '/vendas/auditoria',  label: 'Auditoria',         icon: ShieldCheck, color: C.blue },
                 ],
             },
             {
