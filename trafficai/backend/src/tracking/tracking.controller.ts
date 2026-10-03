@@ -1570,10 +1570,7 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
                    event_source_url, value, currency, emq_score, meta_status,
                    meta_error, meta_fbtrace_id, created_at,
                    city, state, country, fbp, fbc, session_id,
-                   client_ip, client_user_agent,
-                   utm_source, utm_medium, utm_campaign,
-                   meta_campaign_id, meta_campaign_name,
-                   attribution_confidence, attribution_reason
+                   client_ip, client_user_agent, custom_data
             FROM tracking_events
             WHERE ${whereSql}
             ORDER BY COALESCE(fbp, session_id, external_id, id::text), created_at ASC
