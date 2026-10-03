@@ -14,11 +14,11 @@ const PAGES: Record<string, { title: string; subtitle: string; period: boolean }
     '/vendas/utms': { title: 'UTMs', subtitle: 'Vendas agrupadas por qualquer parâmetro UTM.', period: true },
     '/vendas/diario': { title: 'Relatório diário', subtitle: 'Resultado dia a dia no fuso de Brasília.', period: true },
     '/vendas/recuperacao': { title: 'Recuperação de vendas', subtitle: 'Carrinhos abandonados, Pix/boleto não pagos e pagamentos recusados — chame o cliente no WhatsApp.', period: true },
+    '/vendas/auditoria': { title: 'Auditoria', subtitle: 'Mapa de regiões, volume de eventos e perfil completo do usuário com payload enviado à Meta.', period: false },
     '/vendas/pedidos': { title: 'Pedidos', subtitle: 'Todos os pedidos recebidos das plataformas de checkout.', period: true },
     '/vendas/custos': { title: 'Custos e impostos', subtitle: 'Imposto, custo de produto e despesas adicionais — entram no cálculo do lucro.', period: true },
     '/vendas/integracoes': { title: 'Integrações', subtitle: 'Conecte as plataformas de checkout pra receber as vendas.', period: false },
     '/vendas/pixel': { title: 'Pixel e UTMs', subtitle: 'Instalação do script, parâmetros dos anúncios e regras do evento de compra.', period: false },
-    '/vendas/auditoria': { title: 'Auditoria', subtitle: 'Mapa de regiões, volume de eventos e perfil completo do usuário com payload enviado à Meta.', period: false },
 };
 
 const QUICK = ['today', 'yesterday', '7d', '30d', 'month'];
