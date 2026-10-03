@@ -4925,7 +4925,7 @@ function SourceFormModal({ mode, source, accounts, onClose, onSaved, onAccountsR
     }
 
     return (
-        <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1200 }}>
             <form className="modal-box" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()} onSubmit={submit}>
                 <div className="modal-header">
                     <div className="modal-title">
