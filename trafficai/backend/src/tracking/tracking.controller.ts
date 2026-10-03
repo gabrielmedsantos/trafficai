@@ -1503,6 +1503,31 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                     // URL inválida, ignora
                 }
             }
+
+            // Usa o snapshot imutável do payload enviado à Meta (se existir)
+            // Para eventos antigos sem snapshot, reconstrói com os dados da época
+            let metaRequestPayload;
+            if (ev.meta_request_payload) {
+                // Snapshot exato do que foi enviado — imutável, usado para auditoria
+                metaRequestPayload = ev.meta_request_payload;
+            } else {
+                // Evento antigo sem snapshot — reconstrói com os dados que existiam na época
+                // NOTA: city/state/country podem estar null aqui porque não foram resolvidos no envio original
+                metaRequestPayload = {
+                    event_name: ev.event_name,
+                    event_time: ev.event_time,
+                    action_source: ev.action_source,
+                    ...(ev.event_source_url && { event_source_url: ev.event_source_url }),
+                    ...(ev.user_data_hashed && Object.keys(ev.user_data_hashed).length > 0 && { user_data: ev.user_data_hashed }),
+                    ...(ev.custom_data && Object.keys(ev.custom_data).length > 0 && { custom_data: ev.custom_data }),
+                    // Localização só aparece se estava presente no envio original (não usa dados retroativos)
+                    ...(ev.city && { city: ev.city }),
+                    ...(ev.state && { state: ev.state }),
+                    ...(ev.country && { country: ev.country }),
+                    ...(ev.zip && { zip: ev.zip }),
+                };
+            }
+
             return {
                 id: ev.id,
                 event_name: ev.event_name,
@@ -1510,19 +1535,8 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                 value: ev.value,
                 currency: ev.currency,
                 meta_status: ev.meta_status,
-                // Payload completo enviado à Meta (custom_data + user_data_hashed)
-                meta_request: {
-                    custom_data: ev.custom_data,
-                    user_data: ev.user_data_hashed,
-                    client_ip_address: ev.client_ip,
-                    client_user_agent: ev.client_user_agent,
-                    city: ev.city,
-                    state: ev.state,
-                    country: ev.country,
-                    zip: ev.zip,
-                    event_source_url: ev.event_source_url,
-                    action_source: ev.action_source,
-                },
+                // Payload EXATO enviado à Meta (snapshot imutável ou reconstruído da época)
+                meta_request: metaRequestPayload,
                 meta_response: ev.meta_response,
                 meta_error: ev.meta_error,
                 meta_fbtrace_id: ev.meta_fbtrace_id,
@@ -1530,13 +1544,15 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                 fbp: ev.fbp,
                 fbc: ev.fbc,
                 session_id: ev.session_id,
-                // Dados adicionais para auditoria
+                // Dados atuais do lead (podem ter sido atualizados retroativamente)
                 client_ip: ev.client_ip,
                 client_user_agent: ev.client_user_agent,
                 city: ev.city,
                 state: ev.state,
                 country: ev.country,
                 emq_score: ev.emq_score,
+                // Flag para indicar se o payload é um snapshot real ou reconstruído
+                meta_request_is_snapshot: !!ev.meta_request_payload,
             };
         });
 

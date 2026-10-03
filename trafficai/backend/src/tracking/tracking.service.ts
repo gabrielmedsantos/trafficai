@@ -522,13 +522,25 @@ export async function trackEvent(
         }
     }
 
+    // Snapshot do payload exato enviado à Meta — imutável, usado para auditoria
+    const metaRequestSnapshot = {
+        event_name: event.event_name,
+        event_time: eventTime,
+        event_id: eventId,
+        action_source: actionSource,
+        ...(event.messaging_channel && { messaging_channel: event.messaging_channel }),
+        ...(event.event_source_url && { event_source_url: event.event_source_url }),
+        ...(Object.keys(userData).length > 0 && { user_data: userData }),
+        ...(Object.keys(customData).length > 0 && { custom_data: customData }),
+    };
+
     // Persiste — JSONB recebe objeto diretamente
     try {
         await query(
             `INSERT INTO tracking_events (
                 source_id, event_name, event_id, event_time, action_source, messaging_channel,
                 external_id, event_source_url, value, currency,
-                custom_data, user_data_hashed,
+                custom_data, user_data_hashed, meta_request_payload,
                 client_ip, client_user_agent, city, state, country, zip, fbp, fbc, ctwa_clid,
                 gclid, session_id,
                 emq_score, meta_status, meta_response, meta_error, meta_fbtrace_id,
@@ -538,13 +550,13 @@ export async function trackEvent(
             ) VALUES (
                 $1,$2,$3,$4,$5,$6,
                 $7,$8,$9,$10,
-                $11,$12,
-                $13,$14,$15,$16,$17,$18,$19,$20,$21,
-                $22,$23,
-                $24,$25,$26,$27,$28,
-                $29,$30,$31,$32,$33,$34,
-                $35,$36,$37,$38,$39,$40,$41,
-                $42,$43,$44,$45,$46
+                $11,$12,$13,
+                $14,$15,$16,$17,$18,$19,$20,$21,$22,
+                $23,$24,
+                $25,$26,$27,$28,$29,
+                $30,$31,$32,$33,$34,$35,
+                $36,$37,$38,$39,$40,$41,$42,
+                $43,$44,$45,$46,$47
             )`,
             [
                 source.id,
@@ -559,6 +571,7 @@ export async function trackEvent(
                 event.currency || null,
                 JSON.stringify(customData),
                 JSON.stringify(userData),
+                JSON.stringify(metaRequestSnapshot),
                 event.user_data?.client_ip || null,
                 event.user_data?.client_user_agent || null,
                 event.user_data?.city || null,
