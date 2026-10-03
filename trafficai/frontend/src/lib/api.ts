@@ -628,24 +628,42 @@ class ApiClient {
             }>;
         }>('GET', `/tracking/sources/${sourceId}/user-profile/${encodeURIComponent(identifier)}`);
     }
+    // Fetch direto para /leads com logs de debug - bypass do request() para evitar cache do bundler
     async getTrackingLeads(sourceId: string, params?: { limit?: number; offset?: number; search?: string }) {
         const qs = new URLSearchParams();
         if (params?.limit) qs.set('limit', String(params.limit));
         if (params?.offset) qs.set('offset', String(params.offset));
         if (params?.search) qs.set('search', params.search);
-        // request() já extrai json.data, então precisamos fazer fetch direto para pegar meta também
+
         const url = `${this.baseUrl}/tracking/sources/${sourceId}/leads?${qs.toString()}`;
-        const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
-        storeRenewedToken(res);
-        if (res.status === 401 && this.getToken()) handleUnauthorized(`/tracking/sources/${sourceId}/leads`);
-        const json = await res.json() as ApiResponse<any> & { meta?: { total?: number; limit?: number; offset?: number } };
-        if (!json.success) throw new Error(json.error?.message || 'API request failed');
-        return {
-            data: json.data || [],
-            total: Number(json.meta?.total) || 0,
-            limit: Number(json.meta?.limit) || (params?.limit ?? 50),
-            offset: Number(json.meta?.offset) || (params?.offset ?? 0),
-        };
+        console.log('[AUDITORIA] Chamando getTrackingLeads:', url);
+
+        try {
+            const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
+            storeRenewedToken(res);
+
+            if (res.status === 401 && this.getToken()) {
+                handleUnauthorized(`/tracking/sources/${sourceId}/leads`);
+                throw new Error('Não autorizado');
+            }
+
+            const json = await res.json() as ApiResponse<any> & { meta?: { total?: number; limit?: number; offset?: number } };
+            console.log('[AUDITORIA] Resposta do backend:', { success: json.success, dataLength: json.data?.length || 0, total: json.meta?.total });
+
+            if (!json.success) {
+                throw new Error(json.error?.message || 'API request failed');
+            }
+
+            return {
+                data: json.data || [],
+                total: Number(json.meta?.total) || 0,
+                limit: Number(json.meta?.limit) || (params?.limit ?? 50),
+                offset: Number(json.meta?.offset) || (params?.offset ?? 0),
+            };
+        } catch (err) {
+            console.error('[AUDITORIA] Erro ao buscar leads:', err);
+            throw err;
+        }
     }
     async getTrackingHealth(sourceId: string) {
         return this.request<{
