@@ -131,6 +131,7 @@ export interface TrackingUserInput {
     gbraid?: string;        // Google Ads click id (app→web, iOS 14.5+)
     wbraid?: string;        // Google Ads click id (web→app, privacidade)
     client_ip?: string;
+    client_ip_address?: string; // Meta CAPI standard field name (alias for client_ip)
     client_user_agent?: string;
     // WhatsApp Click-to-Message attribution
     ctwa_clid?: string;     // Click-to-WhatsApp Click ID
@@ -397,9 +398,11 @@ export async function trackEvent(
 
     // Geolocalização por IP — fallback quando os headers Cloudflare (CF-IPCountry etc.)
     // não estão disponíveis. Preenche city/state/country/zip se estiverem vazios.
-    if (event.user_data && !event.user_data.city && event.user_data.client_ip) {
+    // Aceita tanto client_ip quanto client_ip_address (padrão Meta CAPI)
+    const ipForGeo = event.user_data?.client_ip || event.user_data?.client_ip_address;
+    if (event.user_data && !event.user_data.city && ipForGeo) {
         try {
-            const geo = await resolveGeoFromIp(event.user_data.client_ip);
+            const geo = await resolveGeoFromIp(ipForGeo);
             if (geo.city) event.user_data.city = geo.city;
             if (geo.state) event.user_data.state = geo.state;
             if (geo.country) event.user_data.country = geo.country;
