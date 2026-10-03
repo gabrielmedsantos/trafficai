@@ -1580,6 +1580,7 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
             LIMIT $${params.length - 1} OFFSET $${params.length}
         `;
         const rows = await query<any>(sql, params);
+        logger.info('tracking: /leads query retornou', { rowCount: rows.length, total, sql: sql.substring(0, 200) });
 
         // Para cada lead, conta quantos eventos totais ele tem
         const leadsWithCounts = await Promise.all(rows.map(async (lead) => {
@@ -1598,6 +1599,7 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
             };
         }));
 
+        logger.info('tracking: /leads retornando resposta', { leadsCount: leadsWithCounts.length, total, firstLead: leadsWithCounts[0]?.group_key });
         res.json({
             success: true,
             data: leadsWithCounts,
