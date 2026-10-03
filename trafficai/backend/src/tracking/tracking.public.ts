@@ -1081,7 +1081,7 @@ function normalizeKiwifyPayload(body: any): { order: NormalizedOrder; purchase: 
 }
 
 function buildPixelScript(token: string, apiBase: string, pixelId: string | null): string {
-    return `/* TrafficAI Pixel · token=${token} · v2 */
+    return `/* TrafficAI Pixel · token=${token} · v3 */
 (function(){
   if (window.TrafficAI && window.TrafficAI._loaded) return;
   var API = ${JSON.stringify(apiBase)};
@@ -1089,6 +1089,18 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   var PIXEL_ID = ${JSON.stringify(pixelId || '')};
   var EP_EVENT = API + '/api/v1/track/event/' + TOKEN;
   var EP_CLICK = API + '/api/v1/track/click/' + TOKEN;
+
+  // ── Inicialização do Meta Pixel (fbq) — necessário para PixelHelper detectar ──
+  // Carrega fbevents.js e inicializa fbq('init', PIXEL_ID) conforme padrão oficial Meta.
+  // Sem isso, o PixelHelper não reconhece o pixel mesmo que os eventos sejam enviados via CAPI.
+  if (PIXEL_ID && !window.fbq) {
+    !function(f,b,e,v,n,t,s){
+      if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];
+      t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);
+    }(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    try { window.fbq('init', PIXEL_ID); } catch(e){}
+  }
 
   // ── Cookies e storage ─────────────────────────────────────────────────
   function getCookie(name){
