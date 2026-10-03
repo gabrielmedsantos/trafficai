@@ -608,13 +608,15 @@ class ApiClient {
             offset: Number(json.meta?.offset) || (params?.offset ?? 0),
         };
     }
-    async getTrackingUserProfile(sourceId: string, externalId: string) {
+    async getTrackingUserProfile(sourceId: string, identifier: string) {
         return this.request<{
             external_id: string;
+            group_key: string;
+            group_column: string;
             profile: {
                 location: string; origin: string; last_page: string | null;
                 first_seen: string; last_seen: string;
-                fbp: string | null; fbc: string | null;
+                fbp: string | null; fbc: string | null; session_id: string | null;
                 ip: string | null; user_agent: string | null; event_count: number;
             };
             history: Array<{
@@ -622,8 +624,22 @@ class ApiClient {
                 value: number | null; currency: string | null;
                 meta_status: string; meta_request: any; meta_response: any;
                 meta_error: string | null; meta_fbtrace_id: string | null; utm: string | null;
+                fbp: string | null; fbc: string | null; session_id: string | null;
             }>;
-        }>('GET', `/tracking/sources/${sourceId}/user/${encodeURIComponent(externalId)}`);
+        }>('GET', `/tracking/sources/${sourceId}/user-profile/${encodeURIComponent(identifier)}`);
+    }
+    async getTrackingLeads(sourceId: string, params?: { limit?: number; offset?: number; search?: string }) {
+        const qs = new URLSearchParams();
+        if (params?.limit) qs.set('limit', String(params.limit));
+        if (params?.offset) qs.set('offset', String(params.offset));
+        if (params?.search) qs.set('search', params.search);
+        const json = await this.request<any>('GET', `/tracking/sources/${sourceId}/leads?${qs.toString()}`);
+        return {
+            data: json.data || [],
+            total: Number(json.meta?.total) || 0,
+            limit: Number(json.meta?.limit) || (params?.limit ?? 50),
+            offset: Number(json.meta?.offset) || (params?.offset ?? 0),
+        };
     }
     async getTrackingHealth(sourceId: string) {
         return this.request<{

@@ -9,35 +9,36 @@ import { api } from '@/lib/api';
 export default function AuditoriaPage() {
     const { sourceId } = useVendas();
     const [stats, setStats] = useState<any>(null);
-    const [events, setEvents] = useState<any[]>([]);
-    const [eventsTotal, setEventsTotal] = useState(0);
-    const [eventsOffset, setEventsOffset] = useState(0);
+    const [leads, setLeads] = useState<any[]>([]);
+    const [leadsTotal, setLeadsTotal] = useState(0);
+    const [leadsOffset, setLeadsOffset] = useState(0);
     const [loading, setLoading] = useState(true);
     const [userProfile, setUserProfile] = useState<any>(null);
     const [userProfileLoading, setUserProfileLoading] = useState(false);
+    const [search, setSearch] = useState('');
 
     useEffect(() => {
         if (!sourceId) return;
         setLoading(true);
         Promise.all([
             api.getTrackingStats(sourceId),
-            api.getTrackingEvents(sourceId, { limit: 50, offset: 0 }),
-        ]).then(([s, e]) => {
+            api.getTrackingLeads(sourceId, { limit: 50, offset: 0, search: search || undefined }),
+        ]).then(([s, l]) => {
             setStats(s);
-            setEvents(e.data || []);
-            setEventsTotal(e.total || 0);
-            setEventsOffset(e.offset || 0);
+            setLeads(l.data || []);
+            setLeadsTotal(l.total || 0);
+            setLeadsOffset(l.offset || 0);
         }).catch(() => {
             setStats(null);
-            setEvents([]);
+            setLeads([]);
         }).finally(() => setLoading(false));
-    }, [sourceId]);
+    }, [sourceId, search]);
 
-    async function openUserProfile(externalId: string) {
+    async function openUserProfile(identifier: string) {
         if (!sourceId) return;
         setUserProfileLoading(true);
         try {
-            const data = await api.getTrackingUserProfile(sourceId, externalId);
+            const data = await api.getTrackingUserProfile(sourceId, identifier);
             setUserProfile(data);
         } catch (err: any) {
             console.error('Failed to load user profile:', err);
@@ -133,11 +134,30 @@ export default function AuditoriaPage() {
                 </Card>
             )}
 
-            {/* Tabela de eventos */}
+            {/* Busca de leads */}
+            <div style={{ marginBottom: 16 }}>
+                <input
+                    type="text"
+                    placeholder="Buscar por IP, cookie (_fbp), session_id ou external_id..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        fontSize: 13,
+                        background: 'var(--bg-surface-2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 8,
+                        color: 'var(--text-primary)',
+                    }}
+                />
+            </div>
+
+            {/* Tabela de leads (apenas PageViews) */}
             <Card style={{ padding: '20px 24px' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Eventos recentes</div>
-                {events.length === 0 ? (
-                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum evento encontrado.</div>
+                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Leads (PageViews únicos)</div>
+                {leads.length === 0 ? (
+                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>Nenhum lead encontrado.</div>
                 ) : (
                     <>
                         <div style={{ overflowX: 'auto' }}>
@@ -145,71 +165,57 @@ export default function AuditoriaPage() {
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
                                         <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Quando</th>
-                                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Evento</th>
+                                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Lead ID</th>
+                                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Localização</th>
                                         <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Campanha</th>
-                                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Status</th>
-                                        <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>EMQ</th>
+                                        <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Eventos</th>
                                         <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Perfil</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {events.map(e => (
-                                        <tr key={e.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    {leads.map(lead => (
+                                        <tr key={lead.id} style={{ borderBottom: '1px solid var(--border)' }}>
                                             <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                                                {new Date(e.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                {new Date(lead.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                             </td>
-                                            <td style={{ padding: '10px 12px' }}>
-                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                                    <span style={{
-                                                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
-                                                        background: e.event_name === 'Purchase' ? 'rgba(34,197,94,.18)' : e.event_name === 'InitiateCheckout' ? 'rgba(234,179,8,.18)' : 'rgba(148,163,184,.15)',
-                                                        color: e.event_name === 'Purchase' ? 'var(--accent-green)' : e.event_name === 'InitiateCheckout' ? 'var(--accent-yellow)' : 'var(--text-secondary)',
-                                                    }}>{e.event_name}</span>
-                                                    {e.value != null && (
-                                                        <span style={{ fontSize: 11, color: 'var(--accent-green)' }}>
-                                                            +{e.currency || 'R$'} {Number(e.value).toFixed(2)}
-                                                        </span>
-                                                    )}
-                                                </span>
+                                            <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)' }}>
+                                                {lead.group_key ? lead.group_key.slice(0, 20) + '...' : lead.id.slice(0, 8)}
+                                            </td>
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                                {[lead.city, lead.state, lead.country].filter(Boolean).join(', ') || '—'}
                                             </td>
                                             <td style={{ padding: '10px 12px', maxWidth: 220, color: 'var(--text-secondary)' }}>
-                                                {e.meta_campaign_name ? (
-                                                    <span title={e.attribution_reason || ''} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
-                                                        {e.meta_campaign_name}
-                                                        {e.attribution_confidence && e.attribution_confidence !== 'none' && (
-                                                            <span style={{
-                                                                marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 8,
-                                                                background: e.attribution_confidence === 'high' ? 'rgba(34,197,94,.15)' : e.attribution_confidence === 'medium' ? 'rgba(234,179,8,.15)' : 'rgba(239,68,68,.15)',
-                                                                color: e.attribution_confidence === 'high' ? 'var(--accent-green)' : e.attribution_confidence === 'medium' ? 'var(--accent-yellow)' : 'var(--accent-red)',
-                                                            }}>{e.attribution_confidence}</span>
-                                                        )}
+                                                {lead.meta_campaign_name ? (
+                                                    <span title={lead.attribution_reason || ''} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
+                                                        {lead.meta_campaign_name}
                                                     </span>
                                                 ) : (
                                                     <span style={{ color: 'var(--text-muted)' }}>—</span>
                                                 )}
                                             </td>
-                                            <td style={{ padding: '10px 12px' }}>
-                                                <span className={`badge ${e.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`}>
-                                                    {e.meta_status || '—'}
+                                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                                <span style={{
+                                                    fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                                                    background: lead.total_events > 1 ? 'rgba(59,130,246,.18)' : 'rgba(148,163,184,.15)',
+                                                    color: lead.total_events > 1 ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                                                }}>
+                                                    {lead.total_events}
                                                 </span>
                                             </td>
-                                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>{e.emq_score || 0}</td>
                                             <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                                {e.external_id && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => openUserProfile(e.external_id)}
-                                                        disabled={userProfileLoading}
-                                                        style={{
-                                                            padding: '4px 10px', fontSize: 11, fontWeight: 600,
-                                                            background: 'var(--bg-surface-2)', border: '1px solid var(--border)',
-                                                            borderRadius: 6, cursor: userProfileLoading ? 'wait' : 'pointer',
-                                                            color: 'var(--text-secondary)',
-                                                        }}
-                                                    >
-                                                        Ver perfil
-                                                    </button>
-                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openUserProfile(lead.group_key || lead.external_id || lead.id)}
+                                                    disabled={userProfileLoading}
+                                                    style={{
+                                                        padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                                                        background: 'var(--bg-surface-2)', border: '1px solid var(--border)',
+                                                        borderRadius: 6, cursor: userProfileLoading ? 'wait' : 'pointer',
+                                                        color: 'var(--text-secondary)',
+                                                    }}
+                                                >
+                                                    Ver perfil
+                                                </button>
                                             </td>
                                         </tr>
                                     ))}
@@ -217,7 +223,7 @@ export default function AuditoriaPage() {
                             </table>
                         </div>
                         <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
-                            {eventsOffset + 1}–{Math.min(eventsOffset + events.length, eventsTotal)} de {eventsTotal.toLocaleString('pt-BR')}
+                            {leadsOffset + 1}–{Math.min(leadsOffset + leads.length, leadsTotal)} de {leadsTotal.toLocaleString('pt-BR')} leads
                         </div>
                     </>
                 )}
@@ -275,6 +281,7 @@ function UserProfileModal({ data, onClose }: { data: any; onClose: () => void })
                         <Field label="Primeiro acesso" value={new Date(profile.first_seen).toLocaleString('pt-BR')} />
                         <Field label="fbp" value={profile.fbp || '—'} mono />
                         <Field label="fbc" value={profile.fbc || '—'} mono />
+                        <Field label="session_id" value={profile.session_id || '—'} mono />
                         <Field label="IP" value={profile.ip || '—'} mono />
                         <Field label="Navegador" value={profile.user_agent ? profile.user_agent.slice(0, 80) + '…' : '—'} mono />
                     </div>

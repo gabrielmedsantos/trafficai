@@ -6,7 +6,7 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { query } from '../database/connection';
+import { query, queryOne } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
 import { logger } from '../shared/logger';
 import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatch } from './tracking.service';
@@ -1403,6 +1403,208 @@ router.get('/sources/:id/events', async (req: Request, res: Response) => {
         res.json({ success: true, data: rows, meta: { total, limit: lim, offset: off } });
     } catch (err: any) {
         logger.error('tracking: listar eventos falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/user-profile/:identifier ────────────────────
+// Retorna o perfil completo de um lead/visitante agrupado por fbp ou session_id.
+// Mostra todos os eventos (PageView, Scroll, AddToCart, InitiateCheckout, Purchase)
+// em ordem cronológica, com payload enviado para Meta, cookies capturados, etc.
+router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id, identifier } = req.params;
+
+        // Verifica se o source pertence ao usuário
+        const sourceCheck = await queryOne<{ id: string }>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!sourceCheck) {
+            return res.status(404).json({ success: false, error: { message: 'Fonte não encontrada' } });
+        }
+
+        // Busca o primeiro evento com esse identifier (pode ser fbp, session_id ou external_id)
+        const firstEvent = await queryOne<{
+            fbp: string | null;
+            session_id: string | null;
+            external_id: string | null;
+            client_ip: string | null;
+            client_user_agent: string | null;
+            city: string | null;
+            state: string | null;
+            country: string | null;
+            event_source_url: string | null;
+            created_at: string;
+        }>(
+            `SELECT fbp, session_id, external_id, client_ip, client_user_agent,
+                    city, state, country, event_source_url, created_at
+             FROM tracking_events
+             WHERE source_id = $1
+               AND (fbp = $2 OR session_id = $2 OR external_id = $2)
+             ORDER BY created_at ASC
+             LIMIT 1`,
+            [id, identifier]
+        );
+
+        if (!firstEvent) {
+            return res.status(404).json({ success: false, error: { message: 'Lead não encontrado' } });
+        }
+
+        // Agrupa por fbp (preferencial) ou session_id
+        const groupKey = firstEvent.fbp || firstEvent.session_id || firstEvent.external_id;
+        const groupColumn = firstEvent.fbp ? 'fbp' : firstEvent.session_id ? 'session_id' : 'external_id';
+
+        // Busca todos os eventos desse lead
+        const events = await query<any>(
+            `SELECT id, event_name, event_id, event_time, action_source, external_id,
+                    event_source_url, value, currency, custom_data, user_data_hashed,
+                    client_ip, client_user_agent, city, state, country, zip,
+                    fbp, fbc, session_id, emq_score, meta_status, meta_response,
+                    meta_error, meta_fbtrace_id, created_at,
+                    utm_source, utm_medium, utm_campaign, utm_content, utm_term
+             FROM tracking_events
+             WHERE source_id = $1 AND ${groupColumn} = $2
+             ORDER BY created_at ASC`,
+            [id, groupKey]
+        );
+
+        // Monta o perfil
+        const location = [firstEvent.city, firstEvent.state, firstEvent.country].filter(Boolean).join(', ') || 'Desconhecido';
+        const origin = firstEvent.event_source_url ? new URL(firstEvent.event_source_url).hostname : 'Direto';
+
+        const profile = {
+            location,
+            origin,
+            last_page: events[events.length - 1]?.event_source_url || null,
+            first_seen: firstEvent.created_at,
+            last_seen: events[events.length - 1]?.created_at,
+            fbp: firstEvent.fbp,
+            fbc: events.find(e => e.fbc)?.fbc || null,
+            session_id: firstEvent.session_id,
+            ip: firstEvent.client_ip,
+            user_agent: firstEvent.client_user_agent,
+            event_count: events.length,
+        };
+
+        // Monta o histórico com payloads
+        const history = events.map(ev => ({
+            id: ev.id,
+            event_name: ev.event_name,
+            created_at: ev.created_at,
+            value: ev.value,
+            currency: ev.currency,
+            meta_status: ev.meta_status,
+            meta_request: ev.custom_data,
+            meta_response: ev.meta_response,
+            meta_error: ev.meta_error,
+            meta_fbtrace_id: ev.meta_fbtrace_id,
+            utm: [ev.utm_source, ev.utm_medium, ev.utm_campaign].filter(Boolean).join(' / ') || null,
+            fbp: ev.fbp,
+            fbc: ev.fbc,
+            session_id: ev.session_id,
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                external_id: identifier,
+                group_key: groupKey,
+                group_column: groupColumn,
+                profile,
+                history,
+            }
+        });
+    } catch (err: any) {
+        logger.error('tracking: user profile falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/leads ───────────────────────────────────────
+// Lista apenas PageViews (cada um = 1 lead/visitante único) para a tela de Auditoria.
+// Agrupa por fbp/session_id para não duplicar o mesmo lead.
+router.get('/sources/:id/leads', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const { limit = '50', offset = '0', search = '' } = req.query;
+
+        // Verifica se o source pertence ao usuário
+        const sourceCheck = await queryOne<{ id: string }>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!sourceCheck) {
+            return res.status(404).json({ success: false, error: { message: 'Fonte não encontrada' } });
+        }
+
+        const lim = Math.min(parseInt(limit as string, 10) || 50, 500);
+        const off = Math.max(parseInt(offset as string, 10) || 0, 0);
+
+        // Busca PageViews agrupados por fbp/session_id (lead único)
+        let whereSql = `source_id = $1 AND event_name = 'PageView'`;
+        const params: any[] = [id];
+
+        if (search) {
+            params.push(`%${search}%`);
+            const i = params.length;
+            whereSql += ` AND (fbp ILIKE $${i} OR session_id ILIKE $${i} OR external_id ILIKE $${i} OR client_ip ILIKE $${i})`;
+        }
+
+        // Conta leads únicos (agrupados por fbp ou session_id)
+        const countRow = await query<{ total: string }>(
+            `SELECT COUNT(DISTINCT COALESCE(fbp, session_id, external_id, id::text))::text AS total
+             FROM tracking_events
+             WHERE ${whereSql}`,
+            params
+        );
+        const total = Number(countRow[0]?.total || 0);
+
+        // Busca os leads (primeiro PageView de cada grupo)
+        params.push(lim, off);
+        const sql = `
+            SELECT DISTINCT ON (COALESCE(fbp, session_id, external_id, id::text))
+                   id, event_name, event_id, event_time, action_source, external_id,
+                   event_source_url, value, currency, emq_score, meta_status,
+                   meta_error, meta_fbtrace_id, created_at,
+                   city, state, country, fbp, fbc, session_id,
+                   client_ip, client_user_agent,
+                   utm_source, utm_medium, utm_campaign,
+                   meta_campaign_id, meta_campaign_name,
+                   attribution_confidence, attribution_reason
+            FROM tracking_events
+            WHERE ${whereSql}
+            ORDER BY COALESCE(fbp, session_id, external_id, id::text), created_at ASC
+            LIMIT $${params.length - 1} OFFSET $${params.length}
+        `;
+        const rows = await query<any>(sql, params);
+
+        // Para cada lead, conta quantos eventos totais ele tem
+        const leadsWithCounts = await Promise.all(rows.map(async (lead) => {
+            const groupKey = lead.fbp || lead.session_id || lead.external_id || lead.id;
+            const groupColumn = lead.fbp ? 'fbp' : lead.session_id ? 'session_id' : lead.external_id ? 'external_id' : 'id';
+
+            const eventCount = await queryOne<{ count: string }>(
+                `SELECT COUNT(*)::text AS count FROM tracking_events WHERE source_id = $1 AND ${groupColumn} = $2`,
+                [id, groupKey]
+            );
+
+            return {
+                ...lead,
+                total_events: Number(eventCount?.count || 1),
+                group_key: groupKey,
+            };
+        }));
+
+        res.json({
+            success: true,
+            data: leadsWithCounts,
+            meta: { total, limit: lim, offset: off }
+        });
+    } catch (err: any) {
+        logger.error('tracking: listar leads falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
