@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -80,8 +81,8 @@ export function NovaFonteModal({ sources, onClose, onCreated }: {
         return days <= 0 ? 'ativo hoje' : `último evento há ${days} dia${days > 1 ? 's' : ''}`;
     };
 
-    return (
-        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1100 }}>
+    return createPortal(
+        <div className="modal-overlay" onClick={onClose} style={{ zIndex: 9999 }}>
             <div className="modal-box" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="nova-fonte-title">
                 <div className="modal-header">
                     <div>
@@ -148,6 +149,7 @@ export function NovaFonteModal({ sources, onClose, onCreated }: {
                     </div>
                 </form>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
