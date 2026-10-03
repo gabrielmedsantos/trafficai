@@ -174,9 +174,13 @@ export default function AuditoriaPage() {
                                 </thead>
                                 <tbody>
                                     {leads.map(lead => (
-                                        <tr key={lead.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                                        <tr key={lead.id} style={{
+                                            borderBottom: '1px solid var(--border)',
+                                            background: lead.has_purchase ? 'rgba(34,197,94,.08)' : undefined,
+                                        }}>
+                                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: lead.has_purchase ? '#22c55e' : 'var(--text-muted)', fontWeight: lead.has_purchase ? 600 : 400 }}>
                                                 {new Date(lead.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                {lead.has_purchase && <span style={{ marginLeft: 6, fontSize: 10, background: '#22c55e', color: '#fff', padding: '1px 6px', borderRadius: 999, fontWeight: 700 }}>COMPROU</span>}
                                             </td>
                                             <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)' }}>
                                                 {lead.group_key ? lead.group_key.slice(0, 20) + '...' : lead.id.slice(0, 8)}

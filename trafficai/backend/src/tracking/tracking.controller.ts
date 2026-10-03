@@ -1510,7 +1510,19 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                 value: ev.value,
                 currency: ev.currency,
                 meta_status: ev.meta_status,
-                meta_request: ev.custom_data,
+                // Payload completo enviado à Meta (custom_data + user_data_hashed)
+                meta_request: {
+                    custom_data: ev.custom_data,
+                    user_data: ev.user_data_hashed,
+                    client_ip_address: ev.client_ip,
+                    client_user_agent: ev.client_user_agent,
+                    city: ev.city,
+                    state: ev.state,
+                    country: ev.country,
+                    zip: ev.zip,
+                    event_source_url: ev.event_source_url,
+                    action_source: ev.action_source,
+                },
                 meta_response: ev.meta_response,
                 meta_error: ev.meta_error,
                 meta_fbtrace_id: ev.meta_fbtrace_id,
@@ -1518,6 +1530,13 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                 fbp: ev.fbp,
                 fbc: ev.fbc,
                 session_id: ev.session_id,
+                // Dados adicionais para auditoria
+                client_ip: ev.client_ip,
+                client_user_agent: ev.client_user_agent,
+                city: ev.city,
+                state: ev.state,
+                country: ev.country,
+                emq_score: ev.emq_score,
             };
         });
 
@@ -1597,20 +1616,38 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
         const rows = await query<any>(sql, params);
         logger.info('tracking: /leads query retornou', { rowCount: rows.length, total, sql: sql.substring(0, 200) });
 
-        // Para cada lead, conta quantos eventos totais ele tem
+        // Para cada lead, conta quantos eventos totais ele tem e verifica se comprou
         const leadsWithCounts = await Promise.all(rows.map(async (lead) => {
             const groupKey = lead.fbp || lead.session_id || lead.external_id || lead.id;
             const groupColumn = lead.fbp ? 'fbp' : lead.session_id ? 'session_id' : lead.external_id ? 'external_id' : 'id';
 
-            const eventCount = await queryOne<{ count: string }>(
-                `SELECT COUNT(*)::text AS count FROM tracking_events WHERE source_id = $1 AND ${groupColumn} = $2`,
-                [id, groupKey]
-            );
+            const [eventCount, purchaseCheck, locationData] = await Promise.all([
+                queryOne<{ count: string }>(
+                    `SELECT COUNT(*)::text AS count FROM tracking_events WHERE source_id = $1 AND ${groupColumn} = $2`,
+                    [id, groupKey]
+                ),
+                queryOne<{ has_purchase: boolean }>(
+                    `SELECT EXISTS(SELECT 1 FROM tracking_events WHERE source_id = $1 AND ${groupColumn} = $2 AND event_name = 'Purchase') AS has_purchase`,
+                    [id, groupKey]
+                ),
+                // Busca localização de qualquer evento do lead (não só o primeiro PageView)
+                queryOne<{ city: string | null; state: string | null; country: string | null }>(
+                    `SELECT city, state, country FROM tracking_events
+                     WHERE source_id = $1 AND ${groupColumn} = $2 AND city IS NOT NULL
+                     ORDER BY created_at DESC LIMIT 1`,
+                    [id, groupKey]
+                ),
+            ]);
 
             return {
                 ...lead,
                 total_events: Number(eventCount?.count || 1),
                 group_key: groupKey,
+                has_purchase: purchaseCheck?.has_purchase || false,
+                // Usa localização de qualquer evento se o primeiro PageView não tiver
+                city: lead.city || locationData?.city || null,
+                state: lead.state || locationData?.state || null,
+                country: lead.country || locationData?.country || null,
             };
         }));
 
