@@ -1147,7 +1147,10 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       window._fbq = window.fbq;
     }
     window.fbq('init', PIXEL_ID);
-    window.fbq('track', 'PageView');
+    // NOTA: NÃO disparamos fbq('track', 'PageView') aqui manualmente.
+    // O fbevents.js (carregado abaixo) OU o nosso track('PageView') no final
+    // já cuidam disso. Disparar aqui + no final causava duplicação (2 PageViews por visita).
+    // O fbq nativo será alimentado pelo nosso track() via espelhamento (linha ~1336).
     if (!document.querySelector('script[src*="fbevents.js"]')) {
       var fbs = document.createElement('script');
       fbs.async = true;
@@ -1413,9 +1416,20 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
 
   // ── Detecção automática de AddToCart e InitiateCheckout por texto ─────
   // Padrão UTMFY: detecta cliques em botões/links com texto configurável.
-  // Textos padrão em PT-BR para e-commerce brasileiro.
-  var ADD_TO_CART_TEXTS = ['adicionar ao carrinho', 'add ao carrinho', 'comprar agora', 'quero comprar', 'adicionar', 'add to cart', 'add to bag'];
-  var CHECKOUT_TEXTS = ['finalizar compra', 'checkout', 'pagar agora', 'ir para pagamento', 'continuar', 'prosseguir', 'encomendar agora', 'buy now', 'place order'];
+  // Textos expandidos em PT-BR para e-commerce brasileiro + variações comuns.
+  var ADD_TO_CART_TEXTS = [
+    'adicionar ao carrinho', 'add ao carrinho', 'comprar agora', 'quero comprar',
+    'adicionar', 'add to cart', 'add to bag', 'quero este', 'quero essa',
+    'comprar', 'adquirir', 'garantir', 'reservar', 'encomendar',
+    'quero saber mais', 'saiba mais', 'ver oferta', 'acessar oferta',
+    'começar agora', 'comece agora', 'inscrever', 'inscreva-se', 'cadastre-se'
+  ];
+  var CHECKOUT_TEXTS = [
+    'finalizar compra', 'checkout', 'pagar agora', 'ir para pagamento',
+    'continuar', 'prosseguir', 'encomendar agora', 'buy now', 'place order',
+    'finalizar', 'concluir', 'confirmar', 'pagar', 'fechar pedido',
+    'ir para o checkout', 'avançar', 'próximo', 'next', 'continue'
+  ];
 
   function getText(el) {
     if (!el) return '';
@@ -1604,8 +1618,26 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     schedule: function(params){ return track('Schedule', params); },
   };
 
-  // ── Fire PageView imediatamente ───────────────────────────────────────
+  // ── Fire PageView + ViewContent automaticamente ───────────────────────
+  // PageView: sempre dispara no load inicial
   track('PageView');
+
+  // ViewContent: dispara automaticamente em páginas de vendas/produto
+  // Detecta por URL patterns comuns de e-commerce brasileiro
+  var path = window.location.pathname.toLowerCase();
+  var isProductPage = /\/(produto|product|item|oferta|offer|checkout|cart|carrinho)/i.test(path) ||
+                      /\/p\//i.test(path) || // Shopify pattern
+                      document.querySelector('[data-product-id], [data-item-id], .product-detail, .product-page');
+  if (isProductPage) {
+    setTimeout(function() {
+      track('ViewContent', {
+        custom_data: {
+          content_type: 'product',
+          page_url: window.location.href
+        }
+      });
+    }, 500); // Delay pequeno pra não competir com PageView
+  }
 })();
 `;
 }

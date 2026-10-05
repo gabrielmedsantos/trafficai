@@ -16,23 +16,44 @@ export default function AuditoriaPage() {
     const [userProfile, setUserProfile] = useState<any>(null);
     const [userProfileLoading, setUserProfileLoading] = useState(false);
     const [search, setSearch] = useState('');
+    const LEADS_PER_PAGE = 50;
+
+    useEffect(() => {
+        if (!sourceId) return;
+        setLoading(true);
+        // Reset offset when search changes
+        if (search !== '') setLeadsOffset(0);
+    }, [sourceId, search]);
 
     useEffect(() => {
         if (!sourceId) return;
         setLoading(true);
         Promise.all([
-            api.getTrackingStats(sourceId),
-            api.getTrackingLeads(sourceId, { limit: 50, offset: 0, search: search || undefined }),
+            // Only fetch stats on first load or source change
+            leadsOffset === 0 ? api.getTrackingStats(sourceId) : Promise.resolve(stats),
+            api.getTrackingLeads(sourceId, { limit: LEADS_PER_PAGE, offset: leadsOffset, search: search || undefined }),
         ]).then(([s, l]) => {
-            setStats(s);
+            if (s && s !== stats) setStats(s);
             setLeads(l.data || []);
             setLeadsTotal(l.total || 0);
-            setLeadsOffset(l.offset || 0);
+            // Ensure offset is synced with response if needed, though we control it
         }).catch(() => {
-            setStats(null);
+            if (leadsOffset === 0) setStats(null);
             setLeads([]);
         }).finally(() => setLoading(false));
-    }, [sourceId, search]);
+    }, [sourceId, search, leadsOffset]);
+
+    function nextPage() {
+        if (leadsOffset + LEADS_PER_PAGE < leadsTotal) {
+            setLeadsOffset(prev => prev + LEADS_PER_PAGE);
+        }
+    }
+
+    function prevPage() {
+        if (leadsOffset > 0) {
+            setLeadsOffset(prev => Math.max(0, prev - LEADS_PER_PAGE));
+        }
+    }
 
     async function openUserProfile(identifier: string) {
         if (!sourceId) return;
@@ -153,7 +174,7 @@ export default function AuditoriaPage() {
                 />
             </div>
 
-            {/* Tabela de leads (apenas PageViews) */}
+            {/* Tabela de leads com funil visual */}
             <Card style={{ padding: '20px 24px' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Leads (PageViews únicos)</div>
                 {leads.length === 0 ? (
@@ -168,66 +189,140 @@ export default function AuditoriaPage() {
                                         <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Lead ID</th>
                                         <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Localização</th>
                                         <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Campanha</th>
+                                        <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Funil</th>
                                         <th style={{ textAlign: 'right', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Eventos</th>
                                         <th style={{ textAlign: 'center', padding: '8px 12px', fontWeight: 600, color: 'var(--text-muted)' }}>Perfil</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {leads.map(lead => (
-                                        <tr key={lead.id} style={{
-                                            borderBottom: '1px solid var(--border)',
-                                            background: lead.has_purchase ? 'rgba(34,197,94,.08)' : undefined,
-                                        }}>
-                                            <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: lead.has_purchase ? '#22c55e' : 'var(--text-muted)', fontWeight: lead.has_purchase ? 600 : 400 }}>
-                                                {new Date(lead.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                                                {lead.has_purchase && <span style={{ marginLeft: 6, fontSize: 10, background: '#22c55e', color: '#fff', padding: '1px 6px', borderRadius: 999, fontWeight: 700 }}>COMPROU</span>}
-                                            </td>
-                                            <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)' }}>
-                                                {lead.group_key ? lead.group_key.slice(0, 20) + '...' : lead.id.slice(0, 8)}
-                                            </td>
-                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                                                {[lead.city, lead.state, lead.country].filter(Boolean).join(', ') || '—'}
-                                            </td>
-                                            <td style={{ padding: '10px 12px', maxWidth: 220, color: 'var(--text-secondary)' }}>
-                                                {lead.meta_campaign_name ? (
-                                                    <span title={lead.attribution_reason || ''} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
-                                                        {lead.meta_campaign_name}
+                                    {leads.map(lead => {
+                                        // Funil esperado: PageView → ViewContent → AddToCart → InitiateCheckout → Purchase
+                                        const FUNNEL_STAGES = ['PageView', 'ViewContent', 'AddToCart', 'InitiateCheckout', 'Purchase'];
+                                        const eventsMap = lead.events_breakdown || {};
+                                        const completedStages = FUNNEL_STAGES.filter(stage => eventsMap[stage] > 0);
+                                        const hasGap = completedStages.length > 0 && completedStages.length < FUNNEL_STAGES.length && lead.has_purchase;
+
+                                        return (
+                                            <tr key={lead.id} style={{
+                                                borderBottom: '1px solid var(--border)',
+                                                background: lead.has_purchase ? 'rgba(34,197,94,.08)' : hasGap ? 'rgba(234,179,8,.05)' : undefined,
+                                            }}>
+                                                <td style={{ padding: '10px 12px', whiteSpace: 'nowrap', color: lead.has_purchase ? '#22c55e' : 'var(--text-muted)', fontWeight: lead.has_purchase ? 600 : 400 }}>
+                                                    {new Date(lead.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                    {lead.has_purchase && <span style={{ marginLeft: 6, fontSize: 10, background: '#22c55e', color: '#fff', padding: '1px 6px', borderRadius: 999, fontWeight: 700 }}>COMPROU</span>}
+                                                </td>
+                                                <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 11, color: 'var(--text-secondary)' }}>
+                                                    {lead.group_key ? lead.group_key.slice(0, 20) + '...' : lead.id.slice(0, 8)}
+                                                </td>
+                                                <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                                    {[lead.city, lead.state, lead.country].filter(Boolean).join(', ') || '—'}
+                                                </td>
+                                                <td style={{ padding: '10px 12px', maxWidth: 220, color: 'var(--text-secondary)' }}>
+                                                    {lead.meta_campaign_name ? (
+                                                        <span title={lead.attribution_reason || ''} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', maxWidth: 200, verticalAlign: 'bottom' }}>
+                                                            {lead.meta_campaign_name}
+                                                        </span>
+                                                    ) : (
+                                                        <span style={{ color: 'var(--text-muted)' }}>—</span>
+                                                    )}
+                                                </td>
+                                                <td style={{ padding: '10px 12px' }}>
+                                                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                                        {FUNNEL_STAGES.map((stage, idx) => {
+                                                            const hasStage = eventsMap[stage] > 0;
+                                                            const stageColors: Record<string, string> = {
+                                                                PageView: 'rgba(148,163,184,.3)',
+                                                                ViewContent: 'rgba(59,130,246,.3)',
+                                                                AddToCart: 'rgba(234,179,8,.3)',
+                                                                InitiateCheckout: 'rgba(249,115,22,.3)',
+                                                                Purchase: 'rgba(34,197,94,.3)',
+                                                            };
+                                                            const stageActiveColors: Record<string, string> = {
+                                                                PageView: 'rgba(148,163,184,.8)',
+                                                                ViewContent: 'rgba(59,130,246,.8)',
+                                                                AddToCart: 'rgba(234,179,8,.8)',
+                                                                InitiateCheckout: 'rgba(249,115,22,.8)',
+                                                                Purchase: 'rgba(34,197,94,.8)',
+                                                            };
+                                                            return (
+                                                                <div
+                                                                    key={stage}
+                                                                    title={`${stage}: ${hasStage ? eventsMap[stage] + ' evento(s)' : 'não completado'}`}
+                                                                    style={{
+                                                                        width: 18,
+                                                                        height: 18,
+                                                                        borderRadius: 4,
+                                                                        background: hasStage ? stageActiveColors[stage] : stageColors[stage],
+                                                                        border: hasStage ? 'none' : '1px dashed rgba(148,163,184,.4)',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center',
+                                                                        fontSize: 9,
+                                                                        fontWeight: 700,
+                                                                        color: hasStage ? '#fff' : 'var(--text-muted)',
+                                                                    }}
+                                                                >
+                                                                    {hasStage ? '✓' : idx + 1}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {hasGap && (
+                                                            <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent-yellow)', fontWeight: 600 }}>⚠ GAP</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                                                    <span style={{
+                                                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                                                        background: lead.total_events > 1 ? 'rgba(59,130,246,.18)' : 'rgba(148,163,184,.15)',
+                                                        color: lead.total_events > 1 ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                                                    }}>
+                                                        {lead.total_events}
                                                     </span>
-                                                ) : (
-                                                    <span style={{ color: 'var(--text-muted)' }}>—</span>
-                                                )}
-                                            </td>
-                                            <td style={{ padding: '10px 12px', textAlign: 'right' }}>
-                                                <span style={{
-                                                    fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
-                                                    background: lead.total_events > 1 ? 'rgba(59,130,246,.18)' : 'rgba(148,163,184,.15)',
-                                                    color: lead.total_events > 1 ? 'var(--accent-blue)' : 'var(--text-secondary)',
-                                                }}>
-                                                    {lead.total_events}
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => openUserProfile(lead.group_key || lead.external_id || lead.id)}
-                                                    disabled={userProfileLoading}
-                                                    style={{
-                                                        padding: '4px 10px', fontSize: 11, fontWeight: 600,
-                                                        background: 'var(--bg-surface-2)', border: '1px solid var(--border)',
-                                                        borderRadius: 6, cursor: userProfileLoading ? 'wait' : 'pointer',
-                                                        color: 'var(--text-secondary)',
-                                                    }}
-                                                >
-                                                    Ver perfil
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                </td>
+                                                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => openUserProfile(lead.group_key || lead.external_id || lead.id)}
+                                                        disabled={userProfileLoading}
+                                                        style={{
+                                                            padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                                                            background: 'var(--bg-surface-2)', border: '1px solid var(--border)',
+                                                            borderRadius: 6, cursor: userProfileLoading ? 'wait' : 'pointer',
+                                                            color: 'var(--text-secondary)',
+                                                        }}
+                                                    >
+                                                        Ver perfil
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
-                        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>
-                            {leadsOffset + 1}–{Math.min(leadsOffset + leads.length, leadsTotal)} de {leadsTotal.toLocaleString('pt-BR')} leads
+                        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                            <button
+                                type="button"
+                                onClick={prevPage}
+                                disabled={leadsOffset === 0 || loading}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: 12, padding: '6px 12px', opacity: leadsOffset === 0 ? 0.4 : 1 }}
+                            >
+                                ← Anterior
+                            </button>
+                            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                {leadsOffset + 1}–{Math.min(leadsOffset + leads.length, leadsTotal)} de {leadsTotal.toLocaleString('pt-BR')} leads
+                            </span>
+                            <button
+                                type="button"
+                                onClick={nextPage}
+                                disabled={leadsOffset + LEADS_PER_PAGE >= leadsTotal || loading}
+                                className="btn btn-secondary btn-sm"
+                                style={{ fontSize: 12, padding: '6px 12px', opacity: leadsOffset + LEADS_PER_PAGE >= leadsTotal ? 0.4 : 1 }}
+                            >
+                                Próximo →
+                            </button>
                         </div>
                     </>
                 )}
@@ -335,8 +430,8 @@ function UserProfileModal({ data, onClose }: { data: any; onClose: () => void })
                                             )}
                                         </span>
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                            <span className={`badge ${ev.meta_status === 'sent' ? 'badge-green' : 'badge-red'}`} style={{ fontSize: 10 }}>
-                                                {ev.meta_status}
+                                            <span className={`badge ${ev.meta_status === 'sent' ? 'badge-green' : ev.meta_status === 'internal' ? 'badge-blue' : 'badge-red'}`} style={{ fontSize: 10 }}>
+                                                {ev.meta_status === 'internal' ? 'webhook' : ev.meta_status}
                                             </span>
                                             <ChevronDown size={14} style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
                                         </span>

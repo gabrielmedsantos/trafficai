@@ -22,7 +22,7 @@ import {
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
 import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
 import axios from 'axios';
-import { sendTestSaleNotice } from './sales-notify.service';
+import { sendTestSaleNotice, notifySale } from './sales-notify.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -161,6 +161,57 @@ router.post('/sources/:id/sales-notify/test', async (req: Request, res: Response
         res.json({ success: true, data: r });
     } catch (err: any) {
         logger.error('teste de notificação de venda falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// POST /tracking/sources/:id/sales-notify/resend — reenvia notificações de pedidos específicos
+// Body: { orderIds: string[] } — lista de IDs de pedidos para reenviar notificação
+router.post('/sources/:id/sales-notify/resend', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+
+        const { orderIds } = req.body || {};
+        if (!Array.isArray(orderIds) || orderIds.length === 0) {
+            return res.status(400).json({ success: false, error: { message: 'Nenhum pedido selecionado' } });
+        }
+        if (orderIds.length > 50) {
+            return res.status(400).json({ success: false, error: { message: 'Máximo 50 pedidos por vez' } });
+        }
+
+        // Busca os pedidos
+        const orders = await query<any>(
+            `SELECT id, status, payment_method, gross_value, net_value, product_name, customer_name, utm_campaign
+             FROM tracking_orders
+             WHERE source_id = $1 AND id = ANY($2::uuid[])`,
+            [source.id, orderIds]
+        );
+
+        if (orders.length === 0) {
+            return res.status(404).json({ success: false, error: { message: 'Pedidos não encontrados' } });
+        }
+
+        // Reenvia notificação para cada pedido
+        let sent = 0;
+        for (const order of orders) {
+            await notifySale(source.id, {
+                order_id: order.id,
+                status: order.status,
+                payment_method: order.payment_method,
+                gross_value: order.gross_value,
+                net_value: order.net_value,
+                product_name: order.product_name,
+                customer_name: order.customer_name,
+                utm_campaign: order.utm_campaign,
+            });
+            sent++;
+        }
+
+        logger.info('notificações de venda reenviadas', { source: source.id, count: sent, total: orders.length });
+        res.json({ success: true, data: { sent, total: orders.length } });
+    } catch (err: any) {
+        logger.error('reenvio de notificações falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
@@ -1456,7 +1507,9 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
         const groupKey = firstEvent.fbp || firstEvent.session_id || firstEvent.external_id;
         const groupColumn = firstEvent.fbp ? 'fbp' : firstEvent.session_id ? 'session_id' : 'external_id';
 
-        // Busca todos os eventos desse lead
+        // Busca todos os eventos desse lead — CRÍTICO: o Purchase do Kiwify
+        // tem fbp=null mas session_id igual aos outros eventos. Busca por
+        // session_id OU fbp para garantir que o Purchase apareça no histórico.
         const events = await query<any>(
             `SELECT id, event_name, event_id, event_time, action_source, external_id,
                     event_source_url, value, currency, custom_data, user_data_hashed,
@@ -1464,9 +1517,22 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                     fbp, fbc, session_id, emq_score, meta_status, meta_response,
                     meta_error, meta_fbtrace_id, created_at
              FROM tracking_events
-             WHERE source_id = $1 AND ${groupColumn} = $2
+             WHERE source_id = $1
+               AND (fbp = $2 OR session_id = $3)
              ORDER BY created_at ASC`,
-            [id, groupKey]
+            [id, groupKey, firstEvent.session_id]
+        );
+
+        // CRÍTICO: o Purchase real JÁ está na tabela tracking_events (enviado via trackEvent)
+        // com user_data_hashed completo (email, phone, name hashados) e meta_status='sent'.
+        // NÃO cria eventos "fake" a partir dos orders — usa apenas os eventos reais.
+        // Os orders servem apenas para enriquecer dados se necessário, mas o evento
+        // Purchase já foi capturado corretamente pela query acima (WHERE ${groupColumn} = $2).
+        const orderEvents: any[] = [];
+
+        // Merge events + orders e ordena por data
+        const allEvents = [...events, ...orderEvents].sort((a, b) =>
+            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         );
 
         // Monta o perfil
@@ -1478,17 +1544,17 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
             origin,
             last_page: events[events.length - 1]?.event_source_url || null,
             first_seen: firstEvent.created_at,
-            last_seen: events[events.length - 1]?.created_at,
+            last_seen: allEvents[allEvents.length - 1]?.created_at,
             fbp: firstEvent.fbp,
             fbc: events.find(e => e.fbc)?.fbc || null,
             session_id: firstEvent.session_id,
             ip: firstEvent.client_ip,
             user_agent: firstEvent.client_user_agent,
-            event_count: events.length,
+            event_count: allEvents.length,
         };
 
         // Monta o histórico com payloads
-        const history = events.map(ev => {
+        const history = allEvents.map(ev => {
             // Extrai UTMs da event_source_url se existir
             let utmString = null;
             if (ev.event_source_url) {
@@ -1520,11 +1586,14 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                     ...(ev.event_source_url && { event_source_url: ev.event_source_url }),
                     ...(ev.user_data_hashed && Object.keys(ev.user_data_hashed).length > 0 && { user_data: ev.user_data_hashed }),
                     ...(ev.custom_data && Object.keys(ev.custom_data).length > 0 && { custom_data: ev.custom_data }),
-                    // Localização só aparece se estava presente no envio original (não usa dados retroativos)
-                    ...(ev.city && { city: ev.city }),
-                    ...(ev.state && { state: ev.state }),
-                    ...(ev.country && { country: ev.country }),
-                    ...(ev.zip && { zip: ev.zip }),
+                    // CRÍTICO: Localização OMITIDA para eventos antigos sem snapshot.
+                    // A Meta recebeu null no envio original — city/state/country foram
+                    // adicionados retroativamente ao banco e NÃO devem aparecer aqui.
+                    // Isso garante integridade da auditoria.
+                    city: null,
+                    state: null,
+                    country: null,
+                    zip: null,
                 };
             }
 
@@ -1551,6 +1620,8 @@ router.get('/sources/:id/user-profile/:identifier', async (req: Request, res: Re
                 state: ev.state,
                 country: ev.country,
                 emq_score: ev.emq_score,
+                // CRÍTICO: user_data_hashed para mostrar no frontend os dados enviados à Meta
+                user_data_hashed: ev.user_data_hashed,
                 // Flag para indicar se o payload é um snapshot real ou reconstruído
                 meta_request_is_snapshot: !!ev.meta_request_payload,
             };
@@ -1596,8 +1667,10 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
         const lim = Math.min(parseInt(limit as string, 10) || 50, 500);
         const off = Math.max(parseInt(offset as string, 10) || 0, 0);
 
-        // Busca PageViews agrupados por fbp/session_id (lead único)
-        let whereSql = `source_id = $1 AND event_name = 'PageView'`;
+        // Busca leads agrupados por fbp/session_id — inclui QUALQUER evento
+        // (PageView, Scroll, InitiateCheckout, Purchase) para não perder leads
+        // que só interagiram sem PageView ou que vieram direto de webhook.
+        let whereSql = `source_id = $1`;
         const params: any[] = [id];
 
         if (search) {
@@ -1615,18 +1688,36 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
         );
         const total = Number(countRow[0]?.total || 0);
 
-        // Busca os leads (primeiro PageView de cada grupo)
+        // Busca os leads ordenados pelo ÚLTIMO evento de cada grupo (mais recentes primeiro)
+        // CTE 1: pega o último evento (MAX created_at) de cada grupo
+        // CTE 2: pega todos os dados do último evento de cada grupo
+        // ORDER BY final: last_event_at DESC garante que leads mais recentes apareçam primeiro
         params.push(lim, off);
         const sql = `
-            SELECT DISTINCT ON (COALESCE(fbp, session_id, external_id, id::text))
-                   id, event_name, event_id, event_time, action_source, external_id,
-                   event_source_url, value, currency, emq_score, meta_status,
-                   meta_error, meta_fbtrace_id, created_at,
-                   city, state, country, fbp, fbc, session_id,
-                   client_ip, client_user_agent, custom_data
-            FROM tracking_events
-            WHERE ${whereSql}
-            ORDER BY COALESCE(fbp, session_id, external_id, id::text), created_at ASC
+            WITH last_event_per_group AS (
+                SELECT COALESCE(fbp, session_id, external_id, id::text) AS group_key,
+                       MAX(created_at) AS last_event_at
+                FROM tracking_events
+                WHERE ${whereSql}
+                GROUP BY COALESCE(fbp, session_id, external_id, id::text)
+            ),
+            lead_with_last_event AS (
+                SELECT DISTINCT ON (COALESCE(te.fbp, te.session_id, te.external_id, te.id::text))
+                       te.id, te.event_name, te.event_id, te.event_time, te.action_source, te.external_id,
+                       te.event_source_url, te.value, te.currency, te.emq_score, te.meta_status,
+                       te.meta_error, te.meta_fbtrace_id, te.created_at,
+                       te.city, te.state, te.country, te.fbp, te.fbc, te.session_id,
+                       te.client_ip, te.client_user_agent, te.custom_data,
+                       COALESCE(te.fbp, te.session_id, te.external_id, te.id::text) AS group_key,
+                       leg.last_event_at
+                FROM tracking_events te
+                JOIN last_event_per_group leg ON COALESCE(te.fbp, te.session_id, te.external_id, te.id::text) = leg.group_key
+                WHERE ${whereSql}
+                ORDER BY COALESCE(te.fbp, te.session_id, te.external_id, te.id::text), te.created_at DESC
+            )
+            SELECT *
+            FROM lead_with_last_event
+            ORDER BY last_event_at DESC
             LIMIT $${params.length - 1} OFFSET $${params.length}
         `;
         const rows = await query<any>(sql, params);
@@ -1637,7 +1728,7 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
             const groupKey = lead.fbp || lead.session_id || lead.external_id || lead.id;
             const groupColumn = lead.fbp ? 'fbp' : lead.session_id ? 'session_id' : lead.external_id ? 'external_id' : 'id';
 
-            const [eventCount, purchaseCheck, locationData] = await Promise.all([
+            const [eventCount, purchaseCheck, orderCheck, locationData, eventBreakdown] = await Promise.all([
                 queryOne<{ count: string }>(
                     `SELECT COUNT(*)::text AS count FROM tracking_events WHERE source_id = $1 AND ${groupColumn} = $2`,
                     [id, groupKey]
@@ -1646,6 +1737,13 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
                     `SELECT EXISTS(SELECT 1 FROM tracking_events WHERE source_id = $1 AND ${groupColumn} = $2 AND event_name = 'Purchase') AS has_purchase`,
                     [id, groupKey]
                 ),
+                // CRÍTICO: também verifica tracking_orders via sck (= session_id do lead)
+                // O sck nos orders corresponde ao session_id dos eventos, NÃO ao fbp
+                // Então usamos lead.session_id diretamente (não o groupKey que pode ser fbp)
+                queryOne<{ has_order: boolean }>(
+                    `SELECT EXISTS(SELECT 1 FROM tracking_orders WHERE source_id = $1 AND sck = $2 AND status = 'approved') AS has_order`,
+                    [id, lead.session_id]
+                ),
                 // Busca localização de qualquer evento do lead (não só o primeiro PageView)
                 queryOne<{ city: string | null; state: string | null; country: string | null }>(
                     `SELECT city, state, country FROM tracking_events
@@ -1653,17 +1751,35 @@ router.get('/sources/:id/leads', async (req: Request, res: Response) => {
                      ORDER BY created_at DESC LIMIT 1`,
                     [id, groupKey]
                 ),
+                // NOVO: Breakdown de eventos por tipo para mostrar o funil completo
+                query<{ event_name: string; count: string }>(
+                    `SELECT event_name, COUNT(*)::text AS count
+                     FROM tracking_events
+                     WHERE source_id = $1 AND ${groupColumn} = $2
+                     GROUP BY event_name
+                     ORDER BY MIN(created_at) ASC`,
+                    [id, groupKey]
+                ),
             ]);
+
+            // Constrói mapa de eventos: { PageView: 2, AddToCart: 1, Purchase: 1, ... }
+            const eventsMap: Record<string, number> = {};
+            for (const ev of eventBreakdown) {
+                eventsMap[ev.event_name] = Number(ev.count);
+            }
 
             return {
                 ...lead,
                 total_events: Number(eventCount?.count || 1),
                 group_key: groupKey,
-                has_purchase: purchaseCheck?.has_purchase || false,
+                has_purchase: (purchaseCheck?.has_purchase || false) || (orderCheck?.has_order || false),
                 // Usa localização de qualquer evento se o primeiro PageView não tiver
                 city: lead.city || locationData?.city || null,
                 state: lead.state || locationData?.state || null,
                 country: lead.country || locationData?.country || null,
+                // NOVO: Breakdown de eventos para visualização do funil
+                events_breakdown: eventsMap,
+                funnel_stages: Object.keys(eventsMap), // ['PageView', 'AddToCart', 'InitiateCheckout', 'Purchase']
             };
         }));
 
