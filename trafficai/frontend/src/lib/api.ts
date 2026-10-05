@@ -370,6 +370,29 @@ class ApiClient {
         return this.request<any>('POST', `/meta-actions/ads/${metaAdId}/status`, { status });
     }
 
+    // Behavior Insights (Heatmaps & Scroll Analysis)
+    async getBehaviorHeatmap(sourceId: string, url: string, since?: string) {
+        const params = new URLSearchParams({ source_id: sourceId, url });
+        if (since) params.set('since', since);
+        return this.request<{ clicks: Array<{ x: number; y: number; count: number }>; total_sessions: number }>(
+            'GET', `/tracking/behavior/heatmap?${params}`
+        );
+    }
+    async getBehaviorScrollAnalysis(sourceId: string, url: string, since?: string) {
+        const params = new URLSearchParams({ source_id: sourceId, url });
+        if (since) params.set('since', since);
+        return this.request<{ avg_depth: number; median_depth: number; drop_off_points: number[]; total_sessions: number }>(
+            'GET', `/tracking/behavior/scroll-analysis?${params}`
+        );
+    }
+    async getBehaviorTopUrls(sourceId: string, limit = 10, since?: string) {
+        const params = new URLSearchParams({ source_id: sourceId, limit: String(limit) });
+        if (since) params.set('since', since);
+        return this.request<Array<{ url: string; sessions: number; avg_depth: number }>>(
+            'GET', `/tracking/behavior/top-urls?${params}`
+        );
+    }
+
     // Automation rules
     async getAutomationRules() {
         return this.request<any[]>('GET', '/automation/rules');
@@ -497,6 +520,9 @@ class ApiClient {
     }
     async testSalesNotify(sourceId: string) {
         return this.request<{ push: number; whatsapp: boolean }>('POST', `/tracking/sources/${sourceId}/sales-notify/test`);
+    }
+    async resendSalesNotify(sourceId: string, orderIds: string[]) {
+        return this.request<{ sent: number; total: number }>('POST', `/tracking/sources/${sourceId}/sales-notify/resend`, { orderIds });
     }
     // ── Admin do SaaS ──
     async getSaasCustomers() {

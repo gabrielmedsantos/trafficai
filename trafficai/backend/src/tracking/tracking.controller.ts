@@ -23,6 +23,7 @@ import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.servi
 import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
 import axios from 'axios';
 import { sendTestSaleNotice, notifySale } from './sales-notify.service';
+import { saveClick, saveScrollDepth, getHeatmapData, getScrollAnalysis, getTopUrls } from './behavior.service';
 
 const router = Router();
 router.use(authMiddleware);
@@ -2660,6 +2661,144 @@ router.post('/sources/:id/retry-failed', async (req: Request, res: Response) => 
         res.json({ success: true, data: result });
     } catch (err: any) {
         logger.error('tracking: retry-failed falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── POST /tracking/behavior/click ──────────────────────────────────────────
+// Recebe cliques com coordenadas do pixel para heatmaps (endpoint público via token)
+router.post('/behavior/click/:token', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.params;
+        const source = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE token = $1 AND is_active = true`,
+            [token]
+        );
+        if (!source) return res.status(404).json({ success: false });
+
+        const { session_id, url, x, y, selector, text } = req.body || {};
+        if (!session_id || !url || x == null || y == null) {
+            return res.status(400).json({ success: false, error: { message: 'Campos obrigatórios faltando' } });
+        }
+
+        await saveClick(source.id, session_id, url, {
+            x: Math.max(0, Math.min(100, Number(x))),
+            y: Math.max(0, Math.min(100, Number(y))),
+            selector,
+            text,
+            timestamp: Date.now(),
+        });
+
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.warn('tracking: behavior click falhou', { error: err.message });
+        res.status(200).json({ success: true }); // Não quebra o pixel
+    }
+});
+
+// ─── POST /tracking/behavior/scroll ─────────────────────────────────────────
+// Recebe profundidade de scroll do pixel para análise de drop-off
+router.post('/behavior/scroll/:token', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.params;
+        const source = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE token = $1 AND is_active = true`,
+            [token]
+        );
+        if (!source) return res.status(404).json({ success: false });
+
+        const { session_id, url, depth, time_on_page } = req.body || {};
+        if (!session_id || !url || depth == null) {
+            return res.status(400).json({ success: false, error: { message: 'Campos obrigatórios faltando' } });
+        }
+
+        await saveScrollDepth(
+            source.id,
+            session_id,
+            url,
+            Math.max(0, Math.min(100, Number(depth))),
+            Number(time_on_page) || 0
+        );
+
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.warn('tracking: behavior scroll falhou', { error: err.message });
+        res.status(200).json({ success: true }); // Não quebra o pixel
+    }
+});
+
+// ─── GET /tracking/behavior/heatmap ─────────────────────────────────────────
+// Retorna dados agregados de cliques para renderizar heatmap de uma URL
+router.get('/behavior/heatmap', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { source_id, url, since } = req.query as any;
+
+        if (!source_id || !url) {
+            return res.status(400).json({ success: false, error: { message: 'source_id e url são obrigatórios' } });
+        }
+
+        // Valida ownership
+        const own = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [source_id, userId]
+        );
+        if (!own) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
+
+        const data = await getHeatmapData(source_id, url, since);
+        res.json({ success: true, data });
+    } catch (err: any) {
+        logger.error('tracking: heatmap falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/behavior/scroll-analysis ─────────────────────────────────
+// Retorna análise de scroll depth (média, mediana, drop-off points)
+router.get('/behavior/scroll-analysis', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { source_id, url, since } = req.query as any;
+
+        if (!source_id || !url) {
+            return res.status(400).json({ success: false, error: { message: 'source_id e url são obrigatórios' } });
+        }
+
+        const own = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [source_id, userId]
+        );
+        if (!own) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
+
+        const data = await getScrollAnalysis(source_id, url, since);
+        res.json({ success: true, data });
+    } catch (err: any) {
+        logger.error('tracking: scroll analysis falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// ─── GET /tracking/behavior/top-urls ────────────────────────────────────────
+// Lista URLs mais visitadas para seleção no dashboard de insights
+router.get('/behavior/top-urls', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { source_id, limit, since } = req.query as any;
+
+        if (!source_id) {
+            return res.status(400).json({ success: false, error: { message: 'source_id é obrigatório' } });
+        }
+
+        const own = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [source_id, userId]
+        );
+        if (!own) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
+
+        const data = await getTopUrls(source_id, Number(limit) || 10, since);
+        res.json({ success: true, data });
+    } catch (err: any) {
+        logger.error('tracking: top urls falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

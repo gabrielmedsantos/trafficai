@@ -1352,6 +1352,42 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     }));
   }
 
+  // ── Captura de cliques com coordenadas para heatmaps ──────────────────
+  function getSimpleSelector(el) {
+    if (!el || !el.tagName) return null;
+    var sel = el.tagName.toLowerCase();
+    if (el.id) return sel + '#' + el.id;
+    if (el.className && typeof el.className === 'string') {
+      var cls = el.className.trim().split(/\s+/).slice(0, 2).join('.');
+      if (cls) return sel + '.' + cls;
+    }
+    return sel;
+  }
+  document.addEventListener('click', function(e) {
+    try {
+      var target = e.target;
+      var rect = document.documentElement.getBoundingClientRect();
+      var xPct = Math.round((e.clientX / window.innerWidth) * 100);
+      var yPct = Math.round(((e.clientY + window.scrollY) / document.documentElement.scrollHeight) * 100);
+      var data = JSON.stringify({
+        session_id: getSession(),
+        url: window.location.href.split('?')[0],
+        x: Math.max(0, Math.min(100, xPct)),
+        y: Math.max(0, Math.min(100, yPct)),
+        selector: getSimpleSelector(target),
+        text: (target.textContent || '').trim().slice(0, 50)
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(EP_BEHAVIOR_CLICK, new Blob([data], {type:'application/json'}));
+      } else {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', EP_BEHAVIOR_CLICK, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(data);
+      }
+    } catch(err) {}
+  }, true);
+
   // ── UTMs persistidas + decoração de links de checkout ──────────────────
   // Plataformas de checkout (Kiwify, Hotmart, Eduzz...) devolvem no webhook
   // de venda as UTMs e o sck que estavam NO LINK DO CHECKOUT. O botão
@@ -1493,18 +1529,49 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     }
   }, true);
 
-  // ── Auto-scroll tracking (50% e 90%) — reseta a cada PageView SPA ─────
+  // ── Auto-scroll tracking (50% e 90%) + depth detalhado para heatmaps ──
   var scrollMarks = { 50:false, 90:false };
+  var maxScrollDepth = 0;
+  var pageLoadTime = Date.now();
+  var EP_BEHAVIOR_CLICK = API + '/api/v1/track/behavior/click/' + TOKEN;
+  var EP_BEHAVIOR_SCROLL = API + '/api/v1/track/behavior/scroll/' + TOKEN;
+
   function onScroll(){
     var h = document.documentElement;
     var scrolled = (h.scrollTop || document.body.scrollTop);
     var total = (h.scrollHeight || document.body.scrollHeight) - window.innerHeight;
     if (total <= 0) return;
-    var pct = (scrolled / total) * 100;
+    var pct = Math.round((scrolled / total) * 100);
+    if (pct > maxScrollDepth) maxScrollDepth = pct;
     if (pct >= 50 && !scrollMarks[50]) { scrollMarks[50] = true; track('Scroll50'); }
     if (pct >= 90 && !scrollMarks[90]) { scrollMarks[90] = true; track('Scroll90'); }
   }
   window.addEventListener('scroll', onScroll, { passive: true });
+
+  // Envia scroll depth ao sair da página (beforeunload) ou a cada 30s
+  function sendScrollDepth(){
+    if (maxScrollDepth === 0) return;
+    var timeOnPage = Math.round((Date.now() - pageLoadTime) / 1000);
+    try {
+      var data = JSON.stringify({
+        session_id: getSession(),
+        url: window.location.href.split('?')[0],
+        depth: maxScrollDepth,
+        time_on_page: timeOnPage
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(EP_BEHAVIOR_SCROLL, new Blob([data], {type:'application/json'}));
+      } else {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', EP_BEHAVIOR_SCROLL, false); // sync for beforeunload
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(data);
+      }
+    } catch(e){}
+  }
+  window.addEventListener('beforeunload', sendScrollDepth);
+  // Também envia periodicamente a cada 30s para sessões longas
+  setInterval(sendScrollDepth, 30000);
 
   // ── Auto-WhatsApp click tracking ──────────────────────────────────────
   document.addEventListener('click', function(e){

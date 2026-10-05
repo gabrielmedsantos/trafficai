@@ -39,6 +39,8 @@ import {
     Code2,
     RotateCcw,
     ShieldCheck,
+    Send,
+    Flame,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -116,8 +118,10 @@ const AREAS = [
                     { href: '/vendas/utms',       label: 'UTMs',              icon: Link2, color: C.purple },
                     { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },
                     { href: '/vendas/pedidos',    label: 'Pedidos',           icon: ShoppingCart, color: C.green },
+                    { href: '/vendas/reenviar',   label: 'Reenviar',          icon: Send, color: C.cyan },
                     { href: '/vendas/recuperacao', label: 'Recuperação',      icon: RotateCcw, color: C.orange },
                     { href: '/vendas/auditoria',  label: 'Auditoria',         icon: ShieldCheck, color: C.blue },
+                    { href: '/vendas/insights',   label: 'Insights',          icon: Flame, color: C.orange },
                 ],
             },
             {
