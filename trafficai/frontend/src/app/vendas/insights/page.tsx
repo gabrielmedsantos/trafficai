@@ -55,19 +55,26 @@ export default function BehaviorInsightsPage() {
     setLoading(true);
     // Carrega top URLs
     api.getBehaviorTopUrls(selectedSource, 10).then((res: any) => {
-      if (res?.success && res.data) {
-        setTopUrls(res.data);
-        if (res.data.length > 0) {
-          setSelectedUrl(res.data[0].url);
-        }
-      } else if (Array.isArray(res)) {
+      console.log('[Insights] getBehaviorTopUrls response:', res);
+      // API client já extrai json.data, então res é o array direto
+      if (Array.isArray(res) && res.length > 0) {
         setTopUrls(res);
-        if (res.length > 0) {
-          setSelectedUrl(res[0].url);
-        }
+        setSelectedUrl(res[0].url);
+      } else if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+        // Fallback caso retorne {success, data}
+        setTopUrls(res.data);
+        setSelectedUrl(res.data[0].url);
+      } else {
+        setTopUrls([]);
+        setSelectedUrl('');
       }
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch((err) => {
+      console.error('[Insights] getBehaviorTopUrls error:', err);
+      setTopUrls([]);
+      setSelectedUrl('');
+      setLoading(false);
+    });
   }, [selectedSource]);
 
   useEffect(() => {
@@ -127,25 +134,48 @@ export default function BehaviorInsightsPage() {
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, display: 'block' }}>
               URL
             </label>
-            <select
-              value={selectedUrl}
-              onChange={(e) => setSelectedUrl(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                fontSize: 13,
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                background: 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-              }}
-            >
-              {topUrls.map(u => (
-                <option key={u.url} value={u.url}>
-                  {u.url} ({u.sessions} sessões, {Math.round(u.avg_depth)}% scroll)
-                </option>
-              ))}
-            </select>
+            {topUrls.length > 0 ? (
+              <select
+                value={selectedUrl}
+                onChange={(e) => setSelectedUrl(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                {topUrls.map(u => (
+                  <option key={u.url} value={u.url}>
+                    {u.url} ({u.sessions} sessões, {Math.round(u.avg_depth)}% scroll)
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                placeholder="Digite a URL da página (ex: https://seusite.com/produto)"
+                value={selectedUrl}
+                onChange={(e) => setSelectedUrl(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  background: 'var(--bg-surface)',
+                  color: 'var(--text-primary)',
+                }}
+              />
+            )}
+            {topUrls.length === 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                Nenhuma URL capturada ainda. Digite manualmente ou aguarde novos visitantes com o pixel atualizado.
+              </div>
+            )}
           </div>
         </div>
       </Card>

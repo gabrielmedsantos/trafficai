@@ -396,19 +396,30 @@ export async function trackEvent(
         }
     }
 
-    // Geolocalização por IP — fallback quando os headers Cloudflare (CF-IPCountry etc.)
-    // não estão disponíveis. Preenche city/state/country/zip se estiverem vazios.
+    // Geolocalização por IP — CRÍTICO: deve ser resolvida ANTES de enviar para a Meta
+    // para garantir que city/state/country estejam no payload e melhorem o matching (EMQ).
     // Aceita tanto client_ip quanto client_ip_address (padrão Meta CAPI)
     const ipForGeo = event.user_data?.client_ip || event.user_data?.client_ip_address;
     if (event.user_data && !event.user_data.city && ipForGeo) {
         try {
+            // Timeout reduzido para não travar o envio, mas tenta resolver síncrono
             const geo = await resolveGeoFromIp(ipForGeo);
             if (geo.city) event.user_data.city = geo.city;
             if (geo.state) event.user_data.state = geo.state;
             if (geo.country) event.user_data.country = geo.country;
             if (geo.zip) event.user_data.zip = geo.zip;
+
+            // Log para auditoria: confirma que a geo foi resolvida antes do envio
+            if (geo.city) {
+                logger.info('tracking: geo resolvida antes do envio Meta', {
+                    ip: ipForGeo,
+                    city: geo.city,
+                    state: geo.state,
+                    country: geo.country
+                });
+            }
         } catch (e: any) {
-            logger.warn('tracking: geo por IP falhou silenciosamente', { error: e.message });
+            logger.warn('tracking: geo por IP falhou (enviando sem localização)', { error: e.message });
         }
     }
 

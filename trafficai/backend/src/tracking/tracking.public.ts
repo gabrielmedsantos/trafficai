@@ -10,7 +10,7 @@
 import express, { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
-import { query } from '../database/connection';
+import { query, queryOne } from '../database/connection';
 import { logger } from '../shared/logger';
 import {
     trackEvent, recordClick, extractClientContext,
@@ -28,6 +28,7 @@ import {
 import { normalizeSalesSettings } from './sales-report.service';
 import { notifySale } from './sales-notify.service';
 import { detectPlatform, parsePlatformWebhook, buildPurchaseFromOrder } from './checkout-platforms';
+import { saveClick, saveScrollDepth } from './behavior.service';
 
 const router = Router();
 
@@ -1708,5 +1709,67 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
 })();
 `;
 }
+
+// ─── POST /track/behavior/click/:token ──────────────────────────────────────
+// Recebe cliques com coordenadas do pixel para heatmaps (endpoint público)
+router.post('/behavior/click/:token', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.params;
+        const source = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE public_token = $1 AND is_active = true`,
+            [token]
+        );
+        if (!source) return res.status(404).json({ success: false });
+
+        const { session_id, url, x, y, selector, text } = req.body || {};
+        if (!session_id || !url || x == null || y == null) {
+            return res.status(400).json({ success: false, error: { message: 'Campos obrigatórios faltando' } });
+        }
+
+        await saveClick(source.id, session_id, url, {
+            x: Math.max(0, Math.min(100, Number(x))),
+            y: Math.max(0, Math.min(100, Number(y))),
+            selector,
+            text,
+            timestamp: Date.now(),
+        });
+
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.warn('tracking: behavior click falhou', { error: err.message });
+        res.status(200).json({ success: true }); // Não quebra o pixel
+    }
+});
+
+// ─── POST /track/behavior/scroll/:token ─────────────────────────────────────
+// Recebe profundidade de scroll do pixel para análise de drop-off
+router.post('/behavior/scroll/:token', async (req: Request, res: Response) => {
+    try {
+        const { token } = req.params;
+        const source = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE public_token = $1 AND is_active = true`,
+            [token]
+        );
+        if (!source) return res.status(404).json({ success: false });
+
+        const { session_id, url, depth, time_on_page } = req.body || {};
+        if (!session_id || !url || depth == null) {
+            return res.status(400).json({ success: false, error: { message: 'Campos obrigatórios faltando' } });
+        }
+
+        await saveScrollDepth(
+            source.id,
+            session_id,
+            url,
+            Math.max(0, Math.min(100, Number(depth))),
+            Number(time_on_page) || 0
+        );
+
+        res.json({ success: true });
+    } catch (err: any) {
+        logger.warn('tracking: behavior scroll falhou', { error: err.message });
+        res.status(200).json({ success: true }); // Não quebra o pixel
+    }
+});
 
 export const trackingPublicController = router;

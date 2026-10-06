@@ -22,6 +22,12 @@ export interface Row {
     video_3s: number | null; thruplays: number | null; landing_views: number | null; initiate_checkouts: number | null;
     hook_rate: number | null; hold_rate: number | null; retention: number | null; connect_rate: number | null;
     page_conversion: number | null; checkout_conversion: number | null; cost_per_checkout: number | null;
+    // Snapshot da última sync (similar ao UTMify)
+    last_sync_at?: string | null;
+    last_sync_spend?: number | null;
+    last_sync_conversions?: number | null;
+    last_sync_roas?: number | null;
+    last_sync_cost_per_conversion?: number | null;
 }
 
 // ── Formatação ──────────────────────────────────────────────────────────
@@ -454,6 +460,28 @@ export const COLUMN_DEFS: Record<string, Column> = {
     cost_per_checkout: { key: 'cost_per_checkout', label: 'Custo/IC', hint: 'Gasto ÷ checkouts iniciados', render: (r) => brl(r.cost_per_checkout), total: (_, t) => brl(t.cost_per_checkout) },
     page_conversion: { key: 'page_conversion', label: 'Conv. página', hint: 'Checkouts iniciados ÷ visualizações da página — quanto a página convence', render: (r) => pctCell(r.page_conversion), total: (_, t) => pct(t.page_conversion) },
     checkout_conversion: { key: 'checkout_conversion', label: 'Conv. checkout', hint: 'Vendas aprovadas ÷ checkouts iniciados — quanto o checkout fecha', render: (r) => pctCell(r.checkout_conversion), total: (_, t) => pct(t.checkout_conversion) },
+    last_sync: {
+        key: 'last_sync_at' as any, label: 'Últ. Atualização', hint: 'Snapshot dos dados na última sync (gasto, vendas, ROI) com data/hora',
+        render: (r: any) => {
+            if (!r.last_sync_at) return <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>N/A</span>;
+            const spend = Number(r.last_sync_spend || 0);
+            const conv = Number(r.last_sync_conversions || 0);
+            const roas = Number(r.last_sync_roas || 0);
+            const profit = roas * spend - spend;
+            const date = new Date(r.last_sync_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            return (
+                <div style={{ fontSize: 10.5, lineHeight: 1.45, textAlign: 'left', whiteSpace: 'normal', minWidth: 160 }}>
+                    <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                        Gasto: R$ {spend.toFixed(2).replace('.', ',')} · Vendas: {conv}
+                    </div>
+                    <div style={{ color: signColor(profit), fontWeight: 600 }}>
+                        Lucro: R$ {profit.toFixed(2).replace('.', ',')} · ROI: {roas.toFixed(2).replace('.', ',')}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>🕐 {date}</div>
+                </div>
+            );
+        },
+    },
 };
 
 export const COLUMN_GROUPS: { label: string; keys: string[] }[] = [
@@ -464,9 +492,9 @@ export const COLUMN_GROUPS: { label: string; keys: string[] }[] = [
 ];
 
 export const COLUMN_PRESETS: { key: string; label: string; keys: string[] }[] = [
-    { key: 'vendas', label: 'Vendas', keys: ['sales', 'cpa', 'spend', 'revenue', 'profit', 'roas', 'margin', 'roi'] },
-    { key: 'criativos', label: 'Criativos', keys: ['sales', 'cpa', 'spend', 'roas', 'hook_rate', 'hold_rate', 'retention', 'checkout_conversion', 'ctr', 'cpm'] },
-    { key: 'funil', label: 'Funil', keys: ['sales', 'cpa', 'spend', 'clicks', 'landing_views', 'connect_rate', 'initiate_checkouts', 'cost_per_checkout', 'page_conversion', 'checkout_conversion', 'ctr'] },
+    { key: 'vendas', label: 'Vendas', keys: ['sales', 'cpa', 'spend', 'revenue', 'profit', 'roas', 'margin', 'roi', 'last_sync'] },
+    { key: 'criativos', label: 'Criativos', keys: ['sales', 'cpa', 'spend', 'roas', 'hook_rate', 'hold_rate', 'retention', 'checkout_conversion', 'ctr', 'cpm', 'last_sync'] },
+    { key: 'funil', label: 'Funil', keys: ['sales', 'cpa', 'spend', 'clicks', 'landing_views', 'connect_rate', 'initiate_checkouts', 'cost_per_checkout', 'page_conversion', 'checkout_conversion', 'ctr', 'last_sync'] },
 ];
 
 /** Move a coluna `from` pra posição onde está `to`. */
@@ -486,7 +514,18 @@ const miniBtn = (disabled: boolean): React.CSSProperties => ({
 });
 
 export function columnsFor(keys: string[]): Column[] {
-    return keys.map((k) => COLUMN_DEFS[k]).filter(Boolean);
+    // Força inclusão de last_sync se estiver faltando (migração automática para usuários antigos)
+    // Insere após 'roi' para ficar visível sem precisar rolar até o final
+    const effectiveKeys = [...keys];
+    if (!effectiveKeys.includes('last_sync') && COLUMN_DEFS['last_sync']) {
+        const roiIdx = effectiveKeys.indexOf('roi');
+        if (roiIdx >= 0) {
+            effectiveKeys.splice(roiIdx + 1, 0, 'last_sync');
+        } else {
+            effectiveKeys.push('last_sync');
+        }
+    }
+    return effectiveKeys.map((k) => COLUMN_DEFS[k]).filter(Boolean);
 }
 
 /** Colunas financeiras padrão (mesma ordem da UTMify). */
@@ -495,16 +534,42 @@ export function financialColumns(opts: { media?: boolean } = {}): Column[] {
 }
 
 /** Escolha de colunas (com atalhos), lembrada no navegador. */
+const LAST_SYNC_VERSION_KEY = 'tai_cols_last_sync_v2'; // v2 para forçar reset mesmo se v1 já existia
 export function useColumnChoice(storageKey: string, fallback: string[] = COLUMN_PRESETS[0].keys) {
     const [keys, setKeys] = useState<string[]>(fallback);
     useEffect(() => {
         try {
+            console.log('[useColumnChoice] storageKey:', storageKey, 'COLUMN_DEFS.last_sync exists:', !!COLUMN_DEFS['last_sync']);
+            // Versão flag v2: força reset se o usuário nunca recebeu last_sync OU se a flag v1 existia mas v2 não
+            const hasVersion = localStorage.getItem(LAST_SYNC_VERSION_KEY);
+            console.log('[useColumnChoice] hasVersion (v2):', hasVersion);
+            if (!hasVersion && COLUMN_DEFS['last_sync']) {
+                // Primeira vez com last_sync (ou migração de v1 para v2) — usa o preset padrão
+                const defaultKeys = COLUMN_PRESETS[0].keys;
+                console.log('[useColumnChoice] Forçando preset padrão com last_sync:', defaultKeys);
+                localStorage.setItem(storageKey, JSON.stringify(defaultKeys));
+                localStorage.setItem(LAST_SYNC_VERSION_KEY, '1');
+                setKeys(defaultKeys);
+                return;
+            }
             const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+            console.log('[useColumnChoice] saved from localStorage:', saved);
             if (Array.isArray(saved)) {
                 const valid = saved.filter((k: unknown) => typeof k === 'string' && COLUMN_DEFS[k as string]) as string[];
-                if (valid.length) setKeys(valid);
+                console.log('[useColumnChoice] valid keys after filter:', valid, 'includes last_sync:', valid.includes('last_sync'));
+                // Força inclusão da nova coluna 'last_sync' se estiver faltando
+                if (valid.length && !valid.includes('last_sync') && COLUMN_DEFS['last_sync']) {
+                    const updated = [...valid, 'last_sync'];
+                    console.log('[useColumnChoice] Adicionando last_sync automaticamente:', updated);
+                    localStorage.setItem(storageKey, JSON.stringify(updated));
+                    setKeys(updated);
+                } else if (valid.length) {
+                    setKeys(valid);
+                }
             }
-        } catch { /* sem storage */ }
+        } catch (err) {
+            console.error('[useColumnChoice] Error:', err);
+        }
     }, [storageKey]);
     const update = (next: string[]) => {
         setKeys(next);
@@ -730,11 +795,11 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
                     {sorted.map((r) => (
                         <tr key={r.key} className="tai-row" style={{ opacity: loading ? 0.6 : 1 }}>
                             {leading?.map((l, i) => (
-                                <td key={l.label} className="tai-sticky" style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap', borderTop: '1px solid rgba(255,255,255,0.05)', ...stickyBase(lefts[i], { minWidth: l.width, width: l.width }) }}>{l.render(r)}</td>
+                                <td key={l.label} className="tai-sticky" style={{ padding: '8px 10px', textAlign: 'center', whiteSpace: 'nowrap', borderTop: '1px solid rgba(255,255,255,0.25)', borderLeft: '1px solid rgba(255,255,255,0.15)', ...stickyBase(lefts[i], { minWidth: l.width, width: l.width }) }}>{l.render(r)}</td>
                             ))}
-                            <td className="tai-sticky" style={{ padding: '9px 12px', borderTop: '1px solid rgba(255,255,255,0.05)', ...stickyBase(nameLeft, { minWidth: NAME_W, maxWidth: NAME_W, boxShadow: edgeShadow }) }}>{renderFirst(r)}</td>
+                            <td className="tai-sticky" style={{ padding: '9px 12px', borderTop: '1px solid rgba(255,255,255,0.25)', borderLeft: '1px solid rgba(255,255,255,0.15)', ...stickyBase(nameLeft, { minWidth: NAME_W, maxWidth: NAME_W, boxShadow: edgeShadow }) }}>{renderFirst(r)}</td>
                             {columns.map((c) => (
-                                <td key={String(c.key)} className="num" style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid rgba(255,255,255,0.05)' }}>{c.render(r)}</td>
+                                <td key={String(c.key)} className="num" style={{ padding: '9px 12px', textAlign: 'right', whiteSpace: 'nowrap', borderTop: '1px solid rgba(255,255,255,0.25)', borderLeft: '1px solid rgba(255,255,255,0.15)' }}>{c.render(r)}</td>
                             ))}
                         </tr>
                     ))}

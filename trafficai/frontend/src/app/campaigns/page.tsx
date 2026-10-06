@@ -23,6 +23,12 @@ interface Campaign {
     results: number;
     result_label: string;
     cost_per_result: number;
+    // Snapshot da última sync (similar ao UTMify)
+    last_sync_at?: string;
+    last_sync_spend?: number;
+    last_sync_conversions?: number;
+    last_sync_roas?: number;
+    last_sync_cost_per_conversion?: number;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -374,6 +380,7 @@ export default function CampaignsPage() {
                                 <SortHeader label="Custo/Resultado" k="cost_per_result" />
                                 <SortHeader label="ROAS" k="roas" />
                                 <SortHeader label="Orçamento Diário" k="daily_budget" />
+                                <th style={{ minWidth: 180 }}>Últ. Atualização</th>
                                 <th>Ações</th>
                             </tr>
                         </thead>
@@ -441,6 +448,23 @@ export default function CampaignsPage() {
                                         {c.daily_budget
                                             ? fmtBRL(Number(c.daily_budget))
                                             : '—'}
+                                    </td>
+                                    <td>
+                                        {c.last_sync_at ? (
+                                            <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+                                                <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                                    Gasto: R$ {(c.last_sync_spend || 0).toFixed(2).replace('.', ',')} | Lucro: R$ {((c.last_sync_roas || 0) * (c.last_sync_spend || 0) - (c.last_sync_spend || 0)).toFixed(2).replace('.', ',')} | Vendas: {c.last_sync_conversions || 0} |
+                                                </div>
+                                                <div style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                                    ROI: {(c.last_sync_roas || 0).toFixed(2).replace('.', ',')}
+                                                </div>
+                                                <div style={{ color: 'var(--text-muted)', marginTop: 2 }}>
+                                                    🕐 {new Date(c.last_sync_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>N/A</span>
+                                        )}
                                     </td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '8px' }}>

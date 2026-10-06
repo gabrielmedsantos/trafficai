@@ -113,6 +113,12 @@ export interface ReportRow {
     page_conversion: number | null;  // % checkouts iniciados ÷ visualizações da página
     checkout_conversion: number | null; // % vendas aprovadas ÷ checkouts iniciados
     cost_per_checkout: number | null;
+    // Snapshot da última sync (similar ao UTMify)
+    last_sync_at?: string | null;
+    last_sync_spend?: number | null;
+    last_sync_conversions?: number | null;
+    last_sync_roas?: number | null;
+    last_sync_cost_per_conversion?: number | null;
 }
 
 export interface SourceCtx {
@@ -164,6 +170,12 @@ function buildRow(base: RowInput, taxRate: number): ReportRow {
         cpc: clicks ? spend / clicks : null,
         cpm: impressions ? (spend / impressions) * 1000 : null,
         ...creativeMetrics(base, sales, spend),
+        // Snapshot da última sync (similar ao UTMify)
+        last_sync_at: base.last_sync_at ?? null,
+        last_sync_spend: base.last_sync_spend ?? null,
+        last_sync_conversions: base.last_sync_conversions ?? null,
+        last_sync_roas: base.last_sync_roas ?? null,
+        last_sync_cost_per_conversion: base.last_sync_cost_per_conversion ?? null,
     };
 }
 
@@ -228,6 +240,12 @@ interface MetaObj {
     thruplays: number | null;
     lpv: number | null;
     ic: number | null;
+    // Snapshot da última sync (similar ao UTMify)
+    last_sync_at?: string | null;
+    last_sync_spend?: number | null;
+    last_sync_conversions?: number | null;
+    last_sync_roas?: number | null;
+    last_sync_cost_per_conversion?: number | null;
 }
 
 // Cache curto: trocar de aba/ordenar não pode virar rajada na Marketing API.
@@ -350,12 +368,18 @@ async function fetchAccountSpend(token: string, metaAccountId: string, since: st
 
 async function campaignSpendFromDb(accountId: string, since: string, until: string): Promise<Map<string, MetaObj>> {
     const rows = await query<any>(
-        `SELECT c.meta_campaign_id, c.name, c.status, c.daily_budget, COALESCE(SUM(ih.spend), 0) AS spend,
-                COALESCE(SUM(ih.impressions), 0) AS impressions, COALESCE(SUM(ih.clicks), 0) AS clicks
+        `SELECT c.meta_campaign_id, c.name, c.status, c.daily_budget,
+                COALESCE(SUM(ih.spend), 0) AS spend,
+                COALESCE(SUM(ih.impressions), 0) AS impressions,
+                COALESCE(SUM(ih.clicks), 0) AS clicks,
+                c.last_sync_at, c.last_sync_spend, c.last_sync_conversions,
+                c.last_sync_roas, c.last_sync_cost_per_conversion
          FROM campaigns c
          LEFT JOIN insights_history ih ON ih.campaign_id = c.id AND ih.date BETWEEN $2 AND $3
          WHERE c.account_id = $1
-         GROUP BY c.meta_campaign_id, c.name, c.status, c.daily_budget`,
+         GROUP BY c.meta_campaign_id, c.name, c.status, c.daily_budget,
+                  c.last_sync_at, c.last_sync_spend, c.last_sync_conversions,
+                  c.last_sync_roas, c.last_sync_cost_per_conversion`,
         [accountId, since, until]
     );
     const map = new Map<string, MetaObj>();
@@ -365,7 +389,13 @@ async function campaignSpendFromDb(accountId: string, since: string, until: stri
             status: r.status, effective_status: r.status,
             daily_budget: r.daily_budget != null ? Number(r.daily_budget) : null, lifetime_budget: null,
             spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0,
-            video3s: null, thruplays: null, lpv: null, ic: null, // banco local não guarda métricas de criativo
+            video3s: null, thruplays: null, lpv: null, ic: null,
+            // Snapshot da última sync (similar ao UTMify)
+            last_sync_at: r.last_sync_at || null,
+            last_sync_spend: r.last_sync_spend != null ? Number(r.last_sync_spend) : null,
+            last_sync_conversions: r.last_sync_conversions != null ? Number(r.last_sync_conversions) : null,
+            last_sync_roas: r.last_sync_roas != null ? Number(r.last_sync_roas) : null,
+            last_sync_cost_per_conversion: r.last_sync_cost_per_conversion != null ? Number(r.last_sync_cost_per_conversion) : null,
         });
     }
     return map;
@@ -756,7 +786,8 @@ export async function updateMetaObject(
     await axios.post(`${base}/${metaId}`, null, { params, timeout: 20000 });
 
     // Mantém a tabela local de campanhas coerente (dashboard/alertas usam ela).
-    if (change.status) await query(`UPDATE campaigns SET status = $1, updated_at = NOW() WHERE meta_campaign_id = $2`, [change.status, metaId]);
-    if (change.daily_budget != null) await query(`UPDATE campaigns SET daily_budget = $1, updated_at = NOW() WHERE meta_campaign_id = $2`, [change.daily_budget, metaId]);
+    // Também atualiza last_sync_at para refletir a última modificação manual (similar ao UTMify).
+    if (change.status) await query(`UPDATE campaigns SET status = $1, updated_at = NOW(), last_sync_at = NOW() WHERE meta_campaign_id = $2`, [change.status, metaId]);
+    if (change.daily_budget != null) await query(`UPDATE campaigns SET daily_budget = $1, updated_at = NOW(), last_sync_at = NOW() WHERE meta_campaign_id = $2`, [change.daily_budget, metaId]);
     invalidateMetaCache(source.meta_account_id);
 }

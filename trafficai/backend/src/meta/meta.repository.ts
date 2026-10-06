@@ -38,6 +38,12 @@ export interface Campaign {
     created_time?: Date;
     optimization_goal?: string;
     destination_type?: string;
+    // Snapshot da última sync (similar ao UTMify)
+    last_sync_at?: Date;
+    last_sync_spend?: number;
+    last_sync_conversions?: number;
+    last_sync_roas?: number;
+    last_sync_cost_per_conversion?: number;
     // joined
     account_name?: string;
     meta_account_id?: string;
@@ -169,6 +175,31 @@ export class MetaRepository {
             ]
         );
         return rows[0];
+    }
+
+    /**
+     * Atualiza o snapshot da última sync para uma campanha (similar ao UTMify).
+     * Chamado após sincronizar insights para registrar gasto/vendas/ROI naquele momento.
+     */
+    async updateCampaignSyncSnapshot(
+        campaignId: string,
+        snapshot: {
+            spend: number;
+            conversions: number;
+            roas: number;
+            cost_per_conversion: number;
+        }
+    ): Promise<void> {
+        await query(
+            `UPDATE campaigns
+             SET last_sync_at = NOW(),
+                 last_sync_spend = $2,
+                 last_sync_conversions = $3,
+                 last_sync_roas = $4,
+                 last_sync_cost_per_conversion = $5
+             WHERE id = $1`,
+            [campaignId, snapshot.spend, snapshot.conversions, snapshot.roas, snapshot.cost_per_conversion]
+        );
     }
 
     async getCampaignsByAccount(accountId: string): Promise<Campaign[]> {

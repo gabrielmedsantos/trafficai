@@ -3,7 +3,7 @@
 // Não faz cache agressivo — só o suficiente pra o "Instalar App" funcionar e pra dar
 // uma experiência offline mínima (mostra tela cacheada se o servidor cair).
 
-const CACHE = 'trafficai-v4';
+const CACHE = 'trafficai-v5'; // Bump para invalidar cache antigo sem last_sync column
 const ESSENTIAL = [
   '/',
   '/agenda',
@@ -49,7 +49,18 @@ self.addEventListener('push', (event) => {
     data: { url: payload.url || '/alerts' },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  // Se é venda, avisa todas as janelas abertas pra tocar o som de ka-ching
+  if (isSale) {
+    event.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({ type: 'sale-notification', title, body: payload.body });
+        });
+      }).then(() => self.registration.showNotification(title, options))
+    );
+  } else {
+    event.waitUntil(self.registration.showNotification(title, options));
+  }
 });
 
 self.addEventListener('notificationclick', (event) => {
@@ -83,8 +94,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Assets estáticos: cache-first
-  if (url.pathname.startsWith('/_next/static/') || /\.(png|jpg|jpeg|svg|webp|ico|woff2?)$/.test(url.pathname)) {
+  // Assets estáticos: network-first (garante bundle novo após rebuild)
+  // Imagens/fonts ainda usam cache-first pra performance
+  if (url.pathname.startsWith('/_next/static/')) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, clone));
+        }
+        return res;
+      }).catch(() => caches.match(req))
+    );
+    return;
+  }
+  if (/\.(png|jpg|jpeg|svg|webp|ico|woff2?)$/.test(url.pathname)) {
     event.respondWith(
       caches.match(req).then((cached) => cached || fetch(req).then((res) => {
         if (res.ok) {

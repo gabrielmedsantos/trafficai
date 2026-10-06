@@ -885,11 +885,22 @@ export class MetaService {
                 const insights = await this.getCampaignInsights(
                     userId, accessToken, campaign.id, 'last_30d', { since, until }
                 );
+                let totalSpend = 0;
+                let totalConversions = 0;
+                let totalRoas = 0;
+                let totalCostPerConversion = 0;
+                let insightCount = 0;
+
                 for (const insight of insights) {
+                    const spend = parseFloat(insight.spend || '0');
+                    const conversions = this.extractConversions(insight.actions, campaign.objective);
+                    const roas = this.extractRoas(insight.purchase_roas);
+                    const costPerConversion = this.extractCostPerConversion(insight.cost_per_action_type, campaign.objective);
+
                     await metaRepository.upsertInsight({
                         campaign_id: dbCampaign.id,
                         date: insight.date_start,
-                        spend: parseFloat(insight.spend || '0'),
+                        spend,
                         impressions: parseInt(insight.impressions || '0', 10),
                         reach: parseInt(insight.reach || '0', 10),
                         clicks: parseInt(insight.clicks || '0', 10),
@@ -897,12 +908,28 @@ export class MetaService {
                         cpc: parseFloat(insight.cpc || '0'),
                         cpm: parseFloat(insight.cpm || '0'),
                         frequency: parseFloat(insight.frequency || '0'),
-                        conversions: this.extractConversions(insight.actions, campaign.objective),
-                        cost_per_conversion: this.extractCostPerConversion(insight.cost_per_action_type, campaign.objective),
-                        roas: this.extractRoas(insight.purchase_roas),
+                        conversions,
+                        cost_per_conversion: costPerConversion,
+                        roas,
                         actions: insight.actions,
                     });
+
+                    totalSpend += spend;
+                    totalConversions += conversions;
+                    totalRoas += roas;
+                    totalCostPerConversion += costPerConversion;
+                    insightCount++;
                     insightsSynced++;
+                }
+
+                // Atualiza snapshot da última sync (similar ao UTMify)
+                if (insightCount > 0) {
+                    await metaRepository.updateCampaignSyncSnapshot(dbCampaign.id, {
+                        spend: totalSpend,
+                        conversions: totalConversions,
+                        roas: totalRoas / insightCount,
+                        cost_per_conversion: totalCostPerConversion / insightCount,
+                    });
                 }
             } catch (err: any) {
                 errors++;

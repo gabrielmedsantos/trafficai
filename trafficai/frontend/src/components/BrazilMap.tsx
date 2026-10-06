@@ -41,9 +41,35 @@ export interface StateData {
   revenue: number;
 }
 
+// Mapeamento de nomes completos (como o backend retorna) → sigla do estado
+const STATE_NAME_TO_CODE: Record<string, string> = {
+  'ACRE': 'AC', 'ALAGOAS': 'AL', 'AMAZONAS': 'AM', 'AMAPÁ': 'AP', 'AMAPA': 'AP',
+  'BAHIA': 'BA', 'CEARÁ': 'CE', 'CEARA': 'CE', 'DISTRITO FEDERAL': 'DF',
+  'ESPÍRITO SANTO': 'ES', 'ESPIRITO SANTO': 'ES', 'GOIÁS': 'GO', 'GOIAS': 'GO',
+  'MARANHÃO': 'MA', 'MARANHAO': 'MA', 'MINAS GERAIS': 'MG',
+  'MATO GROSSO DO SUL': 'MS', 'MATO GROSSO': 'MT', 'PARÁ': 'PA', 'PARA': 'PA',
+  'PARAÍBA': 'PB', 'PARAIBA': 'PB', 'PERNAMBUCO': 'PE', 'PIAUÍ': 'PI', 'PIAUI': 'PI',
+  'PARANÁ': 'PR', 'PARANA': 'PR', 'RIO DE JANEIRO': 'RJ',
+  'RIO GRANDE DO NORTE': 'RN', 'RONDÔNIA': 'RO', 'RONDONIA': 'RO',
+  'RORAIMA': 'RR', 'RIO GRANDE DO SUL': 'RS', 'SANTA CATARINA': 'SC',
+  'SERGIPE': 'SE', 'SÃO PAULO': 'SP', 'SAO PAULO': 'SP', 'TOCANTINS': 'TO',
+  // Também aceita siglas diretamente
+  'AC': 'AC', 'AL': 'AL', 'AM': 'AM', 'AP': 'AP', 'BA': 'BA', 'CE': 'CE',
+  'DF': 'DF', 'ES': 'ES', 'GO': 'GO', 'MA': 'MA', 'MG': 'MG', 'MS': 'MS',
+  'MT': 'MT', 'PA': 'PA', 'PB': 'PB', 'PE': 'PE', 'PI': 'PI', 'PR': 'PR',
+  'RJ': 'RJ', 'RN': 'RN', 'RO': 'RO', 'RR': 'RR', 'RS': 'RS', 'SC': 'SC',
+  'SE': 'SE', 'SP': 'SP', 'TO': 'TO',
+  // Nomes em inglês (caso venha de geolocalização internacional)
+  'FLORIDA': 'FL', 'FLÓRIDA': 'FL',
+};
+
 export function BrazilMap({ byState }: { byState: StateData[] }) {
   const maxTotal = Math.max(...byState.map(s => Number(s.total)), 1);
-  const stateMap = new Map(byState.map(s => [s.state.toUpperCase(), s]));
+  // Normaliza: converte nome completo → sigla antes de criar o map
+  const stateMap = new Map(byState.map(s => {
+    const code = STATE_NAME_TO_CODE[s.state.toUpperCase()] || s.state.toUpperCase();
+    return [code, s];
+  }));
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (
@@ -53,9 +79,17 @@ export function BrazilMap({ byState }: { byState: StateData[] }) {
           const data = stateMap.get(code);
           const total = data ? Number(data.total) : 0;
           const intensity = total / maxTotal;
+          // Gradiente de cor sólida: cinza escuro → verde claro → verde intenso
+          // para garantir visibilidade no tema escuro
           const fill = total === 0
-            ? 'var(--bg-surface-2)'
-            : `rgba(34, 197, 94, ${0.15 + intensity * 0.7})`;
+            ? '#1e2228'
+            : intensity < 0.25
+              ? '#1a3a2a'
+              : intensity < 0.5
+                ? '#1d6b3a'
+                : intensity < 0.75
+                  ? '#22c55e'
+                  : '#4ade80';
           const isHovered = hovered === code;
           return (
             <g key={code}>

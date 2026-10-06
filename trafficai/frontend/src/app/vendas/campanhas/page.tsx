@@ -128,6 +128,11 @@ export default function CampanhasPage() {
         }));
         try {
             await api.updateSalesMetaObject(sourceId, row.meta_id, patch);
+            // Atualiza last_sync_at no override local para refletir imediatamente na coluna "Últ. Atualização"
+            setOverrides(o => ({
+                ...o,
+                [row.key]: { ...o[row.key], last_sync_at: new Date().toISOString() },
+            }));
             flashToast(patch.status ? `${patch.status === 'ACTIVE' ? 'Ativado' : 'Pausado'} na Meta: ${row.name}` : `Orçamento atualizado: ${brl(patch.daily_budget!)}/dia`);
         } catch (e: any) {
             setOverrides(o => ({ ...o, [row.key]: prev || {} }));

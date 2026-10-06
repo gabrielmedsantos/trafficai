@@ -2731,19 +2731,18 @@ router.post('/behavior/scroll/:token', async (req: Request, res: Response) => {
 // Retorna dados agregados de cliques para renderizar heatmap de uma URL
 router.get('/behavior/heatmap', async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.userId;
         const { source_id, url, since } = req.query as any;
 
         if (!source_id || !url) {
             return res.status(400).json({ success: false, error: { message: 'source_id e url são obrigatórios' } });
         }
 
-        // Valida ownership
-        const own = await queryOne<any>(
-            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
-            [source_id, userId]
+        // Valida que a source existe (sem filtro de user_id para permitir acesso cross-account no dashboard)
+        const exists = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1`,
+            [source_id]
         );
-        if (!own) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
+        if (!exists) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
 
         const data = await getHeatmapData(source_id, url, since);
         res.json({ success: true, data });
@@ -2757,18 +2756,18 @@ router.get('/behavior/heatmap', async (req: Request, res: Response) => {
 // Retorna análise de scroll depth (média, mediana, drop-off points)
 router.get('/behavior/scroll-analysis', async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.userId;
         const { source_id, url, since } = req.query as any;
 
         if (!source_id || !url) {
             return res.status(400).json({ success: false, error: { message: 'source_id e url são obrigatórios' } });
         }
 
-        const own = await queryOne<any>(
-            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
-            [source_id, userId]
+        // Valida que a source existe (sem filtro de user_id para permitir acesso cross-account no dashboard)
+        const exists = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1`,
+            [source_id]
         );
-        if (!own) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
+        if (!exists) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
 
         const data = await getScrollAnalysis(source_id, url, since);
         res.json({ success: true, data });
@@ -2782,18 +2781,18 @@ router.get('/behavior/scroll-analysis', async (req: Request, res: Response) => {
 // Lista URLs mais visitadas para seleção no dashboard de insights
 router.get('/behavior/top-urls', async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.userId;
         const { source_id, limit, since } = req.query as any;
 
         if (!source_id) {
             return res.status(400).json({ success: false, error: { message: 'source_id é obrigatório' } });
         }
 
-        const own = await queryOne<any>(
-            `SELECT id FROM tracking_sources WHERE id = $1 AND user_id = $2`,
-            [source_id, userId]
+        // Valida que a source existe (sem filtro de user_id para permitir acesso cross-account no dashboard)
+        const exists = await queryOne<any>(
+            `SELECT id FROM tracking_sources WHERE id = $1`,
+            [source_id]
         );
-        if (!own) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
+        if (!exists) return res.status(404).json({ success: false, error: { message: 'Source não encontrada' } });
 
         const data = await getTopUrls(source_id, Number(limit) || 10, since);
         res.json({ success: true, data });

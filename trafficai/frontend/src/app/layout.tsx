@@ -40,7 +40,33 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `
           if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/sw.js').catch(() => {});
+              navigator.serviceWorker.register('/sw.js').then((reg) => {
+                // Força atualização do SW e reload se houver nova versão
+                reg.addEventListener('updatefound', () => {
+                  const newWorker = reg.installing;
+                  if (newWorker) {
+                    newWorker.addEventListener('statechange', () => {
+                      if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
+                        // Nova versão ativada — recarrega pra pegar o bundle novo
+                        window.location.reload();
+                      }
+                    });
+                  }
+                });
+                // Verifica atualizações a cada 60s
+                setInterval(() => reg.update(), 60000);
+              }).catch(() => {});
+
+              // Se há um SW controlando mas não é o v5, força unregister + reload
+              if (navigator.serviceWorker.controller) {
+                fetch('/sw.js').then(r => r.text()).then(code => {
+                  if (!code.includes('trafficai-v5')) {
+                    navigator.serviceWorker.getRegistrations().then(regs => {
+                      regs.forEach(r => r.unregister());
+                    }).then(() => window.location.reload());
+                  }
+                }).catch(() => {});
+              }
             });
           }
         ` }} />
