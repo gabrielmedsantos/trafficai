@@ -76,6 +76,8 @@ import {
 } from "./api";
 import DurationField, { describeWait } from "./DurationField";
 import ModalFrame from "./ModalFrame";
+import MessageContent from "./MessageContent";
+import { messageTimings } from "./messageTiming";
 import { ErrorFeedback, LoadingState } from "./Feedback";
 import { connectionIssue, withoutOutput } from "./graphEditing";
 const listenMobile = (callback: () => void) => {
@@ -146,6 +148,8 @@ function Block({ data, selected }: NodeProps) {
         ) : (
           <Handle type="source" position={Position.Right} />
         ))}
+      {!!data.messagePreview && <small style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{String(data.messagePreview)}</small>}
+      {!!data.timing && <small><Clock3 size={13} /> {String(data.timing)}</small>}
       {!!data.state && (
         <small>{labels[String(data.state)] || String(data.state)}</small>
       )}
@@ -594,6 +598,20 @@ export default function FlowEditor({ id }: { id: string }) {
     ) : (
       <LoadingState label="Preparando seu editor…" />
     );
+  const timings = messageTimings(nodes, edges);
+  const timingLabel = (nodeId: string) => {
+    const seconds = timings.get(nodeId);
+    return seconds == null
+      ? "Previsão indefinida: verifique os caminhos e as conexões"
+      : seconds === 0
+        ? "Sem espera programada após o gatilho"
+        : describeWait(seconds) + " após o gatilho";
+  };
+  const messagePreview = (node: Node) => {
+    const c = node.data.config as Config;
+    const template = templates.find(t => t.id === c?.templateId && t.channel === c?.channel);
+    return template ? [template.name, c.channel === "email" ? template.subject : template.body].filter(Boolean).join(" · ").slice(0, 180) : "Selecione ou crie uma mensagem";
+  };
   const invalidIds = new Set(issues.map((i) => i.nodeId));
   const runStates: Record<string, string> = {};
   for (const j of run?.jobs || []) runStates[j.node_id] = j.status;
@@ -982,6 +1000,11 @@ export default function FlowEditor({ id }: { id: string }) {
           )}
           {chosen.data.kind === "message" && (
             <>
+              <div className="aw-feedback" role="status">
+                <strong><Clock3 size={16} /> Previsão de envio</strong>
+                <p>{timingLabel(chosen.id)}</p>
+                <small>Soma das esperas anteriores a esta mensagem. Para mudar o prazo, edite os blocos de espera antes dela. É uma previsão relativa ao gatilho, não um horário de um contato; limites de envio, processamento e novas tentativas podem adiar o envio.</small>
+              </div>
               {select(
                 "Canal",
                 "channel",
@@ -995,6 +1018,15 @@ export default function FlowEditor({ id }: { id: string }) {
                 "templateId",
                 templates.filter((t) => t.channel === config.channel),
               )}
+              <MessageContent
+                key={chosen.id + ":" + config.channel + ":" + config.templateId}
+                channel={String(config.channel || "email")}
+                template={templates.find(t => t.id === config.templateId && t.channel === config.channel)}
+                onSaved={(template) => {
+                  setTemplates(current => [template, ...current]);
+                  field("templateId", template.id);
+                }}
+              />
               {select(
                 "Conexão de envio",
                 "integrationId",
@@ -1490,6 +1522,8 @@ export default function FlowEditor({ id }: { id: string }) {
                   <span className="aw-step-copy">
                     <small>{labels[kind]}</small>
                     <strong>{String(node.data.label)}</strong>
+                    {kind === "message" && <span>{messagePreview(node)}</span>}
+                    {kind === "message" && <span><Clock3 size={13} /> {timingLabel(node.id)}</span>}
                     <span>
                       {String(
                         node.data.subtitle ||
@@ -1541,6 +1575,8 @@ export default function FlowEditor({ id }: { id: string }) {
                 ...n,
                 data: {
                   ...n.data,
+                  messagePreview: n.data.kind === "message" ? messagePreview(n) : undefined,
+                  timing: n.data.kind === "message" ? timingLabel(n.id) : undefined,
                   invalid: invalidIds.has(n.id),
                   state: runStates[n.id],
                 },
