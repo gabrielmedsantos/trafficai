@@ -4,6 +4,7 @@ import { EVENTS, EventInput } from "./types";
 import { UUID } from "./validation";
 import { ValidationError } from "../../shared/errors";
 import { reference } from "./repository";
+import { sameBrazilPhoneSql } from '../../tracking/tracking.service';
 export async function emitEvent(e: EventInput) {
   if (
     !EVENTS.includes(e.type as any) ||
@@ -67,6 +68,20 @@ export async function dispatchEvents(limit = 50) {
           (n: any) => n.type === "trigger",
         );
         if (trigger?.data.config.event !== e.event_type) continue;
+        if(e.event_type==='checkout.recovery' && f.version_recovery && e.deal_id){
+          // Repeated PIX/order attempts must not restart the same channel's
+          // recovery for the same product/contact during its seven-day cycle.
+          const duplicate=await tx(`SELECT r.id FROM aw_runs r
+            JOIN comm_deals prior ON prior.id=r.deal_id AND prior.user_id=$1
+            JOIN comm_deals current ON current.id=$3 AND current.user_id=$1
+            CROSS JOIN LATERAL (SELECT NULLIF(prior.contact_phone,'') AS customer_phone) priorcontact
+            CROSS JOIN LATERAL (SELECT NULLIF(current.contact_phone,'') AS customer_phone) currentcontact
+            WHERE r.user_id=$1 AND r.flow_id=$2 AND r.product_id=$4 AND r.test_mode=false
+            AND r.created_at>NOW()-INTERVAL '7 days' AND r.status NOT IN ('failed','canceled')
+            AND (prior.id=current.id OR (NULLIF(current.contact_email,'') IS NOT NULL AND LOWER(prior.contact_email)=LOWER(current.contact_email))
+              OR ${sameBrazilPhoneSql('priorcontact','currentcontact')}) LIMIT 1`,[e.user_id,f.id,e.deal_id,e.product_id]);
+          if(duplicate.length)continue;
+        }
         const runs = await tx(
           `INSERT INTO aw_runs(user_id,flow_id,version,event_id,order_id,deal_id,product_id,recovery,context) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(flow_id,version,event_id) DO NOTHING RETURNING id`,
           [

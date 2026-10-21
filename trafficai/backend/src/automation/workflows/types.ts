@@ -3,6 +3,7 @@ export const EVENTS = [
   "order.created",
   "checkout.started",
   "checkout.abandoned",
+  "checkout.recovery",
   "quiz.abandoned",
   "payment.approved",
   "payment.failed",

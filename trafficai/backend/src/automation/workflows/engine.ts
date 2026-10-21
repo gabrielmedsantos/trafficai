@@ -2,6 +2,7 @@ import {hasJourneyPurchase} from '../../tracking/journey-purchases';
 import { executeExternal } from "./external";
 import { query } from "../../database/connection";
 import { destinationHash } from "./consent";
+import { recoveryCheckout } from "./recovery";
 import { createLink } from "./links";
 import { randomUUID } from "crypto";
 import { purchaseTag, salesTag, promotionProduct } from "./purchase-target";
@@ -458,7 +459,7 @@ export async function executeJob(
               ? await createLink(tx, { ...linkInput, kind: "unsubscribe" })
               : "";
           const messageProduct = promotion || ctx.product;
-          let checkout = quizRecovery ? ctx.product?.sales_url || "" : messageProduct?.checkout_url || "";
+          let checkout = r.recovery ? recoveryCheckout(ctx.product, ctx.order, quizRecovery) : messageProduct?.checkout_url || "";
           const quizRefs = typeof quizSessionId==='string' ? await tx(`SELECT q.id FROM tracking_quiz_sessions q JOIN tracking_quiz_funnels f ON f.id=q.funnel_id JOIN tracking_sources source ON source.id=f.source_id WHERE q.id=$1 AND source.user_id=$2`,[quizSessionId,r.user_id])
             : ctx.order ? await tx(`SELECT q.id FROM tracking_quiz_sessions q JOIN tracking_quiz_funnels f ON f.id=q.funnel_id JOIN tracking_sources source ON source.id=f.source_id WHERE q.order_id=$1 AND source.user_id=$2 ORDER BY q.updated_at DESC LIMIT 2`,[ctx.order.id,r.user_id]):[];
           if(checkout&&quizRefs.length===1){const url=new URL(checkout);url.searchParams.set('quiz_session_id',quizRefs[0].id);url.searchParams.set('s1',quizRefs[0].id);checkout=url.href;}

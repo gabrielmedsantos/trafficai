@@ -4,6 +4,8 @@ import {recoverableQuizContact} from '../../tracking/quiz-recovery';
 import {hasJourneyPurchase,purchaseScope} from '../../tracking/journey-purchases';
 import {emitEvent} from './events';
 import {logger} from '../../shared/logger';
+import {RECOVERABLE_ORDER_STATUSES} from './recovery';
+import {sameBrazilPhoneSql} from '../../tracking/tracking.service';
 
 export function orderLifecycleType(status:string):string|null{
     return ({approved:'payment.approved',pending:'checkout.started',abandoned:'checkout.abandoned',refused:'payment.failed',canceled:'payment.expired',refunded:'refund.completed',chargeback:'chargeback.received'} as Record<string,string>)[status]||null;
@@ -26,7 +28,21 @@ async function contactDeal(product:any,externalId:string,contact:{name:string;em
         if(consent)for(const channel of ['email','whatsapp']){
             const destination=channel==='email'?contact.email:contact.phone;if(!destination)continue;
             await tx(`INSERT INTO aw_consents(user_id,deal_id,channel,status,evidence) VALUES($1,$2,$3,'opted_in',$4)
-                ON CONFLICT(user_id,deal_id,channel) DO NOTHING`,[product.user_id,id,channel,'Autorização explícita no quiz Historinha; contato '+externalId]);
+                ON CONFLICT(user_id,deal_id,channel) DO NOTHING`,[product.user_id,id,channel,'Autorização explícita no quiz; contato '+externalId]);
+        }
+        if(!consent)for(const channel of ['email','whatsapp']){
+          const destination=channel==='email'?contact.email:contact.phone;if(!destination)continue;
+          // Reuse only documented consent in this same product pipeline. A
+          // Historinha opt-in never authorizes marketing for Pedagogia.
+          const [prior]=await tx(`SELECT c.status,c.deal_id FROM aw_consents c JOIN comm_deals d ON d.id=c.deal_id AND d.user_id=$1
+            CROSS JOIN LATERAL (SELECT NULLIF(d.contact_phone,'') AS customer_phone) previous
+            CROSS JOIN (SELECT NULLIF($5::text,'') AS customer_phone) currentcontact
+            WHERE c.user_id=$1 AND c.channel=$2 AND d.pipeline_id=$3 AND d.id<>$6
+            AND (($2='email' AND NULLIF($4::text,'') IS NOT NULL AND LOWER(d.contact_email)=LOWER($4))
+              OR ($2='whatsapp' AND ${sameBrazilPhoneSql('previous','currentcontact')}))
+            ORDER BY c.updated_at DESC LIMIT 1`,[product.user_id,channel,stages[0].pipeline_id,contact.email,contact.phone,id]);
+          if(prior?.status==='opted_in')await tx(`INSERT INTO aw_consents(user_id,deal_id,channel,status,evidence) VALUES($1,$2,$3,'opted_in',$4)
+            ON CONFLICT(user_id,deal_id,channel) DO NOTHING`,[product.user_id,id,channel,'Autorização existente no CRM desta jornada; registro '+prior.deal_id]);
         }
         return id;
     });
@@ -53,6 +69,27 @@ export async function syncLifecycleEvents(){
             const deal=await contactDeal(product,order.quiz_id?'quiz:'+order.quiz_id:'order:'+order.id,{name:order.customer_name||a.momName||'',email:order.customer_email||c.email,phone:order.customer_phone||c.phone},c.consent);
             if(!deal)continue;
             await emitEvent({userId:product.user_id,sourceId:product.source_id,externalId:'order:'+order.id+':'+order.status+':'+product.id,type,orderId:order.id,dealId:deal,productId:product.id});
+        }
+        // A single recovery event per order/product covers pending, abandoned,
+        // refused and expired payments. Status changes never start four sequences.
+        const recoverySince=product.settings.recovery_started_at;
+        if(product.settings.recovery_enabled===true && typeof recoverySince==='string' && Number.isFinite(Date.parse(recoverySince))){
+          const recoveries=await query<any>(`SELECT o.*,q.id AS quiz_id,q.answers_encrypted FROM tracking_orders o
+            JOIN tracking_sources owner ON owner.id=o.source_id AND owner.user_id=$1
+            LEFT JOIN tracking_quiz_sessions q ON q.order_id=o.id
+            WHERE o.source_id=ANY($2::uuid[]) AND o.product_id=ANY($3::text[]) AND o.updated_at>=$4
+            AND o.status=ANY($5::text[]) AND NOT EXISTS(SELECT 1 FROM aw_events e WHERE e.user_id=$1
+              AND e.external_id='recovery:order:'||o.id::text||':'||$6::text)
+            ORDER BY o.updated_at LIMIT 100`,[product.user_id,scope.sources,scope.products,recoverySince,[...RECOVERABLE_ORDER_STATUSES],product.id]);
+          for(const order of recoveries){
+            let answers:any={};try{if(order.answers_encrypted)answers=JSON.parse(decrypt(order.answers_encrypted));}catch{}
+            const contact=recoverableQuizContact(answers);
+            const details={name:order.customer_name||answers.momName||'',email:order.customer_email||contact.email,phone:order.customer_phone||contact.phone};
+            if((!details.email&&!details.phone)||await hasJourneyPurchase(product.user_id,product,details))continue;
+            const deal=await contactDeal(product,order.quiz_id?'quiz:'+order.quiz_id:'order:'+order.id,details,contact.consent);
+            if(!deal)continue;
+            await emitEvent({userId:product.user_id,sourceId:product.source_id,externalId:'recovery:order:'+order.id+':'+product.id,type:'checkout.recovery',orderId:order.id,dealId:deal,productId:product.id});
+          }
         }
         const sessions=await query<any>(`SELECT q.*,f.source_id FROM tracking_quiz_sessions q JOIN tracking_quiz_funnels f ON f.id=q.funnel_id
             JOIN tracking_sources owner ON owner.id=f.source_id AND owner.user_id=$1
