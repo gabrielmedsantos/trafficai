@@ -8,7 +8,7 @@ services:
       DELIVERY_STORAGE_ROOT: /data/deliveries
       DELIVERY_PYTHON: /opt/pdf-runtime/bin/python
       AUTOMATION_WORKFLOWS_ENABLED: "true"
-      AUTOMATION_SENDS_ENABLED: "false"
+      AUTOMATION_SENDS_ENABLED: "true"
       AUTOMATION_EXTERNAL_ACTIONS_ENABLED: "false"
       AUTOMATION_PAID_AGENTS_ENABLED: "false"
       AUTOMATION_PUBLIC_BASE_URL: "https://api.alfamaxdigital.com.br/api/v1"
