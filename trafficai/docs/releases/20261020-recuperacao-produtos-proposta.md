@@ -1,3 +1,5 @@
+> Atualização: publicado em 21/10/2026 como rascunhos, conforme registro 20261021-recuperacao-produtos-publicada.md. A Pedagogia permanece sem alteração na página, usando apenas autorizações documentadas do CRM da mesma jornada e canal. O texto abaixo preserva a proposta revisada.
+
 # Recuperação — Historinha e Clube da Pedagogia
 
 Preparação em revisão. Nenhum cadastro de produção ou envio realizado nesta etapa.
