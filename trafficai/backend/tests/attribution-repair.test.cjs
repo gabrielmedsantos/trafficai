@@ -1,0 +1,21 @@
+process.env.ENCRYPTION_KEY=require('node:crypto').randomBytes(32).toString('hex');
+const {test}=require('node:test'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto');
+const {fixture}=require('./support/automation-db.cjs');
+test('revisão só leitura e ajuste financeiro sem duplicar compra ou associar criança; ambiguidade bloqueada',async()=>{
+ const {db,q,close}=await fixture();try{
+ await db.exec(`ALTER TABLE tracking_sources ADD COLUMN account_id UUID;CREATE TABLE ad_accounts(id UUID PRIMARY KEY,user_id UUID,account_name TEXT);CREATE TABLE campaigns(meta_campaign_id TEXT,account_id UUID);
+ ALTER TABLE tracking_orders ADD COLUMN created_at TIMESTAMPTZ DEFAULT NOW();ALTER TABLE tracking_orders ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();ALTER TABLE tracking_orders ADD COLUMN meta_campaign_id TEXT;ALTER TABLE tracking_orders ADD COLUMN meta_adset_id TEXT;ALTER TABLE tracking_orders ADD COLUMN meta_ad_id TEXT;ALTER TABLE tracking_orders ADD COLUMN utm_source TEXT;ALTER TABLE tracking_orders ADD COLUMN utm_medium TEXT;ALTER TABLE tracking_orders ADD COLUMN utm_campaign TEXT;ALTER TABLE tracking_orders ADD COLUMN utm_content TEXT;ALTER TABLE tracking_orders ADD COLUMN utm_term TEXT;`);
+ const owner=randomUUID(),account=randomUUID(),other=randomUUID(),funnel=randomUUID(),canonical='bcad48f8-de1f-4501-8dea-4810dc3b248d',mob='fb8d4d3b-2603-4c55-8655-51ca086f3091';
+ await q("INSERT INTO users(id,name) VALUES($1,'Usuário de teste')",[owner]);await q("INSERT INTO ad_accounts(id,user_id,account_name) VALUES($1,$2,'Mob'),($3,$2,'Outra')",[account,owner,other]);await q('INSERT INTO tracking_sources(id,user_id,account_id) VALUES($1,$2,$3),($4,$2,$5)',[canonical,owner,other,mob,account]);await q("INSERT INTO campaigns(meta_campaign_id,account_id) VALUES('120250092439360513',$1)",[account]);
+ const {ORDER,SESSION,repairHistorinhaAttribution}=require('../scripts/repair-historinha-attribution-20261021.cjs');
+ await q("INSERT INTO tracking_orders(id,source_id,status,product_id,customer_phone,customer_email,gross_value,sck,utm_campaign) VALUES($1,$2,'approved','121023','5511999999999','buyer@example.invalid',9.90,'Não Informado','Não Informado')",[ORDER,canonical]);
+ await q("INSERT INTO tracking_quiz_funnels(id,source_id,slug,name,origin,steps,answer_keys) VALUES($1,$2,'mamae-quero-historinha','Hist','https://historinha.alfamaxdigital.com.br','[]','[]')",[funnel,canonical]);
+ const {encrypt}=require('../dist/shared/encryption'),a=encrypt(JSON.stringify({phone:'11999999999'}));
+ await q("INSERT INTO tracking_quiz_sessions(id,funnel_id,write_key_hash,answers_encrypted,attribution,created_at) VALUES($1,$2,repeat('a',64),$3,$4,NOW()-INTERVAL '1 day')",[SESSION,funnel,a,JSON.stringify({utm_source:'FB',utm_campaign:'VENDAS 01 - CBO|120250092439360513',utm_medium:'ADVANTAGE|120250092439340513',utm_content:'V1|120250092439350513'})]);
+ await repairHistorinhaAttribution(false);assert.equal((await q('SELECT meta_campaign_id FROM tracking_orders WHERE id=$1',[ORDER]))[0].meta_campaign_id,null);assert.equal((await q('SELECT count(*)::int AS n FROM audit_log'))[0].n,0);
+ const duplicate=randomUUID();await q("INSERT INTO tracking_quiz_sessions(id,funnel_id,write_key_hash,answers_encrypted,created_at) VALUES($1,$2,repeat('b',64),$3,NOW()-INTERVAL '2 hours')",[duplicate,funnel,a]);await assert.rejects(repairHistorinhaAttribution(true),/AMBIGUOUS/);await q('DELETE FROM tracking_quiz_sessions WHERE id=$1',[duplicate]);
+ assert.equal((await repairHistorinhaAttribution(true)).affectedOrders,1);assert.equal((await repairHistorinhaAttribution(true)).mode,'unchanged');
+ const [after]=await q('SELECT * FROM tracking_orders WHERE id=$1',[ORDER]);assert.equal(after.meta_campaign_id,'120250092439360513');assert.equal(after.utm_campaign,'VENDAS 01 - CBO|120250092439360513');assert.equal(Number(after.gross_value),9.9);assert.equal(after.status,'approved');assert.equal(after.sck,'Não Informado');assert.equal((await q('SELECT order_id FROM tracking_quiz_sessions WHERE id=$1',[SESSION]))[0].order_id,null);
+ assert.equal((await q('SELECT count(*)::int AS n FROM tracking_orders'))[0].n,1);assert.equal((await q('SELECT count(*)::int AS n FROM audit_log'))[0].n,1);assert.equal((await q('SELECT count(*)::int AS n FROM aw_messages'))[0].n,0);
+ }finally{await close()}
+});
