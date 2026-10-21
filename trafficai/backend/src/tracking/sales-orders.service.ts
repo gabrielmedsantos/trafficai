@@ -1,3 +1,4 @@
+import { sameJourneyProductSql } from './quiz-sharing';
 // ==============================
 // TrafficAI — Pedidos de plataformas de checkout (estilo UTMify)
 // Cada plataforma (Kiwify, Hotmart, Eduzz, Monetizze, Cakto) traduz o próprio
@@ -7,8 +8,9 @@
 
 import { query, queryOne } from '../database/connection';
 import { logger } from '../shared/logger';
-import { sha256, normEmail, normPhone } from './tracking.service';
+import { sha256, normEmail, normPhone, sameBrazilPhoneSql } from './tracking.service';
 import { metaIdsFromUtms } from './utm';
+import { linkQuizOrders } from './quiz-orders.service';
 
 export { parseUtmId, metaIdsFromUtms } from './utm';
 
@@ -146,17 +148,28 @@ export async function upsertOrder(sourceId: string, o: NormalizedOrder): Promise
 
     const becameApproved = o.status === 'approved' && previous?.status !== 'approved';
 
+    await linkQuizOrders(sourceId, row!.id).catch((err: any) =>
+        logger.warn('pedido: falha ao vincular sessão do quiz', { error: err.message }));
+
     // Recuperação: compra aprovada do mesmo cliente (e-mail ou telefone) fecha
     // os carrinhos abandonados, Pix/boletos vencidos e recusas dele dos últimos 30 dias.
     if (becameApproved && (o.customer_email || o.customer_phone)) {
         const emailHash = o.customer_email ? sha256(normEmail(o.customer_email)) : null;
         const phoneHash = o.customer_phone ? sha256(normPhone(o.customer_phone)) : null;
         await query(
-            `UPDATE tracking_orders SET recovered_order_id = $2, updated_at = NOW()
-             WHERE source_id = $1 AND id <> $2 AND recovered_order_id IS NULL
-               AND status IN ('abandoned', 'pending', 'refused')
-               AND created_at >= NOW() - INTERVAL '30 days'
-               AND (($3::text IS NOT NULL AND customer_email_hash = $3) OR ($4::text IS NOT NULL AND customer_phone_hash = $4))`,
+            `UPDATE tracking_orders AS recovery_order SET recovered_order_id = approved_order.id, updated_at = NOW()
+             FROM tracking_orders approved_order
+             WHERE approved_order.source_id = $1 AND ${sameJourneyProductSql('recovery_order','approved_order')} AND recovery_order.id <> $2 AND recovery_order.recovered_order_id IS NULL
+               AND approved_order.id = $2 AND approved_order.status = 'approved'
+               AND recovery_order.status IN ('abandoned', 'pending', 'refused')
+               AND recovery_order.created_at >= NOW() - INTERVAL '30 days'
+               AND recovery_order.created_at <= NOW()
+               AND COALESCE(approved_order.approved_at, approved_order.order_created_at, approved_order.created_at)
+                   >= COALESCE(recovery_order.order_created_at, recovery_order.created_at)
+               AND (( $3::text IS NOT NULL AND recovery_order.customer_email_hash = $3)
+                 OR ($4::text IS NOT NULL AND recovery_order.customer_phone_hash = $4)
+                 OR ${sameBrazilPhoneSql('recovery_order','approved_order')})
+            `,
             [sourceId, row!.id, emailHash, phoneHash]
         ).catch((err: any) => logger.warn('pedido: falha ao marcar recuperação', { error: err.message }));
     }

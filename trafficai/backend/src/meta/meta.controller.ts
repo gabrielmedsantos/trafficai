@@ -4,6 +4,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../auth/auth.middleware';
+import { sharedAccountReadAccess, visibleAccounts } from '../team/account-read-access';
 import { metaService } from './meta.service';
 import { metaRepository } from './meta.repository';
 import { authRepository } from '../auth/auth.repository';
@@ -16,6 +17,7 @@ const router = Router();
 
 // All routes require authentication
 router.use(authMiddleware);
+router.use(sharedAccountReadAccess('meta'));
 
 /**
  * Helper: get user's access token or throw
@@ -210,7 +212,7 @@ router.get('/insights', async (req: Request, res: Response, next: NextFunction) 
  */
 router.get('/local/accounts', async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const accounts = await metaRepository.getAdAccountsByUser(req.user!.userId);
+        const accounts = await visibleAccounts(req.user!.userId);
         res.json({ success: true, data: accounts });
     } catch (err) {
         next(err);
@@ -636,7 +638,7 @@ router.get('/debug/account/:accountId', async (req: Request, res: Response, next
  */
 router.get('/local/accounts/active', async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const accounts = await metaRepository.getActiveAdAccountsByUser(req.user!.userId);
+        const accounts = await visibleAccounts(req.user!.userId, true);
         res.json({ success: true, data: accounts });
     } catch (err) {
         next(err);

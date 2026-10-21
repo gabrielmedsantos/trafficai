@@ -124,7 +124,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const savedPeriod = readLS('vendas_period');
         if (PERIODS.some(p => p.key === savedPeriod) && savedPeriod !== 'custom') setPeriodKeyState(savedPeriod);
-        loadSources();
+        const requestedSource = new URLSearchParams(window.location.search).get('source');
+        loadSources(requestedSource || undefined);
     }, [loadSources]);
 
     const setSourceId = useCallback((id: string) => { setSourceIdState(id); writeLS('vendas_source', id); }, []);
@@ -155,8 +156,10 @@ export function useVendas(): VendasCtx {
 }
 
 /** Relatório do período/fonte atuais pra um agrupamento. */
-export function useSalesReport(group: Group) {
+export function useSalesReport(group: Group, filters?: { products?: string[]; accounts?: string[] }) {
     const { sourceId, since, until, reloadToken } = useVendas();
+    const products = filters?.products?.length ? JSON.stringify(filters.products) : '';
+    const accounts = filters?.accounts?.length ? filters.accounts.join(',') : '';
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -165,13 +168,13 @@ export function useSalesReport(group: Group) {
         if (!sourceId) return;
         setLoading(true); setError('');
         try {
-            setData(await api.getSalesReport(sourceId, { since, until, group }));
+            setData(await api.getSalesReport(sourceId, { since, until, group, products, accounts }));
         } catch (e: any) {
             setError(e.message || 'Erro ao carregar relatório');
         } finally {
             setLoading(false);
         }
-    }, [sourceId, since, until, group]);
+    }, [sourceId, since, until, group, products, accounts]);
 
     useEffect(() => { load(); }, [load, reloadToken]);
     return { data, loading, error, reload: load };
@@ -247,7 +250,8 @@ export function CountBRL({ value, style }: { value: number | null | undefined; s
  * Pedidos de hoje com polling (30s): devolve os mais recentes e avisa quando
  * chega uma venda aprovada nova (pra toast + brilho no card de lucro).
  */
-export function useLiveOrders(sourceId: string, enabled: boolean, onNewSale: (o: any) => void) {
+export function useLiveOrders(sourceId: string, enabled: boolean, onNewSale: (o: any) => void, accounts: string[] = []) {
+    const accountKey = accounts.join(',');
     const [orders, setOrders] = useState<any[]>([]);
     const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
     const seen = React.useRef<Set<string> | null>(null);
@@ -261,7 +265,7 @@ export function useLiveOrders(sourceId: string, enabled: boolean, onNewSale: (o:
         const load = async () => {
             try {
                 const today = brtToday();
-                const list = (await api.getSalesOrders(sourceId, { since: today, until: today, limit: '50' })) || [];
+                const list = (await api.getSalesOrders(sourceId, { since: today, until: today, limit: '50', accounts: accountKey })) || [];
                 if (!alive) return;
                 const ids = new Set<string>(list.map((o: any) => `${o.id}:${o.status}`));
                 if (seen.current) {
@@ -276,7 +280,7 @@ export function useLiveOrders(sourceId: string, enabled: boolean, onNewSale: (o:
         load();
         const t = setInterval(load, 30000);
         return () => { alive = false; clearInterval(t); };
-    }, [sourceId, enabled]);
+    }, [sourceId, enabled, accountKey]);
     return { orders, freshIds };
 }
 
@@ -668,6 +672,19 @@ export function ColumnPicker({ value, onChange }: { value: string[]; onChange: (
     );
 }
 
+/** Tela estreita (celular): as tabelas largas viram lista de cartões. */
+export function useIsNarrow(maxWidth = 760): boolean {
+    const [narrow, setNarrow] = useState(false);
+    useEffect(() => {
+        const media = window.matchMedia(`(max-width: ${maxWidth}px)`);
+        const update = () => setNarrow(media.matches);
+        update();
+        media.addEventListener('change', update);
+        return () => media.removeEventListener('change', update);
+    }, [maxWidth]);
+    return narrow;
+}
+
 export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, columns, defaultSort = 'spend', emptyText, onReorder }: {
     rows: Row[];
     loading: boolean;
@@ -753,6 +770,60 @@ export function ReportTable({ rows, loading, firstLabel, renderFirst, leading, c
         return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
     }, []);
     const edgeShadow = scrolled ? '6px 0 10px -6px rgba(0,0,0,0.6)' : 'none';
+    const narrow = useIsNarrow();
+
+    // No celular as colunas presas (status, orçamento, nome) ocupariam a tela inteira:
+    // cada linha vira um cartão com o nome, os controles e as métricas em grade.
+    if (narrow) {
+        const sortable = sort.col === 'name' || columns.some((c) => c.key === sort.col);
+        const metric = (label: string, value: React.ReactNode, key: string) => (
+            <div key={key} style={{ minWidth: 0 }}>
+                <dt style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)', lineHeight: 1.3 }}>{label}</dt>
+                <dd className="tai-mono" style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-primary)', overflowWrap: 'anywhere' }}>{value}</dd>
+            </div>
+        );
+        const grid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: '10px 10px', margin: '12px 0 0' };
+        const card: React.CSSProperties = { border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'var(--bg-surface)' };
+        const totalColumns = columns.filter((c) => c.total);
+        return (
+            <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+                    <label htmlFor="taiReportSort" style={{ whiteSpace: 'nowrap' }}>Ordenar por</label>
+                    <select id="taiReportSort" value={String(sort.col)} onChange={(e) => setSort({ col: e.target.value as keyof Row, dir: e.target.value === 'name' ? 1 : -1 })}
+                        style={{ ...selectStyle, flexGrow: 1, minWidth: 0, fontSize: 12.5, padding: '7px 8px' }}>
+                        {!sortable && <option value={String(sort.col)}>Padrão</option>}
+                        <option value="name">{firstLabel}</option>
+                        {columns.map((c) => <option key={String(c.key)} value={String(c.key)}>{c.label}</option>)}
+                    </select>
+                    <button type="button" onClick={() => setSort((cur) => ({ ...cur, dir: (cur.dir * -1) as 1 | -1 }))}
+                        aria-label={sort.dir === -1 ? 'Ordem decrescente. Tocar para inverter.' : 'Ordem crescente. Tocar para inverter.'}
+                        style={{ ...selectStyle, width: 38, padding: '7px 0', fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>{sort.dir === -1 ? '↓' : '↑'}</button>
+                </div>
+                {sorted.length === 0 && (
+                    <div style={{ padding: 24, textAlign: 'center', fontSize: 12.5, color: 'var(--text-muted)' }}>{loading ? 'Carregando…' : emptyText || 'Sem dados no período.'}</div>
+                )}
+                {sorted.map((r) => (
+                    <div key={r.key} style={{ ...card, opacity: loading ? 0.6 : 1 }}>
+                        <div style={{ minWidth: 0 }}>{renderFirst(r)}</div>
+                        {!!leading?.length && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px', marginTop: 10 }}>
+                                {leading.map((l) => (
+                                    <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text-muted)' }}><span>{l.label}</span>{l.render(r)}</div>
+                                ))}
+                            </div>
+                        )}
+                        <dl style={grid}>{columns.map((c) => metric(c.label, c.render(r), String(c.key)))}</dl>
+                    </div>
+                ))}
+                {sorted.length > 0 && totalColumns.length > 0 && (
+                    <div style={{ ...card, borderColor: 'var(--primary)' }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 700 }}>Total · {rows.length} {rows.length === 1 ? 'linha' : 'linhas'}</div>
+                        <dl style={grid}>{totalColumns.map((c) => metric(c.label, c.total!(rows, totals), String(c.key)))}</dl>
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div ref={wrapRef} className="tai-scroll" onMouseDown={onMouseDown} onScroll={(e) => setScrolled((e.target as HTMLDivElement).scrollLeft > 4)}

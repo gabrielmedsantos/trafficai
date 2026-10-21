@@ -9,6 +9,7 @@ import Sidebar from '@/components/Sidebar';
 import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox } from '@/components/vendas/shared';
 
 const PAGES: Record<string, { title: string; subtitle: string; period: boolean }> = {
+    '/vendas/quizzes': { title: 'Funis de Quiz', subtitle: 'Respostas, etapas e pedidos dos quizzes personalizados.', period: true },
     '/vendas': { title: 'Resumo', subtitle: 'Faturamento, gastos e lucro das vendas atribuídas aos anúncios.', period: true },
     '/vendas/campanhas': { title: 'Campanhas', subtitle: 'Vendas, CPA e lucro por campanha, conjunto e anúncio — com status e orçamento da Meta ao vivo.', period: true },
     '/vendas/utms': { title: 'UTMs', subtitle: 'Vendas agrupadas por qualquer parâmetro UTM.', period: true },
@@ -109,7 +110,8 @@ function Header() {
 
 function Body({ children }: { children: React.ReactNode }) {
     const { sources, sourcesLoaded } = useVendas();
-    if (sourcesLoaded && !sources.length) {
+    const pathname=usePathname();
+    if (sourcesLoaded && !sources.length && pathname !== '/vendas/quizzes') {
         return (
             <EmptyBox>
                 Nenhuma fonte de tracking ainda. Clique em <b>Nova fonte</b> no topo e escolha a conta do cliente — ou crie em{' '}

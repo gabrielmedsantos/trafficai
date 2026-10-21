@@ -659,43 +659,15 @@ export class DailyWhatsAppService {
             const raw = await metaService.getAdInsightsForReport(user_id, accessToken, meta_account_id, since, until);
             if (!raw.length) return [];
 
-            const ACTION_PRIORITY = [
-                { type: 'offsite_conversion.fb_pixel_purchase', label: 'Compras' },
-                { type: 'purchase', label: 'Compras' },
-                { type: 'offsite_conversion.fb_pixel_lead', label: 'Leads' },
-                { type: 'lead', label: 'Leads' },
-                { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
-                { type: 'onsite_conversion.total_messaging_connection', label: 'Conversas' },
-                { type: 'link_click', label: 'Cliques' },
-            ];
-            // Determina ação DOMINANTE do período (maior volume entre todos os ads)
-            const agg = new Map<string, number>();
-            for (const r of raw) {
-                for (const a of (r.actions || [])) {
-                    agg.set(a.action_type, (agg.get(a.action_type) || 0) + (parseInt(a.value, 10) || 0));
-                }
-            }
-            // Primeiro tipo da prioridade com volume > 0 vence (Compras > Leads > Conversas > Cliques).
-            // Antes selecionava por maior volume — cliques/engajamento sempre venciam conversões.
-            let dominant: { type: string; label: string } | null = null;
-            for (const p of ACTION_PRIORITY) {
-                if ((agg.get(p.type) || 0) > 0) { dominant = { type: p.type, label: p.label }; break; }
-            }
+            const campaignRows = await query<any>(
+                'SELECT meta_campaign_id, objective, optimization_goal FROM campaigns WHERE account_id=$1', [accountId],
+            );
+            const campaignMap = new Map(campaignRows.map((c: any) => [c.meta_campaign_id, c]));
 
             return raw.map((r: any) => {
                 const spend = parseFloat(r.spend || '0');
-                // Se temos ação dominante, extrai APENAS ela pra manter consistência
-                let count = 0, label = 'Result.';
-                if (dominant) {
-                    const m = (r.actions || []).find((a: any) => a.action_type === dominant!.type);
-                    count = m ? (parseInt(m.value, 10) || 0) : 0;
-                    label = dominant.label;
-                } else {
-                    for (const p of ACTION_PRIORITY) {
-                        const m = (r.actions || []).find((a: any) => a.action_type === p.type);
-                        if (m && parseInt(m.value, 10) > 0) { count = parseInt(m.value, 10); label = p.label; break; }
-                    }
-                }
+                const campaign = campaignMap.get(r.campaign_id);
+                const { count, label } = metaService.extractPrimaryAction(r.actions, campaign?.objective, campaign?.optimization_goal);
                 return {
                     name: r.ad_name || '(sem nome)',
                     spend,
@@ -753,7 +725,7 @@ export class DailyWhatsAppService {
             impressions += parseInt(row.impressions) || 0;
 
             const { count, label } = metaService.extractPrimaryAction(row.actions, row.objective, row.optimization_goal);
-            if (count <= 0) continue;
+            if (count <= 0 && !['CONVERSATIONS', 'PROFILE_VISIT'].includes(row.optimization_goal)) continue;
             const g = groups.get(label) || { count: 0, spend: 0 };
             g.count += count;
             g.spend += rowSpend;

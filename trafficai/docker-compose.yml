@@ -1,21 +1,24 @@
 services:
-
   backend:
     build: ./backend
     container_name: trafficai-backend
     restart: unless-stopped
     env_file: ./backend/.env.production
+    environment:
+      DELIVERY_STORAGE_ROOT: /data/deliveries
+      DELIVERY_PYTHON: /opt/pdf-runtime/bin/python
+    volumes:
+    - /opt/trafficai/data/deliveries:/data/deliveries
     networks:
-      - traefik_net
-      - ipv6_net
+    - traefik_net
+    - ipv6_net
     labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=n8n_default"
-      - "traefik.http.routers.trafficai-api.rule=Host(`api.alfamaxdigital.com.br`)"
-      - "traefik.http.routers.trafficai-api.entrypoints=websecure"
-      - "traefik.http.routers.trafficai-api.tls.certresolver=mytlschallenge"
-      - "traefik.http.services.trafficai-api.loadbalancer.server.port=3001"
-
+    - traefik.enable=true
+    - traefik.docker.network=n8n_default
+    - traefik.http.routers.trafficai-api.rule=Host(`api.alfamaxdigital.com.br`)
+    - traefik.http.routers.trafficai-api.entrypoints=websecure
+    - traefik.http.routers.trafficai-api.tls.certresolver=mytlschallenge
+    - traefik.http.services.trafficai-api.loadbalancer.server.port=3001
   frontend:
     build:
       context: ./frontend
@@ -24,14 +27,13 @@ services:
     container_name: trafficai-frontend
     restart: unless-stopped
     networks:
-      - traefik_net
+    - traefik_net
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.trafficai-app.rule=Host(`app.alfamaxdigital.com.br`)"
-      - "traefik.http.routers.trafficai-app.entrypoints=websecure"
-      - "traefik.http.routers.trafficai-app.tls.certresolver=mytlschallenge"
-      - "traefik.http.services.trafficai-app.loadbalancer.server.port=3002"
-
+    - traefik.enable=true
+    - traefik.http.routers.trafficai-app.rule=Host(`app.alfamaxdigital.com.br`)
+    - traefik.http.routers.trafficai-app.entrypoints=websecure
+    - traefik.http.routers.trafficai-app.tls.certresolver=mytlschallenge
+    - traefik.http.services.trafficai-app.loadbalancer.server.port=3002
 networks:
   traefik_net:
     external: true

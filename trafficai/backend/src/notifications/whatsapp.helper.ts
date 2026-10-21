@@ -42,18 +42,35 @@ export async function sendWhatsAppMessage(userId: string, phone: string, text: s
         baseUrl = cfg.baseUrl || baseUrl;
         apiKey = creds.apiKey || apiKey;
     }
-    if (!instance) throw new Error('nenhuma instância Evolution conectada pro user');
+    // Mesma conexão que envia os relatórios diários (Configurações > Notificações).
+    // É a reserva quando a integração acima não existe ou já não está conectada na Evolution.
+    const ns = await query<any>(
+        `SELECT evolution_api_url, evolution_api_key, evolution_instance FROM notification_settings
+         WHERE user_id = $1 AND whatsapp_provider = 'evolution' AND COALESCE(evolution_instance, '') <> ''`,
+        [userId]
+    ).catch(() => [] as any[]);
+    const targets: Array<{ instance: string; baseUrl: string; apiKey: string }> = [];
+    if (instance) targets.push({ instance, baseUrl, apiKey });
+    if (ns.length && ns[0].evolution_instance !== instance) {
+        targets.push({ instance: ns[0].evolution_instance, baseUrl: ns[0].evolution_api_url || EV_BASE, apiKey: ns[0].evolution_api_key || EV_KEY });
+    }
+    if (!targets.length) throw new Error('nenhuma instância Evolution conectada pro user');
 
-    const url = `${baseUrl.replace(/\/$/, '')}/message/sendText/${instance}`;
     const number = normalizePhone(phone);
     const isGroup = number.includes('@g.us');
-    try {
-        await axios.post(url, { number, text, ...(mentionsEveryOne && isGroup ? { mentionsEveryOne: true } : {}) }, {
-            headers: { apikey: apiKey, 'Content-Type': 'application/json' },
-            timeout: 15000,
-        });
-    } catch (err: any) {
-        const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-        throw new Error(`Evolution API erro: ${detail}`);
+    let lastError = '';
+    for (const target of targets) {
+        const url = `${target.baseUrl.replace(/\/$/, '')}/message/sendText/${target.instance}`;
+        try {
+            await axios.post(url, { number, text, ...(mentionsEveryOne && isGroup ? { mentionsEveryOne: true } : {}) }, {
+                headers: { apikey: target.apiKey, 'Content-Type': 'application/json' },
+                timeout: 15000,
+            });
+            return;
+        } catch (err: any) {
+            lastError = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+            logger.warn('WhatsApp: envio falhou nesta conexão', { instance: target.instance, error: String(lastError).slice(0, 200) });
+        }
     }
+    throw new Error(`Evolution API erro: ${lastError}`);
 }

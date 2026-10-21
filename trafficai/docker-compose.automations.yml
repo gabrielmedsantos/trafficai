@@ -1,0 +1,9 @@
+# Override explícito; ativação somente após aprovação. Nenhuma credencial neste arquivo.
+services:
+  backend:
+    environment:
+      AUTOMATION_WORKFLOWS_ENABLED: "true"
+      AUTOMATION_SENDS_ENABLED: "false"
+      AUTOMATION_EXTERNAL_ACTIONS_ENABLED: "false"
+      AUTOMATION_PAID_AGENTS_ENABLED: "false"
+      AUTOMATION_PUBLIC_BASE_URL: "https://api.alfamaxdigital.com.br/api/v1"

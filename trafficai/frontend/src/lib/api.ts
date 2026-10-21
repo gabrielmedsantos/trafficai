@@ -510,13 +510,40 @@ class ApiClient {
     async getTrackingSource(id: string) {
         return this.request<any>('GET', `/tracking/sources/${id}`);
     }
-    async getSalesReport(sourceId: string, params: { since: string; until: string; group: string }) {
-        const q = new URLSearchParams(params).toString();
+    async getSalesReport(sourceId: string, params: { since: string; until: string; group: string; products?: string; accounts?: string }) {
+        const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
         return this.request<any>('GET', `/tracking/sources/${sourceId}/sales-report?${q}`);
     }
-    async getSalesOrders(sourceId: string, params: { since: string; until: string; status?: string; limit?: string }) {
+    async getSalesOrders(sourceId: string, params: { since: string; until: string; status?: string; limit?: string; search?: string; accounts?: string }) {
         const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
         return this.request<any[]>('GET', `/tracking/sources/${sourceId}/orders?${q}`);
+    }
+    async getOrderDelivery(sourceId:string,orderId:string) {
+        return this.request<any>('GET',`/tracking/sources/${sourceId}/orders/${orderId}/delivery`);
+    }
+    async generateOrderDelivery(sourceId:string,orderId:string,regenerate=false,childName?:string,setting?:string) {
+        return this.request<any>('POST',`/tracking/sources/${sourceId}/orders/${orderId}/delivery/generate`,{regenerate,...(childName?{childName}:{}),...(setting?{setting}:{})});
+    }
+    async sendOrderDelivery(sourceId:string,orderId:string,message:string) {
+        return this.request<any>('POST',`/tracking/sources/${sourceId}/orders/${orderId}/delivery/send`,{message});
+    }
+    async completeOrderDelivery(sourceId:string,orderId:string) {
+        return this.request<any>('POST',`/tracking/sources/${sourceId}/orders/${orderId}/delivery/complete`,{confirmed:true});
+    }
+    async completeOrderDeliveryManually(sourceId:string,orderId:string) {
+        return this.request<any>('POST',`/tracking/sources/${sourceId}/orders/${orderId}/delivery/complete-manual`,{confirmed:true});
+    }
+    async downloadOrderDelivery(sourceId:string,orderId:string,kind:string) {
+        const response=await fetch(`${this.baseUrl}/tracking/sources/${sourceId}/orders/${orderId}/delivery/files/${kind}`,{headers:this.getHeaders()});
+        storeRenewedToken(response);
+        if(!response.ok){const result=await response.json();throw new Error(result.error?.message||'Arquivo indisponível');}
+        return response.blob();
+    }
+    /** Foto que o responsável enviou no quiz (null quando não há). */
+    async getQuizSessionPhoto(sourceId:string,sessionId:string):Promise<Blob|null> {
+        const response=await fetch(`${this.baseUrl}/tracking/quiz/sources/${sourceId}/sessions/${sessionId}/photo`,{headers:this.getHeaders()});
+        storeRenewedToken(response);
+        return response.ok?response.blob():null;
     }
     async testSalesNotify(sourceId: string) {
         return this.request<{ push: number; whatsapp: boolean }>('POST', `/tracking/sources/${sourceId}/sales-notify/test`);
@@ -1011,6 +1038,12 @@ class ApiClient {
         if (until) q.set('until', until);
         const qs = q.toString();
         return this.request<any>('GET', `/tracking/sources/${sourceId}/dashboard${qs ? '?' + qs : ''}`);
+    }
+    async getCrmConversion(sourceId: string, since: string, until: string) {
+        return this.request<any>('GET', `/tracking/sources/${sourceId}/crm-conversion?since=${since}&until=${until}`);
+    }
+    async getCrmMonthly(sourceId: string, months = 6, refresh = false) {
+        return this.request<any>('GET', `/tracking/sources/${sourceId}/crm-monthly?months=${months}${refresh ? '&refresh=1' : ''}`);
     }
 
     // Board (gerenciador de demandas)

@@ -10,6 +10,7 @@ interface CurrentUser {
     role: 'admin' | 'member';
     capabilities?: string[] | null;
     is_team_member?: boolean;
+    shared_accounts?: {id:string;account_name:string;source_id:string|null}[];
     impersonated_by?: { id: string; name: string } | null;
 }
 

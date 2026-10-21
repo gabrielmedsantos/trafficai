@@ -39,6 +39,12 @@ export interface ExtractedUserData {
 // pipeline inteiro) e classifyStatus (classifica 1 status já conhecido, via
 // webhook nativo) — extraídas aqui pra nunca divergir entre os dois usos.
 const WON_STATUS_RE = /venda|fechad|vendid|ganho|won|sold|success|sucesso/i;
+// "Venda perdida" casa com WON_STATUS_RE por causa de "venda" — estágios de
+// perda customizados nunca são ganho.
+const LOST_STATUS_RE = /perdid|perda|lost|cancelad/i;
+function isWonStatusName(name: string): boolean {
+    return WON_STATUS_RE.test(name) && !LOST_STATUS_RE.test(name);
+}
 // Só nomes que indicam a CAPTURA INICIAL do lead — evita pegar estágios de
 // "engajamento" como "Contato inicial" (que é depois que o vendedor JÁ
 // conversou, não é o momento de Lead pra Meta).
@@ -116,7 +122,7 @@ export class KommoAdapter {
         const won: WonStatus[] = [];
         for (const p of pipelines) {
             for (const s of p.statuses) {
-                if (s.id === 142 || WON_STATUS_RE.test(s.name)) {
+                if (s.id === 142 || isWonStatusName(s.name)) {
                     won.push({
                         pipeline_id: p.id,
                         pipeline_name: p.name,
@@ -174,7 +180,7 @@ export class KommoAdapter {
         const status = pipeline?.statuses.find(s => s.id === statusId);
         if (!status) return null;
 
-        if (WON_STATUS_RE.test(status.name)) return 'Purchase';
+        if (isWonStatusName(status.name)) return 'Purchase';
         if (LEAD_STAGE_RE.test(status.name)) return 'Lead';
         return null;
     }
@@ -203,6 +209,35 @@ export class KommoAdapter {
                 if (e.response?.status === 204) break;
                 throw new Error(`Kommo listLeadsByStatus (pipeline=${pipelineId}, status=${statusId}, page=${page}): ${e.message}`);
             }
+        }
+        return all;
+    }
+
+    /** Lista leads por faixa de data (criação ou fechamento, em unix seconds).
+     *  Só os campos usados em relatório, sem contatos — pagina rápido. */
+    async listLeadsByDate(field: 'created_at' | 'closed_at', from: number, to: number, maxPages = 400): Promise<Array<{
+        id: number; price: number; status_id: number; pipeline_id: number; created_at: number; closed_at: number | null;
+    }>> {
+        const all: Array<{ id: number; price: number; status_id: number; pipeline_id: number; created_at: number; closed_at: number | null }> = [];
+        const PAGE_SIZE = 250;
+        for (let page = 1; page <= maxPages; page++) {
+            const r = await this.client.get('/leads', {
+                params: {
+                    [`filter[${field}][from]`]: from,
+                    [`filter[${field}][to]`]: to,
+                    'limit': PAGE_SIZE,
+                    'page': page,
+                },
+            });
+            const leads = (r.status === 204 ? [] : r.data?._embedded?.leads) || [];
+            for (const l of leads) {
+                all.push({
+                    id: l.id, price: Number(l.price) || 0, status_id: l.status_id, pipeline_id: l.pipeline_id,
+                    created_at: l.created_at, closed_at: l.closed_at || null,
+                });
+            }
+            if (leads.length < PAGE_SIZE) break;
+            await sleep(250);
         }
         return all;
     }

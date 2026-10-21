@@ -1,8 +1,13 @@
+import { receiptController } from '../automation/workflows/receipts';
 // ==============================
 // TrafficAI — API Routes
 // ==============================
 
 import { Router } from 'express';
+import { workflowPublicController } from '../automation/workflows/links';
+import { workflowController } from '../automation/workflows/controller';
+import { quizController, quizPublicController } from '../tracking/quiz.controller';
+import { deliveryController } from '../tracking/delivery.controller';
 import { authController } from '../auth/auth.controller';
 import { metaController } from '../meta/meta.controller';
 import { aiController } from '../ai/ai.controller';
@@ -47,6 +52,8 @@ const router = Router();
 // Plan guard global — bloqueia acesso a rotas protegidas quando o user
 // não tem assinatura ativa nem trial vigente. Rotas isentas (auth/billing/
 // webhooks/públicas) são reconhecidas pelo prefixo do path.
+router.use('/automation-public/receipts', receiptController);
+router.use('/automation-public', workflowPublicController);
 router.use(planGuard);
 
 // Health check
@@ -66,6 +73,7 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authController);
 router.use('/meta', metaController);
 router.use('/ai', aiController);
+router.use('/automation/workflows', workflowController);
 router.use('/automation', automationController);
 router.use('/meta-actions', metaActionsController);
 router.use('/google-ads', googleAdsController);
@@ -97,9 +105,12 @@ router.use('/board', boardController);
 router.use('/leads', leadsController);
 
 // Tracking público (sem JWT) — pixel, ingest e webhook
+router.use('/track/quiz', quizPublicController);
 router.use('/track', trackingPublicController);
 
 // Tracking autenticado — CRUD + stats
+router.use('/tracking/quiz', quizController);
+router.use('/tracking', deliveryController);
 router.use('/tracking', trackingController);
 
 // Comercial — webhooks públicos PRIMEIRO (sem JWT), depois rotas autenticadas

@@ -75,7 +75,17 @@ export async function notifySale(sourceId: string, n: SaleNotice): Promise<void>
         );
         if (!src) return;
         const prefs = normalizeSalesSettings(src.sales_settings).notify;
-        const notice = buildSaleNotice(src.name, n, prefs);
+        // A webhook source can serve the same product across several ad accounts.
+        const campaignId = parseUtmId(n.utm_campaign).id;
+        let accountName = src.name;
+        if (campaignId) {
+            const accounts = await query<{ name: string }>(
+                `SELECT DISTINCT a.id, a.account_name AS name FROM campaigns c
+                 JOIN ad_accounts a ON a.id=c.account_id
+                 WHERE a.user_id=$1 AND c.meta_campaign_id=$2`, [src.user_id, campaignId]);
+            accountName = accounts.length === 1 ? accounts[0].name : 'Conta não identificada';
+        }
+        const notice = buildSaleNotice(accountName, n, prefs);
         if (!notice || !prefs[notice.kind]) return;
 
         const tasks: Promise<unknown>[] = [];

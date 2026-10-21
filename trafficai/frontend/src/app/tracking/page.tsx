@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { MetaConnectButton } from '@/components/MetaConnectButton';
 import { BrazilMap } from '@/components/BrazilMap';
+import { CrmMonthly } from './CrmMonthly';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
@@ -870,6 +871,23 @@ function SourceDetail({ source, onClose, onEdit }: {
 
     useEffect(() => { loadDash(); }, [loadDash]);
 
+    // Taxa de conversão direto do Kommo: vendas ganhas ÷ leads criados no período.
+    // O resultado guarda o período consultado; se o filtro mudou, vale como "carregando".
+    const crmConvRange = resolveDashRange();
+    const crmConvKey = `${crmConvRange.since}:${crmConvRange.until}`;
+    const [crmConvRaw, setCrmConvRaw] = useState<any>(null);
+    useEffect(() => {
+        if (source.crm_type !== 'kommo') return;
+        const [since, until] = crmConvKey.split(':');
+        if (!since || !until) return;
+        let cancelled = false;
+        api.getCrmConversion(source.id, since, until)
+            .then(d => { if (!cancelled) setCrmConvRaw({ ...d, key: crmConvKey }); })
+            .catch(() => { if (!cancelled) setCrmConvRaw({ error: true, key: crmConvKey }); });
+        return () => { cancelled = true; };
+    }, [source.id, source.crm_type, crmConvKey]);
+    const crmConv = crmConvRaw?.key === crmConvKey ? crmConvRaw : null;
+
     const [exportingCsv, setExportingCsv] = useState(false);
     async function exportCsv() {
         setExportingCsv(true);
@@ -1191,7 +1209,7 @@ function SourceDetail({ source, onClose, onEdit }: {
 
                             {/* KPIs secundários */}
                             <div style={{
-                                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 10,
+                                display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 10,
                             }}>
                                 <BigKpi
                                     icon={<Users size={14} />}
@@ -1218,15 +1236,30 @@ function SourceDetail({ source, onClose, onEdit }: {
                                     icon={<ShoppingCart size={14} />}
                                     label="Vendas"
                                     value={dash.kpis.sales_count.toLocaleString('pt-BR')}
-                                    hint={`${dash.kpis.conversion_rate.toFixed(1)}% conversão`}
+                                    hint={source.crm_type === 'kommo' ? 'com valor preenchido' : `${dash.kpis.conversion_rate.toFixed(1)}% conversão`}
                                     color="var(--accent-green)"
                                 />
+                                {source.crm_type === 'kommo' && (
+                                    <BigKpi
+                                        icon={<Target size={14} />}
+                                        label="Taxa de conversão"
+                                        value={!crmConv ? '…' : crmConv.error || crmConv.conversion_rate == null ? '—' : `${crmConv.conversion_rate.toFixed(1)}%`}
+                                        hint={!crmConv ? 'consultando o Kommo…' : crmConv.error ? 'Kommo indisponível' : `${crmConv.sales_count} vendas ÷ ${Number(crmConv.leads_created).toLocaleString('pt-BR')} leads (Kommo)`}
+                                        color="var(--accent-green)"
+                                    />
+                                )}
                                 <BigKpi
                                     icon={<DollarSign size={14} />}
                                     label="Faturamento"
                                     value={`R$ ${Number(dash.kpis.sales_value).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-                                    hint={dash.kpis.sales_count > 0 ? `ticket médio R$ ${Number(dash.kpis.avg_ticket).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}` : undefined}
+                                    hint={dash.kpis.sales_count > 0 ? `${dash.kpis.sales_count} venda${dash.kpis.sales_count === 1 ? '' : 's'}` : undefined}
                                     color="var(--accent-green)"
+                                />
+                                <BigKpi
+                                    icon={<DollarSign size={14} />}
+                                    label="Ticket médio"
+                                    value={dash.kpis.sales_count > 0 ? `R$ ${Number(dash.kpis.avg_ticket).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                    hint="faturamento ÷ vendas"
                                 />
                                 <BigKpi
                                     icon={dash.kpis.roi_pct >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -1333,6 +1366,8 @@ function SourceDetail({ source, onClose, onEdit }: {
                                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Funil de conversão</div>
                                 <Funnel kpis={dash.kpis} />
                             </div>
+
+                            {source.crm_type === 'kommo' && <CrmMonthly sourceId={source.id} />}
 
                             {/* Performance por campanha — "Origem da venda" */}
                             {dash.by_campaign && dash.by_campaign.length > 0 && (() => {

@@ -65,6 +65,7 @@ const CAPABILITIES: { key: string; label: string }[] = [
     { key: 'balance_alerts', label: 'Alerta de Saldo' },
     { key: 'dashboard_share', label: 'Compartilhar Dashboard' },
     { key: 'whatsapp_connections', label: 'Conexões WhatsApp' },
+    { key: 'automations', label: 'Automações e funis' },
 ];
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

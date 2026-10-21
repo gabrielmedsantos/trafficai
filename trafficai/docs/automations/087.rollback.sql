@@ -1,0 +1,28 @@
+-- MANUAL ONLY. Remove dados exclusivos do módulo. Nunca executar sem aprovação e backup.
+BEGIN;
+DROP TRIGGER IF EXISTS aw_order_outbox_trigger ON tracking_orders;
+DROP FUNCTION IF EXISTS aw_order_outbox();
+DROP TABLE IF EXISTS aw_external_intents;
+DROP TABLE IF EXISTS aw_sender_limits;
+DROP TABLE IF EXISTS aw_receipts;
+DROP TABLE IF EXISTS aw_enrollments;
+DROP TABLE IF EXISTS aw_suppressions;
+DROP TABLE IF EXISTS aw_attributions;
+DROP TABLE IF EXISTS aw_links;
+DROP TABLE IF EXISTS aw_campaign_recipients;
+DROP TABLE IF EXISTS aw_campaigns;
+DROP TABLE IF EXISTS aw_messages;
+DROP TABLE IF EXISTS aw_tags;
+DROP TABLE IF EXISTS aw_consents;
+DROP TABLE IF EXISTS aw_segments;
+DROP TABLE IF EXISTS aw_integrations;
+DROP TABLE IF EXISTS aw_templates;
+DROP TABLE IF EXISTS aw_steps;
+DROP TABLE IF EXISTS aw_jobs;
+DROP TABLE IF EXISTS aw_runs;
+DROP TABLE IF EXISTS aw_events;
+DROP TABLE IF EXISTS aw_versions;
+DROP FUNCTION IF EXISTS aw_version_immutable();
+DROP TABLE IF EXISTS aw_flows;
+DROP TABLE IF EXISTS aw_products;
+COMMIT;

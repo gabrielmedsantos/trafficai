@@ -9,6 +9,7 @@ import { query } from '../database/connection';
 import { metaService } from '../meta/meta.service';
 import { logger } from '../shared/logger';
 import { sendWhatsAppMessage } from '../notifications/whatsapp.helper';
+import { decryptMaybe } from '../shared/encryption';
 
 interface UserAccounts {
     user_id: string;
@@ -47,7 +48,8 @@ export async function syncAllBalances(): Promise<number> {
         if (!byUser.has(r.user_id)) {
             byUser.set(r.user_id, {
                 user_id: r.user_id,
-                access_token: r.access_token,
+                // O token fica criptografado no banco; a Meta só aceita o valor original.
+                access_token: decryptMaybe(r.access_token) ?? null,
                 token_expiration: r.token_expiration,
                 accounts: [],
             });

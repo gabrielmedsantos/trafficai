@@ -1,5 +1,6 @@
 'use client';
 
+import {QuizRecovery} from '@/components/vendas/quiz-recovery';
 import React, { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, Copy, Check, Search, X } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -152,6 +153,7 @@ export default function RecuperacaoPage() {
     return (
         <>
             {error && <ErrorBox>{error}</ErrorBox>}
+            <QuizRecovery/>
 
             <section className="tai-grid-rec" style={{ marginBottom: 16 }}>
                 <Card delay={60} style={{ display: 'flex', alignItems: 'center', gap: 18 }}>

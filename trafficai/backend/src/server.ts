@@ -14,6 +14,7 @@ import { errorHandler } from './api/middleware/error-handler';
 import { startSyncWorker } from './workers/sync.worker';
 import { startTokenRefreshWorker } from './workers/token-refresh.worker';
 import { startAlertsWorker } from './workers/alerts.worker';
+import { startWorkflowWorker } from './automation/workflows/worker';
 import { startAutomationWorker } from './workers/automation.worker';
 import { startGoogleAdsSyncWorker } from './workers/google-ads-sync.worker';
 import { startWeeklyMonthlyReportWorker } from './workers/weekly-monthly-report.worker';
@@ -26,6 +27,7 @@ import { startTrackingCleanupWorker } from './workers/tracking-cleanup.worker';
 import { startTrackingGoogleRetryWorker } from './workers/tracking-google-retry.worker';
 import { startCrmSyncWorker } from './workers/tracking-crm-sync.worker';
 import { startCommercialWorker } from './commercial/commercial.worker';
+import { startDeliveryWorker } from './tracking/delivery.service';
 import { logger } from './shared/logger';
 
 const app = express();
@@ -98,11 +100,12 @@ app.use(mainLimiter);
 // assinatura HMAC. Essas rotas usam express.raw() no próprio router, então
 // pulamos o express.json() global pra elas.
 app.use((req, res, next) => {
+    if (req.method==='POST' && req.path.startsWith('/api/v1/automation-public/receipts/')) return next();
     if (req.path === '/api/v1/billing/webhook') return next();
     if (req.path === '/api/v1/commercial/webhooks/whatsapp-cloud' && req.method === 'POST') return next();
     express.json({ limit: '10mb' })(req, res, next);
 });
-app.use(express.urlencoded({ extended: true }));
+app.use((req,res,next)=>{if(req.method==='POST'&&req.path.startsWith('/api/v1/automation-public/receipts/'))return next();express.urlencoded({extended:true})(req,res,next);});
 
 // ---- Request Logging ----
 app.use((req, _res, next) => {
@@ -140,6 +143,7 @@ app.listen(PORT, () => {
         startAlertsWorker();
         startReportWorker();
         startCommercialWorker();
+        startDeliveryWorker();
         startBillingWorker();
         startInvoiceReminderWorker();
         startTrackingRetryWorker();
@@ -147,6 +151,7 @@ app.listen(PORT, () => {
         startTrackingGoogleRetryWorker();
         startCrmSyncWorker();
         startAutomationWorker();
+        startWorkflowWorker();
         startGoogleAdsSyncWorker();
         startWeeklyMonthlyReportWorker();
     }

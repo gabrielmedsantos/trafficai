@@ -4,6 +4,7 @@
   "description": "TrafficAI — Backend API for intelligent paid traffic management",
   "main": "dist/server.js",
   "scripts": {
+    "test": "npm run build && node --test tests/*.test.cjs",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
@@ -31,6 +32,7 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

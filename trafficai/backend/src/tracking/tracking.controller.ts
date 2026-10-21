@@ -1,3 +1,5 @@
+import { salesAccountScope } from './sales-account-scope';
+import { sharedOrderScope, sameJourneyProductSql } from './quiz-sharing';
 // ==============================
 // TrafficAI — Tracking Controller (autenticado)
 // CRUD de tracking_sources + métricas.
@@ -8,10 +10,13 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { query, queryOne } from '../database/connection';
 import { authMiddleware } from '../auth/auth.middleware';
+import { sharedAccountReadAccess } from '../team/account-read-access';
+import { contactMatches, quizContact } from './quiz-contact-search';
 import { logger } from '../shared/logger';
-import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatch } from './tracking.service';
+import { generatePublicToken, generateWebhookSecret, retryEvent, retryFailedBatch, sameBrazilPhoneSql } from './tracking.service';
 import { normalizeKommoSubdomain } from './crm-adapters/kommo.adapter';
 import { getAdapter, backfillSource } from './crm-sync.service';
+import { getKommoMonthlyReport, getKommoPeriodSummary } from './crm-monthly.service';
 import { retryGoogleEvent, retryFailedGoogleBatch, getConversionActionMapping, getLinkedGoogleAdsCustomerId, sendGoogleConversion } from './google-ads-adapter';
 import { encrypt } from '../shared/encryption';
 import { listPurchaseReviews, approvePurchaseReview, rejectPurchaseReview } from './whatsapp-purchase-detector';
@@ -27,6 +32,7 @@ import { saveClick, saveScrollDepth, getHeatmapData, getScrollAnalysis, getTopUr
 
 const router = Router();
 router.use(authMiddleware);
+router.use(sharedAccountReadAccess('tracking'));
 
 // ─── Vendas (pedidos de checkout) — relatório estilo UTMify ─────────────────
 const REPORT_GROUPS: ReportGroup[] = ['campaign', 'adset', 'ad', 'utm_source', 'utm_campaign', 'utm_medium', 'utm_content', 'utm_term', 'day', 'product'];
@@ -60,6 +66,22 @@ router.get('/sources/:id/sales-report', async (req: Request, res: Response) => {
         const range = reportRange(req.query);
         if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
         const group = (REPORT_GROUPS.includes(req.query.group as ReportGroup) ? req.query.group : 'campaign') as ReportGroup;
+        // Filtros de vendas e gastos do Resumo: ?products=["Produto A"] (JSON) e ?accounts=uuid,uuid (contas do dono da fonte).
+        let products: string[] | null = null;
+        if (typeof req.query.products === 'string' && req.query.products) {
+            try {
+                const list = JSON.parse(req.query.products);
+                if (Array.isArray(list)) products = list.map(String).map(x => x.trim().slice(0, 200)).filter(Boolean).slice(0, 50);
+            } catch { return res.status(400).json({ success: false, error: { message: 'Filtro de produtos inválido' } }); }
+        }
+        let accounts: Array<{ id: string; meta_account_id: string | null }> | null = null;
+        if (typeof req.query.accounts === 'string' && req.query.accounts) {
+            const ids = [...new Set(req.query.accounts.split(',').map(x => x.trim()))];
+            if (!ids.length || ids.length > 30 || ids.some(x => !/^[0-9a-f-]{36}$/i.test(x))) return res.status(400).json({ success: false, error: { message: 'Filtro de contas inválido' } });
+            accounts = ids.length ? await query<any>('SELECT id, meta_account_id FROM ad_accounts WHERE user_id = $1 AND id = ANY($2::uuid[])', [source.user_id, ids]) : null;
+            if (accounts?.length !== ids.length) return res.status(403).json({ success: false, error: { message: 'Conta sem acesso' } });
+        }
+        source.filters = { products: products?.length ? products : null, accounts: accounts?.length ? accounts : null };
 
         const [summary, grouped] = await Promise.all([
             buildSummary(source, range.since, range.until),
@@ -81,20 +103,66 @@ router.get('/sources/:id/orders', async (req: Request, res: Response) => {
         if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
         const status = typeof req.query.status === 'string' ? req.query.status : null;
         const limit = Math.min(Number(req.query.limit) || 100, 500);
+        const search = typeof req.query.search === 'string' ? req.query.search.trim().slice(0,120) : '';
+        let orderAccounts: string[] | undefined;
+        if (typeof req.query.accounts === 'string' && req.query.accounts) {
+            const ids = [...new Set(req.query.accounts.split(',').map(x=>x.trim()))];
+            if (!ids.length || ids.length > 30 || ids.some(x=>!/^[0-9a-f-]{36}$/i.test(x))) return res.status(400).json({success:false,error:{message:'Filtro de contas inválido'}});
+            const allowed = await query<{id:string}>('SELECT id FROM ad_accounts WHERE user_id=$1 AND id=ANY($2::uuid[])',[source.user_id,ids]);
+            if (allowed.length !== ids.length) return res.status(403).json({success:false,error:{message:'Conta sem acesso'}});
+            orderAccounts = allowed.map(a=>a.id);
+        }
         const rows = await query<any>(
-            `SELECT id, platform, external_order_id, status, payment_method, product_name,
-                    gross_value, net_value, currency, customer_name,
-                    utm_source, utm_campaign, utm_medium, utm_content,
-                    meta_campaign_id, meta_adset_id, meta_ad_id, purchase_event_id,
-                    COALESCE(approved_at, order_created_at, created_at) AS order_date
-             FROM tracking_orders
-             WHERE source_id = $1
-               AND (COALESCE(approved_at, order_created_at, created_at) AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
-               AND (($4::text IS NULL AND status <> 'abandoned') OR status = $4)
-             ORDER BY order_date DESC LIMIT $5`,
-            [source.id, range.since, range.until, status, limit]
+            `SELECT o.id, o.source_id, (o.source_id<>$1::uuid) AS shared_journey, o.platform, o.external_order_id, o.status, o.payment_method, o.product_name,
+                    o.gross_value, o.net_value, o.currency, o.customer_name, o.customer_phone,o.customer_email,
+                    COALESCE(o.raw->'order_bumps','[]'::jsonb) AS order_bumps,
+                    o.utm_source, o.utm_campaign, o.utm_medium, o.utm_content,
+                    o.meta_campaign_id, o.meta_adset_id, o.meta_ad_id, o.purchase_event_id,
+                    COALESCE(o.approved_at, o.order_created_at, o.created_at) AS order_date,
+                    COALESCE(q.sessions,'[]'::jsonb) AS quiz_sessions,
+                    COALESCE(ds.enabled AND (ds.product_ids @> jsonb_build_array(o.product_id)
+                        OR (ds.coloring_product_ids @> jsonb_build_array(o.product_id)
+                            AND NOT EXISTS (
+                                SELECT 1 FROM tracking_orders story
+                                WHERE story.source_id=o.source_id AND story.id<>o.id
+                                  AND story.status='approved' AND ds.product_ids @> jsonb_build_array(story.product_id)
+                                  AND COALESCE(story.approved_at,story.order_created_at,story.created_at)
+                                      BETWEEN COALESCE(o.approved_at,o.order_created_at,o.created_at)-INTERVAL '24 hours'
+                                          AND COALESCE(o.approved_at,o.order_created_at,o.created_at)+INTERVAL '24 hours'
+                                  AND COALESCE(o.gross_value,0)>COALESCE(story.gross_value,0)
+                                  AND ((o.customer_email_hash IS NOT NULL AND o.customer_email_hash=story.customer_email_hash)
+                                    OR (o.customer_phone_hash IS NOT NULL AND o.customer_phone_hash=story.customer_phone_hash))
+                            ))),false) AS delivery_enabled,
+                    d.status AS delivery_status
+             FROM tracking_orders o
+             LEFT JOIN tracking_delivery_settings ds ON ds.source_id=o.source_id
+             LEFT JOIN tracking_order_deliveries d ON d.order_id=o.id AND d.source_id=o.source_id
+             LEFT JOIN LATERAL (
+                 SELECT jsonb_agg(jsonb_build_object('id',s.id,'answers_encrypted',s.answers_encrypted) ORDER BY s.updated_at DESC) AS sessions
+                 FROM tracking_quiz_sessions s JOIN tracking_quiz_funnels f ON f.id=s.funnel_id
+                 WHERE s.order_id=o.id AND f.source_id=o.source_id
+             ) q ON TRUE
+             WHERE ${salesAccountScope('o', '$1', orderAccounts)}
+               AND (COALESCE(o.approved_at, o.order_created_at, o.created_at) AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
+               AND (($4::text IS NULL AND o.status <> 'abandoned') OR o.status = $4)
+             ORDER BY order_date DESC ${search ? '' : 'LIMIT $5'}`,
+            search ? [source.id, range.since, range.until, status] : [source.id, range.since, range.until, status, limit]
         );
-        res.json({ success: true, data: rows });
+        const result = rows.map(row=>{
+            const contacts = row.quiz_sessions.map((s:any)=>({id:s.id,...quizContact(s.answers_encrypted,row)}));
+            const seenNames=new Set<string>();
+            const childNames=contacts.map((c:any)=>String(c.child_name||'').trim()).filter((name:string)=>{
+                const key=name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+                if(!key||seenNames.has(key))return false;
+                seenNames.add(key);return true;
+            });
+            return {...row,child_name:childNames.join(', '),
+                quiz_sessions:contacts.map((c:any)=>({id:c.id,child_name:c.child_name})),
+                search_contacts:contacts};
+        }).filter(row=>!search||contactMatches(search,[row.child_name,row.customer_name,row.customer_email,row.customer_phone,row.product_name,row.external_order_id,row.utm_campaign,row.utm_content,...row.search_contacts.flatMap((c:any)=>Object.values(c))]))
+            .slice(0,limit).map(({search_contacts,...row})=>row);
+        res.setHeader('Cache-Control','no-store');
+        res.json({ success: true, data: result });
     } catch (err: any) {
         logger.error('orders list falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
@@ -117,10 +185,26 @@ router.get('/sources/:id/recovery', async (req: Request, res: Response) => {
                     o.raw->>'pix_expiration' AS pix_expiration,
                     o.raw->>'boleto_URL' AS boleto_url,
                     COALESCE(o.order_created_at, o.created_at) AS order_date,
-                    r.id AS recovered_order_id, r.gross_value AS recovered_value, r.approved_at AS recovered_at
+                    COALESCE(r.id, approved_match.id) AS recovered_order_id,
+                    COALESCE(r.gross_value, approved_match.gross_value) AS recovered_value,
+                    COALESCE(r.approved_at, approved_match.approved_at) AS recovered_at
              FROM tracking_orders o
-             LEFT JOIN tracking_orders r ON r.id = o.recovered_order_id
-             WHERE o.source_id = $1
+             LEFT JOIN tracking_orders r ON r.id = o.recovered_order_id AND ${sameJourneyProductSql('o','r')}
+             LEFT JOIN LATERAL (
+                 SELECT a.id, a.gross_value, a.approved_at
+                 FROM tracking_orders a
+                 WHERE ${sameJourneyProductSql('o','a')}
+                   AND a.id <> o.id
+                   AND a.status = 'approved'
+                   AND COALESCE(a.approved_at, a.order_created_at, a.created_at)
+                       >= COALESCE(o.order_created_at, o.created_at)
+                   AND ((o.customer_email_hash IS NOT NULL AND a.customer_email_hash = o.customer_email_hash)
+                     OR (o.customer_phone_hash IS NOT NULL AND a.customer_phone_hash = o.customer_phone_hash)
+                     OR ${sameBrazilPhoneSql('o','a')})
+                 ORDER BY COALESCE(a.approved_at, a.order_created_at, a.created_at) DESC
+                 LIMIT 1
+             ) approved_match ON TRUE
+             WHERE ${sharedOrderScope()}
                AND o.status IN ('abandoned', 'pending', 'refused')
                AND (COALESCE(o.order_created_at, o.created_at) AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN $2 AND $3
              ORDER BY order_date DESC
@@ -141,8 +225,8 @@ router.patch('/sources/:id/orders/:orderId/contacted', async (req: Request, res:
         if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
         const contacted = req.body?.contacted !== false;
         const [row] = await query<any>(
-            `UPDATE tracking_orders SET recovery_contacted_at = ${contacted ? 'NOW()' : 'NULL'}, updated_at = NOW()
-             WHERE id = $1 AND source_id = $2 RETURNING id, recovery_contacted_at`,
+            `UPDATE tracking_orders AS o SET recovery_contacted_at = ${contacted ? 'NOW()' : 'NULL'}, updated_at = NOW()
+             WHERE o.id = $1 AND ${sharedOrderScope('o','$2')} RETURNING id, recovery_contacted_at`,
             [req.params.orderId, source.id]
         );
         if (!row) return res.status(404).json({ success: false, error: { message: 'Pedido não encontrado' } });
@@ -472,7 +556,7 @@ router.get('/sources', async (req: Request, res: Response) => {
                        AND e.created_at >= NOW() - INTERVAL '24 hours') AS pending_retries
              FROM tracking_sources s
              LEFT JOIN ad_accounts a ON s.account_id = a.id
-             WHERE s.user_id = $1
+             WHERE s.user_id = $1 OR EXISTS(SELECT 1 FROM account_read_access g WHERE g.user_id=$1 AND g.account_id=s.account_id)
              ORDER BY s.created_at DESC`,
             [userId]
         );
@@ -1327,6 +1411,60 @@ router.post('/sources/:id/backfill', async (req: Request, res: Response) => {
     } catch (err: any) {
         logger.error('tracking: backfill falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: err.message } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/crm-monthly ──────────────────────────────────
+// Mês a mês direto do Kommo (leads por criação, vendas por fechamento) +
+// investimento Meta. ?months=6 (1–12); ?refresh=1 ignora o cache de 30 min.
+router.get('/sources/:id/crm-monthly', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const rows = await query<any>(
+            `SELECT * FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const src = rows[0];
+        if (src.crm_type !== 'kommo' || !src.crm_subdomain || !src.crm_access_token) {
+            return res.status(400).json({ success: false, error: { message: 'Disponível só para fontes com Kommo conectado' } });
+        }
+        const months = Math.min(12, Math.max(1, parseInt(String(req.query.months || '6'), 10) || 6));
+        const data = await getKommoMonthlyReport(src, months, req.query.refresh === '1');
+        res.json({ success: true, data });
+    } catch (err: any) {
+        logger.error('tracking: crm-monthly falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: `Falha ao consultar o Kommo: ${err.message}` } });
+    }
+});
+
+// ─── GET /tracking/sources/:id/crm-conversion ───────────────────────────────
+// Taxa de conversão do período direto do Kommo: vendas ganhas (por data de
+// fechamento) ÷ leads criados. ?since=YYYY-MM-DD&until=YYYY-MM-DD.
+router.get('/sources/:id/crm-conversion', async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user.userId;
+        const { id } = req.params;
+        const since = String(req.query.since || '');
+        const until = String(req.query.until || '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(since) || !/^\d{4}-\d{2}-\d{2}$/.test(until) || since > until) {
+            return res.status(400).json({ success: false, error: { message: 'Informe since e until no formato YYYY-MM-DD' } });
+        }
+        const rows = await query<any>(
+            `SELECT * FROM tracking_sources WHERE id = $1 AND user_id = $2`,
+            [id, userId]
+        );
+        if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const src = rows[0];
+        if (src.crm_type !== 'kommo' || !src.crm_subdomain || !src.crm_access_token) {
+            return res.status(400).json({ success: false, error: { message: 'Disponível só para fontes com Kommo conectado' } });
+        }
+        const data = await getKommoPeriodSummary(src, since, until);
+        res.json({ success: true, data });
+    } catch (err: any) {
+        logger.error('tracking: crm-conversion falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: `Falha ao consultar o Kommo: ${err.message}` } });
     }
 });
 

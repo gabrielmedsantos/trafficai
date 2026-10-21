@@ -3,3 +3,7 @@ dist
 .env
 .env.production
 *.log
+
+.env*
+.backups
+tests

@@ -31,9 +31,65 @@ function Sparkline({ values }: { values: number[] }) {
     );
 }
 
+type ResumoFilters = { products: string[]; accounts: string[] };
+
+/** Lista suspensa com caixas de seleção (produtos ou contas). */
+function CheckDropdown({ label, summary, options, selected, onChange, emptyHint }: {
+    label: string; summary: string; options: { value: string; label: string; hint?: string }[];
+    selected: string[]; onChange: (next: string[]) => void; emptyHint: string;
+}) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!open) return;
+        const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+        const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        document.addEventListener('mousedown', close); document.addEventListener('keydown', esc);
+        return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc); };
+    }, [open]);
+    const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v]);
+    return (
+        <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>{label}</span>
+            <button type="button" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen((x) => !x)} className="btn btn-secondary"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', minWidth: 220, maxWidth: 360, padding: '8px 12px', fontSize: 13 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summary}</span><span aria-hidden="true">▾</span>
+            </button>
+            {open && (
+                <div role="group" aria-label={label} style={{
+                    position: 'absolute', zIndex: 40, top: '100%', left: 0, marginTop: 6, width: 'min(340px, calc(100vw - 32px))', maxHeight: 320, overflowY: 'auto',
+                    background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 8, boxShadow: '0 18px 40px rgba(0,0,0,0.45)',
+                }}>
+                    {!options.length && <p style={{ margin: 8, fontSize: 12.5, color: 'var(--text-muted)' }}>{emptyHint}</p>}
+                    {options.map((o) => (
+                        <label key={o.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 8px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>
+                            <input type="checkbox" checked={selected.includes(o.value)} onChange={() => toggle(o.value)} style={{ marginTop: 2 }} />
+                            <span style={{ minWidth: 0 }}>{o.label}{o.hint && <small style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>{o.hint}</small>}</span>
+                        </label>
+                    ))}
+                    {selected.length > 0 && (
+                        <button type="button" className="btn btn-secondary" onClick={() => onChange([])} style={{ width: '100%', marginTop: 6, padding: '6px 10px', fontSize: 12 }}>Limpar seleção</button>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function ResumoPage() {
     const { source, sourceId, periodKey, until, reload } = useVendas();
-    const { data, loading, error } = useSalesReport('day');
+    // Filtros do Resumo, lembrados por fonte neste navegador.
+    const [filters, setFiltersState] = useState<ResumoFilters>({ products: [], accounts: [] });
+    useEffect(() => {
+        let saved: ResumoFilters = { products: [], accounts: [] };
+        try { const raw = localStorage.getItem(`vendas_resumo_filtros:${sourceId}`); if (raw) saved = { products: [], accounts: [], ...JSON.parse(raw) }; } catch { /* sem armazenamento */ }
+        setFiltersState(saved);
+    }, [sourceId]);
+    const setFilters = (next: ResumoFilters) => {
+        setFiltersState(next);
+        try { localStorage.setItem(`vendas_resumo_filtros:${sourceId}`, JSON.stringify(next)); } catch { /* sem armazenamento */ }
+    };
+    const { data, loading, error } = useSalesReport('day', filters);
     const [toast, setToast] = useState<{ value: string; product: string } | null>(null);
     const [flashing, setFlashing] = useState(false);
     const timers = useRef<{ t?: any; f?: any }>({});
@@ -47,7 +103,7 @@ export default function ResumoPage() {
         timers.current.f = setTimeout(() => setFlashing(false), 1800);
         reload();
     }, [reload]);
-    const { orders, freshIds } = useLiveOrders(sourceId, includesToday, onNewSale);
+    const { orders, freshIds } = useLiveOrders(sourceId, includesToday, onNewSale, filters.accounts);
 
     const s = data?.summary;
     const days: Row[] = data?.rows || [];
@@ -106,7 +162,33 @@ export default function ResumoPage() {
                 </div>
             )}
 
-            {source && !source.account_id && (
+            {(() => {
+                const productOptions: string[] = s.product_options || [];
+                const accountOptions: { id: string; name: string; meta_account_id: string | null }[] = s.account_options || [];
+                const defaultName = accountOptions.find((a) => a.id === s.default_account_id)?.name;
+                const productSummary = filters.products.length === 0 ? 'Todos os produtos'
+                    : filters.products.length === 1 ? filters.products[0] : `${filters.products.length} produtos`;
+                const accountSummary = filters.accounts.length === 0 ? (defaultName ? `Conta da fonte · ${defaultName}` : 'Conta da fonte')
+                    : filters.accounts.length === 1 ? (accountOptions.find((a) => a.id === filters.accounts[0])?.name || '1 conta') : `${filters.accounts.length} contas somadas`;
+                return (
+                    <Card flat style={{ padding: '12px 16px', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                        <CheckDropdown label="Produtos" summary={productSummary} selected={filters.products}
+                            options={productOptions.map((p) => ({ value: p, label: p }))}
+                            onChange={(products) => setFilters({ ...filters, products })} emptyHint="Nenhum produto vendido nos últimos 90 dias." />
+                        <CheckDropdown label="Contas de anúncio (vendas e gastos)" summary={accountSummary} selected={filters.accounts}
+                            options={accountOptions.map((a) => ({ value: a.id, label: a.name, hint: a.id === s.default_account_id ? 'Conta vinculada a esta fonte' : a.meta_account_id || undefined }))}
+                            onChange={(accounts) => setFilters({ ...filters, accounts })} emptyHint="Nenhuma conta de anúncio ativa." />
+                        {loading && <span role="status" style={{ fontSize: 12, color: 'var(--text-muted)', paddingBottom: 9 }}>Atualizando…</span>}
+                        {(filters.products.length > 0 || filters.accounts.length > 0) && (
+                            <span style={{ fontSize: 11.5, color: 'var(--text-muted)', flexBasis: '100%' }}>
+                                Vendas e gastos consideram as contas selecionadas e os produtos marcados. Cada pedido entra uma única vez, na conta identificada pela campanha.
+                            </span>
+                        )}
+                    </Card>
+                );
+            })()}
+
+            {source && !source.account_id && filters.accounts.length === 0 && (
                 <Card flat style={{ padding: '12px 16px', fontSize: 12.5, color: 'var(--accent-yellow)' }}>
                     Essa fonte não tem conta de anúncio vinculada — gastos, ROAS e CPA ficam zerados. Vincule em Fontes e WhatsApp → Editar credenciais.
                 </Card>
@@ -157,7 +239,8 @@ export default function ResumoPage() {
 
             {/* Linha 2 — volume e qualidade */}
             <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14 }}>
-                <Kpi delay={240} label="Vendas aprovadas" value={String(s.approved_count)} hint={`ticket ${brl(s.ticket)}`} color="var(--accent-green)" />
+                <Kpi delay={240} label="Vendas aprovadas" value={String(s.approved_count)} hint="pedidos pagos no período" color="var(--accent-green)" />
+                <Kpi delay={265} label="Ticket médio" value={s.approved_count > 0 ? brl(s.revenue_gross / s.approved_count) : '—'} hint={s.approved_count > 0 ? `líquido ${brl(s.ticket)}` : 'sem vendas no período'} />
                 <Kpi delay={290} label="CPA" value={brl(s.cpa)} hint="custo por venda" />
                 <Kpi delay={340} label="Pendentes" value={brl(s.pending_value)} hint={`${s.pending_count} Pix/boleto(s)`} color="var(--accent-yellow)" />
                 <Kpi delay={390} label="ROI" value={num2(s.roi)} hint="lucro ÷ custos" color="var(--accent-blue)" />
@@ -292,12 +375,7 @@ export default function ResumoPage() {
             {/* Distribuições */}
             <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
                 <Card reveal>
-                    <SectionTitle right={s.approval_rate != null && <span className="tai-mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>aprovação {pct(s.approval_rate)}</span>}>Vendas por pagamento</SectionTitle>
-                    <ShareList empty="Sem vendas aprovadas no período."
-                        items={s.by_payment.filter((p: any) => p.approved_count > 0).map((p: any) => ({
-                            label: PAYMENT_LABEL[p.method] || p.method, count: p.approved_count, pct: p.share, color: PAYMENT_COLOR[p.method],
-                            extra: p.approval_rate != null ? `aprova ${pct(p.approval_rate)}` : undefined,
-                        }))} />
+                    <PaymentApproval items={s.by_payment} />
                 </Card>
                 <Card reveal>
                     <SectionTitle>Vendas por produto</SectionTitle>
@@ -312,6 +390,49 @@ export default function ResumoPage() {
             {/* Mapa de regiões */}
             <RegionMap sourceId={sourceId} />
         </div>
+    );
+}
+
+// ─── Aprovação por forma de pagamento: pedidos pagos sobre pedidos gerados ───
+function PaymentApproval({ items }: { items: any[] }) {
+    const main = ['credit_card', 'pix', 'boleto'];
+    const rows = [...main, ...items.map((p) => p.method).filter((m) => !main.includes(m))].map((method) => {
+        const p = items.find((x) => x.method === method);
+        const rate: number | null = p?.approval_rate ?? null;
+        const paid: number = p?.approved_count ?? 0;
+        // A API devolve pagos e taxa; os pedidos gerados saem da divisão.
+        const orders = rate ? Math.round(paid / (rate / 100)) : null;
+        return { method, rate, paid, orders, share: p?.share ?? 0 };
+    }).filter((r) => main.includes(r.method) || r.rate != null);
+    const paid = rows.reduce((n, r) => n + (r.orders ? r.paid : 0), 0);
+    const orders = rows.reduce((n, r) => n + (r.orders ?? 0), 0);
+    const R = 17, C = 2 * Math.PI * R;
+    return (
+        <>
+            <SectionTitle right={orders > 0 && <span className="tai-mono" style={{ fontSize: 12, color: 'var(--text-muted)' }}>geral {pct((paid / orders) * 100)}</span>}>Taxa de aprovação</SectionTitle>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {rows.map((r) => (
+                    <div key={r.method} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <svg width="44" height="44" viewBox="0 0 44 44" role="img" aria-label={r.rate != null ? `${PAYMENT_LABEL[r.method] || r.method}: ${pct(r.rate)} de aprovação` : `${PAYMENT_LABEL[r.method] || r.method}: sem pedidos`} style={{ flexShrink: 0 }}>
+                            <circle cx="22" cy="22" r={R} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="5" />
+                            {r.rate != null && r.rate > 0 && (
+                                <circle cx="22" cy="22" r={R} fill="none" stroke={PAYMENT_COLOR[r.method] || 'var(--accent-blue)'} strokeWidth="5" strokeLinecap="round"
+                                    strokeDasharray={`${(Math.min(r.rate, 100) / 100) * C} ${C}`} transform="rotate(-90 22 22)" />
+                            )}
+                        </svg>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flexGrow: 1 }}>
+                            <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text-primary)' }}>{PAYMENT_LABEL[r.method] || r.method}</span>
+                            <span style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                {r.rate == null ? 'Sem pedidos no período'
+                                    : r.orders ? `${r.paid} ${r.paid === 1 ? 'pago' : 'pagos'} de ${r.orders} · ${pct(r.share)} das vendas`
+                                    : 'Nenhum pedido pago'}
+                            </span>
+                        </div>
+                        <span className="tai-mono" style={{ fontSize: 18, fontWeight: 600, color: r.rate == null ? 'var(--text-muted)' : 'var(--text-primary)' }}>{r.rate == null ? 'N/A' : pct(r.rate)}</span>
+                    </div>
+                ))}
+            </div>
+        </>
     );
 }
 
