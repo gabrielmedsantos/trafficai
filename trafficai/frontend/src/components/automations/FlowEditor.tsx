@@ -168,6 +168,8 @@ const eventLabels: Record<string, string> = {
   manual: "Início manual",
   "checkout.started": "Checkout iniciado",
   "checkout.abandoned": "Checkout abandonado",
+  "checkout.recovery": "Compra não concluída (recuperação)",
+  "quiz.abandoned": "Quiz interrompido",
   "payment.approved": "Pagamento aprovado",
   "payment.failed": "Pagamento recusado",
   "payment.expired": "Pagamento expirado",
