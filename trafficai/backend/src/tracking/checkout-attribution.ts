@@ -1,7 +1,10 @@
 // Normalização comum: só aceita identificadores devolvidos explicitamente pelo checkout.
 // Nunca associa pedidos por nome, horário ou valor aproximado.
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const clean = (v: unknown): string | undefined => typeof v === 'string' && v.trim() && v.length <= 300 ? v.trim() : undefined;
+// Checkout placeholders are absence, not attribution. Otherwise this common
+// fallback reintroduces values that the platform adapter already discarded.
+const clean = (v: unknown): string | undefined => typeof v === 'string' && v.trim() && v.length <= 300
+    && !/^(?:n[aã]o informado|null|undefined|n\/a|\(not set\))$/i.test(v.trim()) ? v.trim() : undefined;
 const obj = (v: any): Record<string, any> => v && typeof v === 'object' && !Array.isArray(v) ? v : {};
 export function checkoutAttribution(body: any): { sck?: string; quiz_session_id?: string; utm_source?: string; utm_medium?: string; utm_campaign?: string; utm_content?: string; utm_term?: string } {
     const root=obj(body), data=obj(root.data);

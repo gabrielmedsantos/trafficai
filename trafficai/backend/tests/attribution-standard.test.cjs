@@ -66,3 +66,15 @@ test('pixel gerado incorpora o runtime compartilhado com JavaScript válido',()=
  const pixel=generate('public-source','https://api.example.com','');new vm.Script(pixel);
  assert(pixel.includes('window.TrafficAIAttribution.create'));assert(pixel.includes('integrationStatus'));assert(pixel.includes('__taiQuizPersonalDataAllowed === false'));
 });
+
+test('placeholders do checkout não voltam como sessão/UTM após normalização da Ticto',()=>{
+ const {checkoutAttribution}=require('../dist/tracking/checkout-attribution');
+ const {parsePlatformWebhook}=require('../dist/tracking/checkout-platforms');
+ for(const placeholder of ['Não Informado','não informado','Nao informado','null','undefined','N/A','(not set)']){
+  assert.equal(checkoutAttribution({tracking:{sck:placeholder,utm_campaign:placeholder}}).sck,undefined);
+  assert.equal(checkoutAttribution({tracking:{sck:placeholder,utm_campaign:placeholder}}).utm_campaign,undefined);
+ }
+ const r=parsePlatformWebhook('ticto',{status:'authorized',order:{hash:'fixture-placeholder',paid_amount:990},item:{product_id:121023,product_name:'Historinha',amount:990,quantity:1},tracking:{sck:'Não Informado',utm_campaign:'Não Informado'}});
+ assert.equal(r.kind,'order');assert.equal(r.order.sck,undefined);assert.equal(r.order.utm_campaign,undefined);
+ const fallback=checkoutAttribution({tracking:{sck:'Não Informado'},metadata:{sck:'valid-session-123'}});assert.equal(fallback.sck,'valid-session-123');
+});
