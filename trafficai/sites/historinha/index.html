@@ -1,0 +1,801 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mamãe, quero historinha — livro personalizado</title><link rel="stylesheet" href="style.css"><style>.story-card .tile-card-pic{aspect-ratio:2.15/1}.story-tag{position:absolute;left:10px;top:10px;padding:4px 10px;border-radius:999px;background:rgba(28,30,82,.8);color:#fff;font-size:11.5px;font-weight:700;letter-spacing:.02em}.story-body{padding:12px 16px 14px;text-align:left}.story-title{font-weight:700;font-size:17px;line-height:1.2;color:#1c1e52}.story-desc{margin-top:4px;font-size:13px;line-height:1.4;color:#5a5d7a}</style><style>.photo-fld{margin-top:22px}.photo-pick{display:inline-flex;align-items:center;gap:8px;margin-top:10px;padding:12px 18px;border-radius:12px;border:1.5px dashed #c9c3e6;background:#f7f5ff;color:#1c1e52;font:inherit;font-weight:700;cursor:pointer}.photo-pick:focus-visible,.photo-remove:focus-visible{outline:3px solid #7c6ff0;outline-offset:2px}.photo-preview{display:flex;align-items:center;gap:14px;margin-top:12px}.photo-preview[hidden],.photo-consent[hidden]{display:none}.photo-preview img{width:84px;height:84px;object-fit:cover;border-radius:14px;border:1px solid #e4e0f5}.photo-remove{background:none;border:0;padding:6px 0;color:#8a2c4a;font:inherit;font-size:14px;text-decoration:underline;cursor:pointer}.photo-consent{display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:13px;line-height:1.5;color:#4a4d6b;text-align:left}.photo-consent input{margin-top:3px;width:18px;height:18px;flex-shrink:0}</style><script data-live-tracking src="https://api.alfamaxdigital.com.br/api/v1/track/quiz/sdk.js?v=20261007-phone1"></script>
+<script data-moblyar-pixel>(function(){if(!window.fbq){window.fbq=function(){window.fbq.callMethod?window.fbq.callMethod.apply(window.fbq,arguments):window.fbq.queue.push(arguments)};window.fbq.push=window.fbq;window.fbq.loaded=true;window.fbq.version='2.0';window.fbq.queue=[];window._fbq=window.fbq}window.fbq('init','1082987671215353');})();</script>
+<script data-live-tracking>(function(){if(!window.fbq){window.fbq=function(){window.fbq.callMethod?window.fbq.callMethod.apply(window.fbq,arguments):window.fbq.queue.push(arguments)};window.fbq.push=window.fbq;window.fbq.loaded=!0;window.fbq.version='2.0';window.fbq.queue=[];window._fbq=window.fbq}var s=document.createElement('script');s.src='https://api.alfamaxdigital.com.br/api/v1/track/pixel/950c7068b2d8e3ba3f1ab3891b453d8a6c0b92aa.js?v=20261007-phone1';s.async=true;s.defer=true;(document.head||document.documentElement).appendChild(s)})();</script>
+<script type="module" src="app.js?v=20261020-lifecycle1">
+// ── PRE-SELECT ADDONS FROM QUERY PARAMS (from historinha19 redirect) ──
+(function(){
+  var p = new URLSearchParams(window.location.search);
+  if(p.get('addon_colorir') === '1' && !addons.colorir){
+    addons.colorir = true;
+    var el = document.getElementById('addon-colorir');
+    if(el) el.classList.add('selected');
+    var chk = document.getElementById('adcheck-colorir');
+    if(chk){ chk.classList.add('on'); chk.textContent = '✓'; }
+  }
+  if(p.get('addon_expressa') === '1' && !addons.expressa){
+    addons.expressa = true;
+    var el2 = document.getElementById('addon-expressa');
+    if(el2) el2.classList.add('selected');
+    var chk2 = document.getElementById('adcheck-expressa');
+    if(chk2){ chk2.classList.add('on'); chk2.textContent = '✓'; }
+  }
+  if(p.get('ob_extras') === '1' && !obExtras){
+    obExtras = true;
+    var obChk = document.getElementById('obCheck');
+    if(obChk){ obChk.classList.add('on'); obChk.textContent = '✓'; }
+  }
+  if(addons.colorir || addons.expressa || obExtras){
+    updateReceipts();
+    syncCheckoutReceipt();
+  }
+})();
+
+</script></head><body><div class="overlay" id="overlay"><div class="inner"><div class="card-wrap"><div class="site-header"><img class="brand-logo" src="assets/brand.svg" alt="Mamãe, quero historinha" loading="eager"></div><div id="progWrap" class="prog-wrap"><div class="prog-track" role="progressbar" aria-label="Progresso" aria-valuemin="0" aria-valuemax="100"><div class="prog-fill" id="progFill"></div></div><div class="step-count" id="stepCount"></div></div><div class="screen" id="sc-intro">
+        <div class="promo-bar">🎁 Edição Especial — Dia das Crianças</div>
+
+        <h1 class="intro-headline">O presente que vira <em>a história favorita</em> de uma criança</h1>
+
+        <div class="intro-hero-banner">
+          <img loading="eager" decoding="async" fetchpriority="high" src="assets/image-002.webp" alt="Criança com seu livro personalizado">
+        </div>
+
+        <p class="intro-sub">Crie um livro ilustrado personalizado com o nome, o jeitinho e a aparência de quem você ama — <strong>filho(a), neto(a), sobrinho(a) ou afilhado(a).</strong></p>
+
+        <button class="btn-cta btn-pulse" data-action="goTo('social')">Quero Criar o Livro Agora</button>
+
+        <div class="minute-badge">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          Leva só 1 minuto para responder
+        </div>
+
+        <div class="guarantee-row" style="margin-top:20px">
+          <div class="g-icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
+          <p><strong>Satisfação garantida.</strong> Se você não amar o livrinho, devolvemos 100% do valor em até 7 dias.</p>
+        </div>
+      </div>
+<div class="screen" id="sc-social" style="">
+        <div class="social-headline">Mais de <strong>4.187 livros</strong> já foram criados por famílias como a sua</div>
+
+        <div class="carousel-wrap">
+          <div class="carousel-track" id="socialCarousel"><img src="assets/image-012.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-011.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-013.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-014.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-100.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-012.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-011.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-013.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-014.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-100.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-012.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-011.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-013.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-014.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-100.webp" alt="" loading="lazy" decoding="async"></div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-header">
+            <img src="assets/image-010.webp" alt="Fernanda" class="review-avatar" loading="lazy" decoding="async">
+            <div class="review-info"><h4>Fernanda M. — mãe da Isabela, 5 anos</h4><div class="review-stars">★★★★★</div></div>
+          </div>
+          <div class="review-text">Minha filha ficou <strong>emocionada</strong> quando viu o personagem com o cabelo cacheado igual ao dela. Lemos todo dia antes de dormir!</div>
+          <span class="review-date">Compradora verificada · Há 2 dias</span>
+        </div>
+
+        <button class="btn-cta btn-pulse" style="margin-top:22px" data-action="goTo(1)">Vamos Começar! →</button>
+
+        <div class="badge-row">
+          <div class="mini-badge"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V7a5 5 0 0110 0v4"></path></svg>Compra 100% Segura</div>
+          <div class="mini-badge"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Garantia de 7 Dias</div>
+          <div class="mini-badge"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>4.9/5 de Avaliação</div>
+        </div>
+      </div>
+<div class="screen" id="sc-1" style="">
+        <div class="quiz-card">
+          <div class="step-title">Vamos conhecer o <em>herói da história!</em></div>
+          <div class="step-sub">Como ele(a) se chama e quantos anos tem?</div>
+          <div class="fld">
+            <label class="lbl">Nome da Criança</label>
+            <input type="text" class="inp" id="q-child-name" placeholder="Ex: Sophia, Miguel, Valentina…" autocomplete="off">
+          </div>
+          <div class="fld">
+            <label class="lbl">Idade</label>
+            <div class="opt-grid" id="age-grid">
+              <div class="opt-chip" data-action="selOptChip(this,'age-grid','q-age','2-3')">
+                <span class="opt-chip-label">2 – 3 anos</span>
+                <span class="opt-chip-sub">Palavras simples</span>
+              </div>
+              <div class="opt-chip" data-action="selOptChip(this,'age-grid','q-age','4-5')">
+                <span class="opt-chip-label">4 – 5 anos</span>
+                <span class="opt-chip-sub">Frases curtas</span>
+              </div>
+              <div class="opt-chip" data-action="selOptChip(this,'age-grid','q-age','6-7')">
+                <span class="opt-chip-label">6 – 7 anos</span>
+                <span class="opt-chip-sub">Histórias elaboradas</span>
+              </div>
+              <div class="opt-chip" data-action="selOptChip(this,'age-grid','q-age','8-10')">
+                <span class="opt-chip-label">8 – 10 anos</span>
+                <span class="opt-chip-sub">Aventuras completas</span>
+              </div>
+            </div>
+            <input type="hidden" id="q-age">
+          </div>
+        </div>
+        <div class="nav"><button class="btn-next" id="bn-1" data-action="goTo(2)">Vamos Criar o Personagem <span class="child-name-dyn">de Lia</span>!</button></div>
+      </div>
+<div class="screen" id="sc-2" style="">
+        <div class="quiz-card">
+          <div class="step-title">O personagem <em class="child-name-dyn">de Lia</em> é menino ou menina?</div>
+          <div class="step-sub">Isso define a aparência do personagem nas próximas etapas.</div>
+          <div class="gender-grid" id="gender-grid">
+            <div class="gender-card" data-action="selGender(this,'menina',3)">
+              <div class="gender-card-pic">
+                <div class="ph-skeleton" style="display: none;"></div>
+                <img loading="lazy" decoding="async" src="assets/image-015.webp" alt="Menina">
+                <div class="tile-card-scrim"></div>
+                <div class="tile-card-label">Menina</div>
+              </div>
+            </div>
+            <div class="gender-card" data-action="selGender(this,'menino',3)">
+              <div class="gender-card-pic">
+                <div class="ph-skeleton" style="display: none;"></div>
+                <img loading="lazy" decoding="async" src="assets/image-016.webp" alt="Menino">
+                <div class="tile-card-scrim"></div>
+                <div class="tile-card-label">Menino</div>
+              </div>
+            </div>
+          </div>
+          <input type="hidden" id="q-gender">
+        </div>
+        <div class="mini-back" data-action="goTo(1)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-3" style="">
+        <div class="quiz-card">
+          <div class="step-title">Qual o tom de pele <em class="child-name-dyn">de Lia</em>?</div>
+          <div class="step-sub">Escolha o tom mais parecido com o de <span class="child-name-solo">Lia</span>.</div>
+          <div class="tile-list" id="skin-grid"><div class="tile-card" data-action="selTileCard(this,'skin-grid','q-skin','clara',4)">
+    <div class="tile-card-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-017.webp" alt="Clara" data-girl-src="assets/image-017.webp" data-boy-src="assets/image-090.webp">
+    <div class="tile-bullet tile-bullet-left">Clara</div></div>
+  </div><div class="tile-card" data-action="selTileCard(this,'skin-grid','q-skin','morena',4)">
+    <div class="tile-card-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-018.webp" alt="Morena" data-girl-src="assets/image-018.webp" data-boy-src="assets/image-091.webp">
+    <div class="tile-bullet tile-bullet-left">Morena</div></div>
+  </div><div class="tile-card" data-action="selTileCard(this,'skin-grid','q-skin','negra',4)">
+    <div class="tile-card-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-019.webp" alt="Negra" data-girl-src="assets/image-019.webp" data-boy-src="assets/image-092.webp">
+    <div class="tile-bullet tile-bullet-left">Negra</div></div>
+  </div></div>
+          <input type="hidden" id="q-skin">
+        </div>
+        <div class="mini-back" data-action="goTo(2)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-4" style="">
+        <div class="quiz-card">
+          <div class="step-title">Qual a cor do cabelo <em class="child-name-dyn">de Lia</em>?</div>
+          <div class="step-sub">Escolha a cor mais parecida com a de <span class="child-name-solo">Lia</span>.</div>
+          <div class="img-grid" id="haircolor-grid"><div class="img-chip" data-action="selImgChip(this,'haircolor-grid','q-hair-color','loiro',5)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-020.webp" alt="Loiro" data-girl-src="assets/image-020.webp" data-boy-src="assets/image-093.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Loiro</span></div>
+  </div><div class="img-chip" data-action="selImgChip(this,'haircolor-grid','q-hair-color','castanho',5)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-021.webp" alt="Castanho" data-girl-src="assets/image-021.webp" data-boy-src="assets/image-094.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Castanho</span></div>
+  </div><div class="img-chip" data-action="selImgChip(this,'haircolor-grid','q-hair-color','preto',5)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-022.webp" alt="Preto" data-girl-src="assets/image-022.webp" data-boy-src="assets/image-096.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Preto</span></div>
+  </div><div class="img-chip" data-action="selImgChip(this,'haircolor-grid','q-hair-color','ruivo',5)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-023.webp" alt="Ruivo" data-girl-src="assets/image-023.webp" data-boy-src="assets/image-095.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Ruivo</span></div>
+  </div></div>
+          <input type="hidden" id="q-hair-color">
+        </div>
+        <div class="mini-back" data-action="goTo(3)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-5" style="">
+        <div class="quiz-card">
+          <div class="step-title">E o tipo de cabelo <em class="child-name-dyn">de Lia</em>, como é?</div>
+          <div class="step-sub">Escolha o tipo mais parecido com o de <span class="child-name-solo">Lia</span>.</div>
+          <div class="img-grid col1" id="hairtype-grid"><div class="img-chip" data-action="selImgChip(this,'hairtype-grid','q-hair-type','liso',6)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-024.webp" alt="Liso" data-girl-src="assets/image-024.webp" data-boy-src="assets/image-097.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Liso</span></div>
+  </div><div class="img-chip" data-action="selImgChip(this,'hairtype-grid','q-hair-type','cacheado',6)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-025.webp" alt="Cacheado" data-girl-src="assets/image-025.webp" data-boy-src="assets/image-098.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Cacheado</span></div>
+  </div><div class="img-chip" data-action="selImgChip(this,'hairtype-grid','q-hair-type','crespo',6)">
+    <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-026.webp" alt="Crespo" data-girl-src="assets/image-026.webp" data-boy-src="assets/image-099.webp"></div>
+    <div class="img-chip-label"><span class="chip-label">Crespo</span></div>
+  </div></div>
+          <input type="hidden" id="q-hair-type">
+        </div>
+        <div class="mini-back" data-action="goTo(4)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-6" style="">
+        <div class="quiz-card">
+          <div class="step-title">Qual a cor dos olhinhos <em class="child-name-dyn">de Lia</em>?</div>
+          <div class="step-sub">O detalhe que faz o personagem ganhar vida.</div>
+          <div class="img-grid" id="eyes-grid">
+            <div class="img-chip" data-action="selImgChip(this,'eyes-grid','q-eyes','castanhos','fb-rosto')">
+              <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-027.webp" alt="Olhos castanhos"></div>
+              <div class="img-chip-label"><span class="chip-label">Castanhos</span></div>
+            </div>
+            <div class="img-chip" data-action="selImgChip(this,'eyes-grid','q-eyes','pretos','fb-rosto')">
+              <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-028.webp" alt="Olhos pretos"></div>
+              <div class="img-chip-label"><span class="chip-label">Pretos</span></div>
+            </div>
+            <div class="img-chip" data-action="selImgChip(this,'eyes-grid','q-eyes','azuis','fb-rosto')">
+              <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-029.webp" alt="Olhos azuis"></div>
+              <div class="img-chip-label"><span class="chip-label">Azuis</span></div>
+            </div>
+            <div class="img-chip" data-action="selImgChip(this,'eyes-grid','q-eyes','verdes','fb-rosto')">
+              <div class="img-chip-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-030.webp" alt="Olhos verdes"></div>
+              <div class="img-chip-label"><span class="chip-label">Verdes</span></div>
+            </div>
+          </div>
+          <input type="hidden" id="q-eyes">
+        </div>
+        <div class="mini-back" data-action="goTo(5)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-fb-rosto" style="">
+        <div class="fb-wrap">
+          <div class="fb-icon">
+            <img src="assets/image-003.webp" alt="">
+          </div>
+          <div class="fb-text">Legal! Já estamos esboçando o rostinho <span class="child-name-dyn">de Lia</span></div>
+          <div class="fb-sub">Enquanto isso, vamos definir a história de <span class="child-name-solo">Lia</span>.</div>
+          <div class="fb-loader" id="fbRostoLoader" style="display: none;"><div class="fb-loader-track"><div class="fb-loader-fill" id="fbRostoFill" style="width: 100%;"></div></div></div>
+          <div class="fb-check" id="fbRostoCheck" style="display: flex;"><svg viewBox="0 0 24 24"><polyline points="5 12.5 9.5 17 19 7.5"></polyline></svg></div>
+          <button class="btn-cta" id="fbRostoBtn" style="display: flex;" data-action="goTo(7)">Continuar a História <span class="child-name-dyn">de Lia</span></button>
+        </div>
+      </div>
+<div class="screen" id="sc-7" style="">
+        <div class="quiz-card">
+          <div class="step-title">Qual ensinamento a <em>história vai carregar?</em></div>
+          <div class="step-sub">A moral é o coração da narrativa. Escolha o que importa agora.</div>
+          <div class="tile-list" id="moral-grid">
+            <div class="tile-card" data-action="selTileCard(this,'moral-grid','q-moral','amizade',8)">
+              <div class="tile-card-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-031.webp" alt="Amizade"></div>
+              <div class="tile-card-scrim"></div>
+              <div class="tile-card-label">Amizade<div class="tile-card-sub">Ajudar e ser ajudado</div></div>
+            </div>
+            <div class="tile-card" data-action="selTileCard(this,'moral-grid','q-moral','fe',8)">
+              <div class="tile-card-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-032.webp" alt="Fé"></div>
+              <div class="tile-card-scrim"></div>
+              <div class="tile-card-label">Fé<div class="tile-card-sub">Acreditar e confiar</div></div>
+            </div>
+            <div class="tile-card" data-action="selTileCard(this,'moral-grid','q-moral','obediencia',8)">
+              <div class="tile-card-pic"><div class="ph-skeleton" style="display: none;"></div><img loading="lazy" decoding="async" src="assets/image-033.webp" alt="Obediência"></div>
+              <div class="tile-card-scrim"></div>
+              <div class="tile-card-label">Obediência<div class="tile-card-sub">Ouvir quem ama</div></div>
+            </div>
+          </div>
+          <input type="hidden" id="q-moral">
+        </div>
+        <div class="mini-back" data-action="goTo(6)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-8" style="">
+        <div class="quiz-card">
+          <div class="step-title">Qual história combina com <em class="child-name-solo">Lia</em>?</div>
+          <div class="step-sub">Escolha a aventura. As capas já mostram o personagem que você criou.</div>
+          <div class="tile-list" id="setting-grid">
+            <div class="tile-card story-card" data-setting="floresta" data-action="selTileCard(this,'setting-grid','q-setting','floresta encantada','fb-aventura'); closeCustomScenario()">
+              <div class="tile-card-pic"><img decoding="async" src="assets/image-034.webp" alt="Floresta Encantada"><span class="story-tag">Floresta Encantada</span></div>
+              <div class="story-body"><div class="story-title"></div><div class="story-desc"></div></div>
+            </div>
+            <div class="tile-card story-card" data-setting="reino" data-action="selTileCard(this,'setting-grid','q-setting','reino encantado','fb-aventura'); closeCustomScenario()">
+              <div class="tile-card-pic"><img decoding="async" src="assets/image-036.webp" alt="Reino Encantado"><span class="story-tag">Reino Encantado</span></div>
+              <div class="story-body"><div class="story-title"></div><div class="story-desc"></div></div>
+            </div>
+            <div class="tile-card story-card" data-setting="fazendinha" data-action="selTileCard(this,'setting-grid','q-setting','fazendinha','fb-aventura'); closeCustomScenario()">
+              <div class="tile-card-pic"><img decoding="async" src="assets/image-035.webp" alt="Fazendinha"><span class="story-tag">Fazendinha</span></div>
+              <div class="story-body"><div class="story-title"></div><div class="story-desc"></div></div>
+            </div>
+            <div class="tile-card story-card" data-setting="fundo-do-mar" data-action="selTileCard(this,'setting-grid','q-setting','fundo do mar','fb-aventura'); closeCustomScenario()">
+              <div class="tile-card-pic"><img decoding="async" src="assets/image-037.webp" alt="Fundo do Mar"><span class="story-tag">Fundo do Mar</span></div>
+              <div class="story-body"><div class="story-title"></div><div class="story-desc"></div></div>
+            </div>
+          </div>
+          <style>#customToggle{display:none!important}</style><div class="custom-toggle" id="customToggle" hidden aria-hidden="true" data-action="openCustomScenario()" style="display: block;">Quero escolher outro cenário</div>
+          <div class="custom-scenario-fld" id="customScenarioFld" style="display: none;">
+            <label class="lbl">Descreva o cenário</label>
+            <input type="text" class="inp" id="q-setting-custom" placeholder="Ex: Uma ilha tropical, uma cidade de brinquedo…" autocomplete="off">
+            <div class="hint">Pode escrever livremente — vamos usar exatamente como você descrever.</div>
+          </div>
+          <input type="hidden" id="q-setting">
+        </div>
+        <div class="nav" id="customScenarioNav" style="display: none;">
+          <button class="btn-next" id="btnCustomScenario" style="flex:1" disabled="" data-action="goTo('fb-aventura')">Show, é Nesse Cenário que <span class="child-name-solo">Lia</span> Vive!</button>
+        </div>
+        <div class="mini-back" data-action="goTo(7)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-fb-aventura" style="">
+        <div class="fb-wrap">
+          <div class="fb-icon">
+            <img src="assets/image-004.webp" alt="">
+          </div>
+          <div class="fb-text"><span class="child-name-solo">Lia</span> já tem um mundo mágico à espera!</div>
+          <div class="fb-sub">Faltam só os últimos detalhes pra história ficar completa.</div>
+          <button class="btn-cta" data-action="goTo(9)">Ver os Últimos Detalhes <span class="child-name-dyn">de Lia</span></button>
+        </div>
+      </div>
+<div class="screen" id="sc-9" style="">
+        <div class="quiz-card">
+          <div class="step-title">Como <em class="child-name-solo">Lia</em> realmente é?</div>
+          <div class="step-sub">Conte mais sobre a personalidade de <span class="child-name-solo">Lia</span> — isso deixa a história ainda mais parecida com a realidade. (Opcional)</div>
+          <div class="fld">
+            <label class="lbl">Descreva a personalidade</label>
+            <textarea class="inp" id="q-special" placeholder="Ex: É brincalhona, tem medo do escuro mas é corajosa, adora dinossauros, sempre diz 'eu consigo!'…"></textarea>
+            <div class="hint">Quanto mais detalhe, mais única fica a história.</div>
+          </div>
+          <div class="fld photo-fld">
+            <label class="lbl">Foto da criança (opcional)</label>
+            <div class="hint">Envie uma foto do rosto para deixarmos o personagem ainda mais parecido.</div>
+            <input type="file" id="q-photo" accept="image/*" hidden>
+            <button type="button" class="photo-pick" id="photoPick">📷 Escolher foto</button>
+            <div class="photo-preview" id="photoPreview" hidden><img id="photoImg" alt="Foto escolhida"><button type="button" class="photo-remove" id="photoRemove">Remover foto</button></div>
+            <label class="photo-consent" id="photoConsentWrap" hidden><input type="checkbox" id="photoConsent"><span>Sou responsável pela criança e autorizo o uso desta foto somente para criar o livro. Ela não é publicada nem compartilhada.</span></label>
+            <div class="hint" id="photoStatus" role="status"></div>
+          </div>
+        </div>
+        <div class="nav"><button class="btn-next" data-action="goTo(10)">Perfeito, <span class="child-name-solo">Lia</span> Está Ganhando Vida! →</button></div>
+        <div class="mini-back" data-action="goTo(8)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-10" style="">
+        <div class="quiz-card">
+          <div class="step-title">Falta pouco! Onde <em>enviamos o livro <span class="child-name-dyn">de Lia</span>?</em></div>
+          <div class="step-sub">Deixe seu WhatsApp para receber seu livro e falar com a gente sobre o pedido.</div>
+          <div class="fld">
+            <label class="lbl">Seu WhatsApp com DDD</label>
+            <input type="tel" inputmode="tel" class="inp" id="q-phone" placeholder="(11) 99999-9999" autocomplete="tel" maxlength="20" aria-describedby="phoneHint" required>
+            <div class="hint" id="phoneHint">Inclua o DDD. Exemplo: (11) 99999-9999. Usaremos esse número para falar sobre seu pedido.</div>
+          </div>
+          <div class="fld">
+            <label class="lbl" for="q-email">Seu e-mail (opcional)</label>
+            <input type="email" inputmode="email" class="inp" id="q-email" autocomplete="email" placeholder="voce@exemplo.com" maxlength="254">
+            <div class="hint">Podemos usar este endereço para ajudar com seu pedido.</div>
+          </div>
+          <label style="display:flex;gap:10px;align-items:flex-start;margin:18px 0;font-size:13px;line-height:1.5;color:#4a4d6b"><input type="checkbox" id="q-recovery-consent" style="margin-top:4px"><span>Quero receber pelo WhatsApp ou e-mail ajuda para continuar este pedido. Posso pedir para parar a qualquer momento.</span></label>
+          <div class="fld">
+            <label class="lbl">Seu Nome (para a dedicatória)</label>
+            <input type="text" class="inp" id="q-mom-name" placeholder="Ex: Ana, Juliana, Camila…" autocomplete="off">
+            <div class="hint">"Com todo o amor, [seu nome]" — aparece na página de dedicatória.</div>
+          </div>
+        </div>
+        <div class="nav"><button class="btn-next" id="bn-10" data-action="sendQuizToN8n();goTo('fb-final')">Quase lá! Finalizar Personalização</button></div>
+        <div class="mini-back" data-action="goTo(9)">← Voltar</div>
+      </div>
+<div class="screen" id="sc-fb-final" style="">
+        <div class="fb-wrap">
+          <div class="fb-icon">
+            <img src="assets/image-005.webp" alt="">
+          </div>
+          <div class="fb-text">Prontinho! As últimas peças da história <span class="child-name-dyn">de Lia</span> já estão no lugar.</div>
+          <div class="fb-sub">Só falta deixar o presente ainda mais especial.</div>
+          <div class="fb-loader" id="fbFinalLoader" style="display: none;"><div class="fb-loader-track"><div class="fb-loader-fill" id="fbFinalFill" style="width: 100%;"></div></div></div>
+          <div class="fb-check" id="fbFinalCheck" style="display: flex;"><svg viewBox="0 0 24 24"><polyline points="5 12.5 9.5 17 19 7.5"></polyline></svg></div>
+          <button class="btn-cta" id="fbFinalBtn" style="display: flex;" data-action="goTo(11)">Conferir Meu Livro</button>
+        </div>
+      </div>
+<div class="screen" id="sc-11" style="">
+        <div class="quiz-card">
+          <div class="step-title">Seu livro personalizado <em class="child-name-dyn">de Lia</em></div>
+          <div class="step-sub">Seu livro digital personalizado por R$ 9,90. Pagamento único.</div>
+
+          <div class="included-tag">✓ Já incluso: 1 Livro Personalizado de 20 Páginas Ilustrado · PDF para ler e imprimir</div>
+
+<div style="display:none" aria-hidden="true">          <div class="addon-section-tag">
+            <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"></path></svg>
+            95% das famílias também levam
+          </div>
+
+          <div class="addon-card" id="addon-colorir" data-action="togAddon('colorir')">
+            <div class="addon-body">
+              <div class="addon-thumb"><img loading="lazy" decoding="async" src="assets/image-038.webp" alt="Versão para colorir"><span class="addon-ribbon">Mais Escolhido</span></div>
+              <div class="addon-info">
+                <div class="addon-name">Versão para Colorir</div>
+                <div class="addon-desc">As mesmas cenas em traços para a criança pintar. Perfeito para imprimir e brincar.</div>
+                <div class="addon-price-row"><span class="addon-price-old">R$ 14,90</span><span class="addon-price">R$ 7,90</span></div>
+              </div>
+            </div>
+            <div class="addon-action"><div class="addon-check" id="adcheck-colorir"><svg viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3"></polyline></svg></div><span class="addon-action-txt">Quero a versão para colorir também</span></div>
+          </div>
+
+          <div class="addon-card" id="addon-expressa" data-action="togAddon('expressa')">
+            <div class="addon-body">
+              <div class="addon-thumb"><img loading="lazy" decoding="async" src="assets/image-039.webp" alt="Entrega expressa"></div>
+              <div class="addon-info">
+                <div class="addon-name">Prioridade: Entrega Expressa</div>
+                <div class="addon-desc">Seu pedido pula a fila e é finalizado com prioridade máxima.</div>
+                <div class="addon-price-row"><span class="addon-price-old">R$ 9,90</span><span class="addon-price">R$ 3,90</span></div>
+              </div>
+            </div>
+            <div class="addon-action"><div class="addon-check" id="adcheck-expressa"><svg viewBox="0 0 12 12"><polyline points="2,6 5,9 10,3"></polyline></svg></div><span class="addon-action-txt">Quero prioridade na entrega também</span></div>
+          </div>
+
+</div>          <div class="receipt" id="rec-11"><div class="rr"><span class="rl">Livro Ilustrado Personalizado</span><span class="rv">R<div class="receipt" id="rec-11"><div class="rr sub"><span class="rl">Livro Ilustrado Personalizado</span><span class="rv">R$&nbsp;39,90</span></div><div class="rr disc"><span class="rl">Desconto Dia das Crianças</span><span class="rv">-R$&nbsp;25,00</span></div><div class="rr add"><span class="rl">Versão para Colorir</span><span class="rv">+R$&nbsp;7,90</span></div><div class="rr tot"><span class="rl">Total a Pagar</span><span class="rv">RR$&nbsp;22,80nbsp;9,90</span></div></div>nbsp;9,90</span></div><div class="rr tot"><span class="rl">Total a Pagar</span><span class="rv">R<div class="receipt" id="rec-11"><div class="rr sub"><span class="rl">Livro Ilustrado Personalizado</span><span class="rv">R$&nbsp;39,90</span></div><div class="rr disc"><span class="rl">Desconto Dia das Crianças</span><span class="rv">-R$&nbsp;25,00</span></div><div class="rr add"><span class="rl">Versão para Colorir</span><span class="rv">+R$&nbsp;7,90</span></div><div class="rr tot"><span class="rl">Total a Pagar</span><span class="rv">RR$&nbsp;22,80nbsp;9,90</span></div></div>nbsp;9,90</span></div></div>
+        </div>
+        <div class="nav-stack">
+          <button class="btn-cta" data-action="goTo('loading')">Ver o Livro <span class="child-name-dyn">de Lia</span></button>
+          <button class="btn-mini-back" data-action="goTo('fb-final')">Voltar</button>
+        </div>
+      </div>
+<div class="screen" id="sc-loading" style="">
+        <div class="loading-wrap">
+          <div class="ld-icon-wrap"><img src="assets/image-040.webp" alt="Livro sendo criado" loading="lazy" decoding="async"></div>
+          <div class="ld-msg">Preparando o livro personalizado <span class="child-name-dyn">de Lia</span></div>
+
+          <div class="ld-bars">
+            <div>
+              <div class="ld-bar-line"><span>Personalizando a aparência</span><span class="ld-bar-pct" id="lb1-pct">100%</span></div>
+              <div class="ld-bar-track"><div class="ld-bar-fill" id="lb1-fill" style="width: 100%;"></div></div>
+            </div>
+            <div>
+              <div class="ld-bar-line"><span>Escrevendo a aventura</span><span class="ld-bar-pct" id="lb2-pct">100%</span></div>
+              <div class="ld-bar-track"><div class="ld-bar-fill" id="lb2-fill" style="width: 100%;"></div></div>
+            </div>
+            <div>
+              <div class="ld-bar-line"><span>Ilustrando as páginas</span><span class="ld-bar-pct" id="lb3-pct">100%</span></div>
+              <div class="ld-bar-track"><div class="ld-bar-fill" id="lb3-fill" style="width: 100%;"></div></div>
+            </div>
+          </div>
+        </div>
+        <input type="hidden" id="q-temperamento">
+        <input type="hidden" id="q-preferencia">
+        <input type="hidden" id="q-compromisso">
+      </div>
+<div class="screen" id="sc-result" style="">
+        <div style="text-align:center;margin-bottom:16px">
+          <div class="result-headline">O livro <span class="child-name-dyn">de Lia</span> está quase pronto</div>
+          <div class="result-sub">Em poucos minutos, <span class="child-name-solo">Lia</span> pode abrir um livro com o próprio nome na capa. Finalize seu pedido agora — as vagas de hoje são limitadas.</div>
+        </div>
+
+        <div class="social-proof-row">
+          <div class="social-proof-avatars">
+            <img src="assets/image-010.webp" alt="" loading="lazy" decoding="async" width="28" height="28">
+            <img src="assets/image-041.webp" alt="" loading="lazy" decoding="async" width="28" height="28">
+            <img src="assets/image-042.webp" alt="" loading="lazy" decoding="async" width="28" height="28">
+          </div>
+          <div class="social-proof-text"><strong>4.238 livros</strong> já foram criados</div>
+        </div>
+
+        <div class="book-result-wrap">
+          <div class="book-result menina" id="bookResult">
+            <div class="br-star-icon"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg></div>
+            <div class="br-name child-name-solo">Lia</div>
+            <div class="br-sub">e a Grande Aventura</div>
+          </div>
+          <div class="book-result-sparkle s1"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg></div>
+          <div class="book-result-sparkle s2"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg></div>
+        </div>
+
+        <div class="urgency-timer" id="urgencyTimer">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          <span>Livro reservado por <strong id="urgencyClock">00:00</strong></span>
+        </div>
+
+        <div class="price-anchor-card">
+          <div class="price-anchor-old">Livro personalizado por</div>
+          <div class="price-anchor-new" id="price-result">RR$&nbsp;22,80nbsp;9,90</div>
+          <div class="price-anchor-tag" id="price-result-tag">Pagamento único · Livro digital personalizado</div>
+        </div>
+
+        <div class="bonus-stack">
+          <div class="bonus-stack-title">Comprando hoje, você também leva:</div>
+          <div class="bonus-list">
+            <div class="bonus-card">
+              <div class="bonus-thumb"><img loading="lazy" decoding="async" src="assets/image-043.webp" alt="+37 Livros Infantis Clássicos"><span class="bonus-ribbon">Bônus</span></div>
+              <div class="bonus-info"><div class="bonus-name">+37 Livros Infantis Clássicos</div><div class="bonus-desc">PDF bônus com histórias ilustradas prontas</div></div>
+            </div>
+            <div class="bonus-card">
+              <div class="bonus-thumb"><img loading="lazy" decoding="async" src="assets/image-044.webp" alt="Certificado Pequeno Leitor"><span class="bonus-ribbon">Bônus</span></div>
+              <div class="bonus-info"><div class="bonus-name">Certificado "Pequeno Leitor"</div><div class="bonus-desc">Personalizado com o nome <span class="child-name-dyn">de Lia</span></div></div>
+            </div>
+            <div class="bonus-card">
+              <div class="bonus-thumb"><img loading="lazy" decoding="async" src="assets/image-045.webp" alt="Guia de Rotina de Sono e Leitura"><span class="bonus-ribbon">Bônus</span></div>
+              <div class="bonus-info"><div class="bonus-name">Guia: Rotina de Sono e Leitura</div><div class="bonus-desc">E-book bônus com dicas para os pais</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="price-pick-wrap">
+          <button class="btn-cta btn-pulse" id="btnFinalCTA" data-action="irParaCheckout()">Quero o Livro <span class="child-name-dyn">de Lia</span> Agora</button>
+          <div class="price-pick-info">Você será direcionado para o pagamento seguro</div>
+        </div>
+
+        <div class="security-badges"><img src="assets/image-046.webp" alt="Selos de segurança" loading="lazy" decoding="async"></div>
+
+        <div class="section-heading">Veja a Reação de Quem Já Recebeu</div>
+        <div class="section-sub">Depoimentos reais de famílias que já surpreenderam seus pequenos</div>
+
+        <div class="carousel-wrap">
+          <div class="carousel-track" id="resultCarousel"><img src="assets/image-012.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-011.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-013.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-014.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-100.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-012.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-011.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-013.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-014.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-100.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-012.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-011.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-013.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-014.webp" alt="" loading="lazy" decoding="async"><img src="assets/image-100.webp" alt="" loading="lazy" decoding="async"></div>
+        </div>
+
+        <div class="review-card">
+          <div class="review-header"><img src="assets/image-041.webp" alt="Camila" class="review-avatar" loading="lazy" decoding="async"><div class="review-info"><h4>Camila R. — mãe do Theo, 7 anos</h4><div class="review-stars">★★★★★</div></div></div>
+          <div class="review-text">Comprei com a moral de coragem porque meu filho tem medo do escuro. A história falou direto com ele. Hoje ele pede para ler antes de dormir e <strong>já não precisa mais da luz acesa.</strong></div>
+          <span class="review-date">Compradora verificada · Há 4 dias</span>
+        </div>
+        <div class="review-card">
+          <div class="review-header"><img src="assets/image-042.webp" alt="Priscila" class="review-avatar" loading="lazy" decoding="async"><div class="review-info"><h4>Priscila A. — avó da Sofia, 4 anos</h4><div class="review-stars">★★★★★</div></div></div>
+          <div class="review-text">Dei de presente pra minha netinha. Quando ela viu o nome dela na capa deu um gritinho que eu nunca vou esquecer. <strong>A narração em áudio virou parte da rotina de dormir.</strong> Super recomendo!</div>
+          <span class="review-date">Compradora verificada · Há 1 semana</span>
+        </div>
+        <div class="review-card">
+          <div class="review-header"><img src="assets/image-047.webp" alt="Renata" class="review-avatar" loading="lazy" decoding="async"><div class="review-info"><h4>Renata S. — mãe do Pedro, 6 anos</h4><div class="review-stars">★★★★★</div></div></div>
+          <div class="review-text">Meu filho pediu para ler <strong>toda noite</strong>. A melhor coisa que já comprei para ele. Ele trata o livro como um tesouro.</div>
+          <span class="review-date">Compradora verificada · Há 3 dias</span>
+        </div>
+
+        <div class="guarantee-row" style="margin-top:10px">
+          <div class="g-icon"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg></div>
+          <p><strong>Risco zero.</strong> Se o livro não encantar, devolvemos 100% em até 7 dias. Sem perguntas.</p>
+        </div>
+
+        <div class="section-heading" style="margin-top:32px">Dúvidas frequentes</div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">O que exatamente eu recebo?</div><div class="faq-a">Um livro ilustrado em PDF com história personalizada, ilustrações com os traços físicos da criança, capa e dedicatória. Em até 24h no seu e-mail.</div></div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">Posso presentear alguém que não é meu filho(a)?</div><div class="faq-a">Sim! É perfeito para netos, sobrinhos, afilhados ou qualquer criança que você queira presentear com carinho.</div></div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">As ilustrações realmente se parecem com a criança?</div><div class="faq-a">Usamos IA de última geração com os traços que você informou — tom de pele, cor e tipo de cabelo, cor dos olhos. O personagem fica muito próximo da aparência real dela.</div></div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">Posso imprimir o livro?</div><div class="faq-a">Sim! O PDF é otimizado para impressão em A4. Você pode imprimir em casa ou numa gráfica para ter um livro físico para guardar.</div></div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">É seguro comprar no site?</div><div class="faq-a">Sim, o pagamento é processado por parceiros certificados, com criptografia de ponta a ponta — seus dados nunca ficam armazenados aqui.</div></div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">Quanto tempo leva pra receber?</div><div class="faq-a">Em até 24h após a confirmação do pagamento, direto no seu e-mail.</div></div>
+        <div class="faq-item"><div class="faq-q" data-action="togFaq(this)">E se eu não gostar do resultado?</div><div class="faq-a">Garantia de 7 dias. Basta enviar um e-mail e devolvemos 100% do seu dinheiro. Sem burocracia.</div></div>
+
+        <button class="btn-cta btn-pulse" style="margin-top:28px" data-action="irParaCheckout()">Sim, Quero o Livro <span class="child-name-dyn">de Lia</span>!</button>
+      </div>
+<div class="screen" id="sc-redirect" style="">
+        <div class="redirect-wrap">
+          <div class="redirect-spinner"></div>
+          <div class="redirect-text">Indo para o pagamento</div>
+          <div class="redirect-track"><div class="redirect-fill" id="redirectFill" style="width: 100%;"></div></div>
+        </div>
+      </div>
+<div class="screen" id="sc-checkout">
+        <div class="kw-content">
+          <div class="kw-col-main">
+
+            <img class="kw-banner-img" src="assets/image-006.webp" alt="Mamãe, quero historinha" fetchpriority="high">
+
+            <div class="kw-checkoutblock">
+
+              <div class="kw-prod-header">
+                <img class="kw-prod-thumb" src="assets/brand.svg" alt="Mamãe, quero historinha" width="96" height="96">
+                <div class="kw-prod-info">
+                  <h3 class="kw-prod-title">Mamãe, quero historinha</h3>
+                  <p class="kw-prod-sub">Entrega digital instantânea após o pagamento.</p>
+                </div>
+              </div>
+
+              <!-- Campos — apenas Email e Telefone (nome já veio do quiz) -->
+              <div style="margin-top:16px">
+                <div class="kiwi-input">
+                  <input class="kiwi-input-field" id="fEmail" type="email" placeholder=" " autocomplete="email">
+                  <label class="kiwi-label">E-mail</label>
+                  <div class="kiwi-icon">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+                  </div>
+                </div>
+                <div class="kiwi-input">
+                  <input class="kiwi-input-field" id="fTel" type="tel" placeholder=" " autocomplete="tel" inputmode="numeric" maxlength="16">
+                  <label class="kiwi-label">Telefone</label>
+                  <div class="kiwi-icon">
+                    <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.4 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.8a16 16 0 0 0 6.29 6.29l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Resumo do pedido -->
+              <div id="rec-checkout" style="margin-top:4px"><div class="rr"><span class="rl">Livro Ilustrado Personalizado</span><span class="rv">R<div id="rec-checkout" style="margin-top:4px"><div class="rr sub"><span class="rl">Livro Ilustrado Personalizado</span><span class="rv">R$&nbsp;39,90</span></div><div class="rr disc"><span class="rl">Desconto Dia das Crianças</span><span class="rv">-R$&nbsp;25,00</span></div><div class="rr add"><span class="rl">Versão para Colorir</span><span class="rv">+R$&nbsp;7,90</span></div><div class="rr tot"><span class="rl">Total a Pagar</span><span class="rv">RR$&nbsp;22,80nbsp;9,90</span></div></div>nbsp;9,90</span></div><div class="rr tot"><span class="rl">Total a Pagar</span><span class="rv">R<div id="rec-checkout" style="margin-top:4px"><div class="rr sub"><span class="rl">Livro Ilustrado Personalizado</span><span class="rv">R$&nbsp;39,90</span></div><div class="rr disc"><span class="rl">Desconto Dia das Crianças</span><span class="rv">-R$&nbsp;25,00</span></div><div class="rr add"><span class="rl">Versão para Colorir</span><span class="rv">+R$&nbsp;7,90</span></div><div class="rr tot"><span class="rl">Total a Pagar</span><span class="rv">RR$&nbsp;22,80nbsp;9,90</span></div></div>nbsp;9,90</span></div></div>
+
+              <!-- Order Bump — layout idêntico ao print enviado -->
+              <div class="kw-ob" style="display:none" aria-hidden="true" id="obWrap" data-action="toggleOb()">
+                <div class="kw-ob-title">SIM, EU ACEITO ESSA OFERTA ESPECIAL!</div>
+                <div class="kw-ob-row">
+                  <svg class="kw-ob-arrow" viewBox="0 0 512 512" width="22" height="22" fill="#dc2626"><path fill="currentColor" d="M481,256L263.3,38.3v130.6H31v174.2h232.3v130.6L481,256z"></path></svg>
+                  <div class="kw-ob-check" id="obCheck"></div>
+                  <img class="kw-ob-img" src="assets/image-049.webp" alt="Historinhas extras" width="56" height="56" loading="lazy">
+                  <div class="kw-ob-desc">
+                    <span class="kw-ob-headline">APENAS HOJE:</span> LEVE + 2 HISTÓRIAS EXTRAS 100% PERSONALIZADAS - <span id="obPreco">R$&nbsp;9,90</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Método de pagamento — grid 2 colunas, Pix esquerda pré-selecionado, Cartão direita -->
+              <div id="paymentMethodCard" style="display: block;">
+              <div class="kw-methods-grid" id="methodsGrid">
+                <div class="kw-method" id="methPix" data-action="selMethod('pix')">
+                  <div class="kw-method-badge">
+                    <span class="kw-badge-icon"></span>
+                  </div>
+                  <img class="kw-icon-img" src="assets/image-007.svg" alt="Pix" width="20" height="20">
+                  Pix
+                </div>
+                <div class="kw-method" id="methCard" data-action="selMethod('card')" style="">
+                  <div class="kw-method-badge">
+                    <span class="kw-badge-icon"></span>
+                  </div>
+                  <svg viewBox="0 0 576 512" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M527.9 32H48.1C21.5 32 0 53.5 0 80v352c0 26.5 21.5 48 48.1 48h479.8c26.6 0 48.1-21.5 48.1-48V80c0-26.5-21.5-48-48.1-48zM54.1 80h467.8c3.3 0 6 2.7 6 6v42H48.1V86c0-3.3 2.7-6 6-6zm467.8 352H54.1c-3.3 0-6-2.7-6-6V256h479.8v170c0 3.3-2.7 6-6 6zM192 332v40c0 6.6-5.4 12-12 12h-72c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h72c6.6 0 12 5.4 12 12zm192 0v40c0 6.6-5.4 12-12 12H236c-6.6 0-12-5.4-12-12v-40c0-6.6 5.4-12 12-12h136c6.6 0 12 5.4 12 12z"></path></svg>
+                  Cartão
+                </div>
+              </div>
+
+              <!-- Painel PIX -->
+              <div id="pixPanel" class="kw-pix-panel" style="display: block;">
+                <!-- CPF só aparece quando o Pix é pela Appmax (PIX_PROVIDER=appmax) -->
+                <div class="kiwi-input" id="pixCpfWrap" style="display:none;margin-top:8px">
+                  <input class="kiwi-input-field" id="pixCpf" type="text" inputmode="numeric" maxlength="14" placeholder=" ">
+                  <label class="kiwi-label">CPF</label>
+                </div>
+                <button class="kw-pay-btn" id="btnPix" data-action="pagarPix()">
+                  <img src="assets/image-007.svg" alt="" width="20" height="20" style="filter:brightness(0) invert(1)">
+                  Pagar agora <span id="ctaPricePix" style="display:none">RR$&nbsp;22,80nbsp;9,90</span>
+                </button>
+              </div>
+
+              <!-- Painel Cartão — Appmax. Os "name" dos campos do cartão são fixos (lidos pelo appmax.js); o número do cartão nunca vai pro nosso servidor -->
+              <div id="cardPanel" class="kw-card-panel" style="display: none;">
+                <form id="appmaxCardForm" data-appmax-checkout="" novalidate="" autocomplete="on" data-appmax-bound="true">
+                  <div class="kiwi-input">
+                    <input class="kiwi-input-field" id="ccNumber" name="card-number" type="text" inputmode="numeric" autocomplete="cc-number" maxlength="23" placeholder=" ">
+                    <label class="kiwi-label">Número do cartão</label>
+                    <span class="kw-card-brand" id="ccBrand"></span>
+                  </div>
+                  <div class="kiwi-input">
+                    <input class="kiwi-input-field" id="ccHolder" name="card-holder-name" type="text" autocomplete="cc-name" maxlength="60" placeholder=" " style="text-transform:uppercase">
+                    <label class="kiwi-label">Nome impresso no cartão</label>
+                  </div>
+                  <div class="kw-card-row">
+                    <div class="kiwi-input">
+                      <input class="kiwi-input-field" id="ccValidade" type="text" inputmode="numeric" autocomplete="cc-exp" maxlength="5" placeholder=" ">
+                      <label class="kiwi-label">Validade (MM/AA)</label>
+                    </div>
+                    <div class="kiwi-input">
+                      <input class="kiwi-input-field" id="ccCvv" name="cvv" type="text" inputmode="numeric" autocomplete="cc-csc" maxlength="4" placeholder=" ">
+                      <label class="kiwi-label">CVV</label>
+                    </div>
+                  </div>
+                  
+                  
+                </form>
+                <div class="kiwi-input">
+                  <input class="kiwi-input-field" id="ccCpf" type="text" inputmode="numeric" maxlength="14" placeholder=" ">
+                  <label class="kiwi-label">CPF do titular</label>
+                </div>
+                <button type="submit" form="appmaxCardForm" class="kw-pay-btn" id="btnCartao">
+                  <svg width="20" height="20" viewBox="0 0 576 512"><path fill="currentColor" d="M527.9 32H48.1C21.5 32 0 53.5 0 80v352c0 26.5 21.5 48 48.1 48h479.8c26.6 0 48.1-21.5 48.1-48V80c0-26.5-21.5-48-48.1-48zM48.1 128h479.8v42H48.1zm0 128h479.8v170H48.1z"></path></svg>
+                  Pagar <span id="ctaPriceCard">RR$&nbsp;22,80nbsp;9,90</span>
+                </button>
+                <div class="kw-card-analise" id="cardAnalise"><div class="kw-mini-spin"></div><span id="cardAnaliseTxt">Confirmando seu pagamento com o banco…</span></div>
+                <div class="kw-erro" id="erroCartaoBrick"></div>
+              </div>
+              <!-- Gatilho da coleta de IP do appmax.js (obrigatória) -->
+              <form data-appmax-customer="" hidden=""></form>
+
+              <div class="kw-erro" id="erroCheckout"></div>
+
+              <div class="kw-security-row">
+                <div class="kw-sec-icon">
+                  <svg viewBox="0 0 512.005 512.005" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M440.888,64.609l-181.333-64c-2.292-0.813-4.812-0.813-7.104,0l-181.333,64c-4.26,1.51-7.115,5.542-7.115,10.063v128c0,165.646,24.563,226.188,187.198,308.188c1.51,0.76,3.156,1.146,4.802,1.146c1.646,0,3.292-0.385,4.802-1.146c162.635-82,187.198-142.542,187.198-308.188v-128C448.003,70.151,445.148,66.12,440.888,64.609z M352.003,320.005 c0,11.76-9.573,21.333-21.333,21.333H181.336c-11.76,0-21.333-9.573-21.333-21.333V213.339c0-11.76,9.573-21.333,21.333-21.333 v-10.667c0-41.167,33.5-74.667,74.667-74.667s74.667,33.5,74.667,74.667v10.667c11.76,0,21.333,9.573,21.333,21.333V320.005z"></path></svg>
+                </div>
+                <div class="kw-sec-text">Protegemos seus dados de pagamento com criptografia para garantir segurança bancária.</div>
+              </div>
+              </div><!-- /paymentMethodCard -->
+
+              <!-- Resultado PIX gerado -->
+              <div class="kw-pix-result" id="pixDisplay" style="display:none;margin-top:20px">
+                <div class="kw-pix-title">Pague com Pix</div>
+                <div class="kw-pix-sub">Escaneie o QR Code ou copie o código abaixo</div>
+                <div class="kw-qr-wrap"><img id="qrImg" src="" alt="QR Code Pix"></div>
+                <div class="kw-pix-total" id="pixTotalDisplay">R$ 0,00</div>
+                <div class="kw-cc-label">Código Pix copia e cola</div>
+                <div class="kw-cc-box">
+                  <div class="kw-cc-text" id="pixCode">Aguardando...</div>
+                </div>
+                <button class="kw-pay-btn kw-copy-pix-btn" id="copyBtn" data-action="copiarPix()">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  Copiar Código Pix
+                </button>
+                <div class="kw-await-bar">
+                  <div class="kw-spin"></div>
+                  Aguardando confirmação do pagamento…
+                </div>
+                <div class="kw-pix-timer">Expira em <span id="expTimer">30:00</span></div>
+                <div class="kw-pix-steps">
+                  <div class="kw-pix-steps-title">Como pagar com Pix</div>
+                  <div class="kw-pix-step"><div class="kw-pix-step-num">1</div><div class="kw-pix-step-txt">Abra o <strong>app do seu banco</strong> e acesse a área Pix</div></div>
+                  <div class="kw-pix-step"><div class="kw-pix-step-num">2</div><div class="kw-pix-step-txt">Toque em <strong>Copiar Código Pix</strong> acima ou escaneie o <strong>QR code</strong></div></div>
+                  <div class="kw-pix-step"><div class="kw-pix-step-num">3</div><div class="kw-pix-step-txt">Cole o código na opção <strong>Pix Copia e Cola</strong> do app</div></div>
+                  <div class="kw-pix-step"><div class="kw-pix-step-num">4</div><div class="kw-pix-step-txt"><strong>Confirme o pagamento</strong> — é aprovado na hora</div></div>
+                  <div class="kw-pix-step"><div class="kw-pix-step-num">5</div><div class="kw-pix-step-txt">Seu livro chega no <strong>e-mail em instantes</strong> ✉️</div></div>
+                </div>
+              </div>
+
+              <!-- Footer — termos + recaptcha -->
+              <div class="kw-footer">
+                <article>
+                  <div>
+                    Ao clicar em 'Pagar agora', eu declaro que (i) estou ciente que esse pagamento se refere ao produto <b>Mamãe, quero historinha</b>; (ii) que li e concordo com os <a href="#" target="_blank">Termos de Compra</a>, <a href="#" target="_blank">Termos de Uso</a>, e <a href="#" target="_blank">Política de Privacidade</a>.
+                  </div>
+                  <button type="button">Denunciar esse produto.</button>
+                  <div style="margin-top:6px">
+                    <div>Este site é protegido pelo Google reCAPTCHA.</div>
+                    <a href="https://policies.google.com/privacy?utm_source=chatgpt.com&amp;utm_campaign=&amp;utm_medium=&amp;utm_content=&amp;utm_term=" target="_blank">Política de Privacidade</a> e <a href="https://policies.google.com/terms?utm_source=chatgpt.com&amp;utm_campaign=&amp;utm_medium=&amp;utm_content=&amp;utm_term=" target="_blank">Termos de Serviço</a>.
+                  </div>
+                </article>
+              </div>
+
+            </div><!-- /kw-checkoutblock -->
+
+            <!-- Avaliações — layout idêntico ao sidebar oficial (rounded-md, border-gray-200) -->
+            <div class="kw-reviews">
+              <div class="kw-review-card">
+                <img class="kw-review-avatar" src="assets/image-010.webp" alt="Karla M." loading="lazy">
+                <div class="kw-review-quote">Fiz a historinha personalizada para o meu filho e quando chegou eu fiquei encantada.</div>
+                <div class="kw-review-stars">
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                </div>
+                <div class="kw-review-name">Karla M.</div>
+              </div>
+              <div class="kw-review-card">
+                <img class="kw-review-avatar" src="assets/image-050.webp" alt="Carminha L." loading="lazy">
+                <div class="kw-review-quote">Eu queria dar algo pro meu neto que não fosse apenas mais um brinquedo e encontrei, amei muito!</div>
+                <div class="kw-review-stars">
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                </div>
+                <div class="kw-review-name">Carminha L.</div>
+              </div>
+              <div class="kw-review-card">
+                <img class="kw-review-avatar" src="assets/image-047.webp" alt="Renata S." loading="lazy">
+                <div class="kw-review-quote">Ameiii! Conseguiram fazer igualzinho minha filha, todos os detalhes! Perfeito 😍😍😍😍</div>
+                <div class="kw-review-stars">
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                  <svg fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>
+                </div>
+                <div class="kw-review-name">Renata S.</div>
+              </div>
+            </div>
+
+          </div><!-- /kw-col-main -->
+        </div><!-- /kw-content -->
+      </div>
+<div class="screen" id="sc-aprovado">
+        <div class="ty-wrap">
+
+          <div class="ty-icon">✅</div>
+          <div class="ty-title">Pagamento confirmado!</div>
+          <div class="ty-sub">Seu livro personalizado está sendo criado com carinho e chega em instantes no e-mail<br><strong id="okEmail" class="ty-email"></strong></div>
+
+          <div class="ty-steps">
+            <div class="ty-step">
+              <div class="ty-step-icon">🎨</div>
+              <div class="ty-step-txt"><strong>Agora:</strong> nossa equipe está gerando as ilustrações e o texto personalizado da história.</div>
+            </div>
+            <div class="ty-step">
+              <div class="ty-step-icon">📧</div>
+              <div class="ty-step-txt"><strong>Em poucos minutos:</strong> o PDF do livro completo chega no e-mail que você usou na compra.</div>
+            </div>
+            <div class="ty-step">
+              <div class="ty-step-icon">📖</div>
+              <div class="ty-step-txt"><strong>Depois disso:</strong> é só baixar, imprimir se quiser, e aproveitar a leitura com a criança.</div>
+            </div>
+          </div>
+
+          <div class="ty-warning">
+            <div class="ty-warning-title">⚠️ Não encontrou o e-mail?</div>
+            <div class="ty-warning-txt">
+              Verifique a caixa de <strong>spam</strong> ou <strong>lixo eletrônico</strong> — às vezes provedores de e-mail (Gmail, Outlook, Hotmail) classificam entregas automáticas ali por engano.
+              Se achar, marque como "Não é spam" para receber tudo certinho.
+            </div>
+          </div>
+
+          <div class="ty-support">
+            <div class="ty-support-title">Ainda não recebeu?</div>
+            <div class="ty-support-txt">
+              Se depois de algum tempo o livro não chegar em nenhuma das duas caixas, fala com a gente que resolvemos rapidinho:
+            </div>
+            <button type="button" class="ty-support-email" data-action="pagarPix()">Falar com o suporte</button>
+          </div>
+
+        </div>
+      </div></div></div></div><div class="popup-overlay" id="couponPopup">
+  <div class="popup-card">
+    <div class="popup-icon"><img src="assets/image-008.webp" alt="" style="width:56px;height:56px;object-fit:contain"></div>
+    <div class="popup-title">Você ganhou um <em>desconto de Dia das Crianças!</em></div>
+    <div class="popup-sub">Para comemorar o Dia das Crianças, liberamos <strong>R$ 25,00</strong> de desconto no livro <span class="child-name-dyn">de Theo</span> — mas ele <strong>expira ao sair desta tela.</strong></div>
+    <button class="popup-btn" data-action="applyDiscount()">Ativar Meu Desconto</button>
+  </div>
+</div><div class="popup-overlay" id="microPopup" role="dialog" aria-modal="true" aria-labelledby="microPopupQ"><div class="popup-card"><div class="popup-title" id="microPopupQ"></div><div class="micro-note" id="microPopupNote"></div><div class="micro-opts" id="microPopupOpts"></div></div></div><div class="popup-overlay" id="referenceNotice" role="dialog" aria-modal="true" aria-labelledby="noticeTitle"><div class="popup-card"><h2 class="popup-title" id="noticeTitle">Mamãe, quero historinha</h2><p class="popup-sub">Seu pedido está pronto para continuar. A plataforma de pagamento e os canais de atendimento ainda serão conectados. A plataforma de pagamento ainda será conectada. O salvamento de respostas depende da configuração do TrafficAI.</p><button class="popup-btn" id="noticeClose">Continuar visualizando</button></div></div><div class="reference-tools"><span>Prévia do produto</span><select id="screenPicker" aria-label="Ver uma tela"></select><button id="restart" type="button">Início</button></div><p id="quizSaveStatus" role="status" aria-live="polite" style="position:fixed;bottom:50px;left:12px;right:12px;text-align:center;font-size:11px;color:#64748b;pointer-events:none"></p></body></html>
