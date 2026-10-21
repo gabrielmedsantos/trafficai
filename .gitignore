@@ -4,3 +4,30 @@ tmp_lowan_handoff.md
 
 # Live Streaming Control (LiveStack) — projeto separado, repositório próprio
 Live Streaming Control/
+
+# Secrets, runtime data and generated files
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+node_modules/
+dist/
+.next/
+.backups/
+backups/
+data/
+logs/
+*.log
+*.tsbuildinfo
+.DS_Store
+._*
+*.bak*
+*.backup*
+*.pre-scenario
+*.orig
+__pycache__/
+*.pyc
+
+node_modules

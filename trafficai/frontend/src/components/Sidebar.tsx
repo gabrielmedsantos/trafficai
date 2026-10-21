@@ -108,7 +108,7 @@ const AREAS = [
         id: 'tracking',
         label: 'Tracking',
         icon: Activity,
-        routes: ['/vendas', '/tracking'],
+        routes: ['/vendas', '/tracking', '/automacoes'],
         groups: [
             {
                 label: 'Vendas',
@@ -118,6 +118,8 @@ const AREAS = [
                     { href: '/vendas/utms',       label: 'UTMs',              icon: Link2, color: C.purple },
                     { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },
                     { href: '/vendas/pedidos',    label: 'Pedidos',           icon: ShoppingCart, color: C.green },
+                    { href: '/automacoes', label: 'Automações', icon: Zap, capability: 'automations', color: C.blue },
+                    { href: '/vendas/quizzes',    label: 'Funis de Quiz',     icon: ClipboardList, color: C.purple },
                     { href: '/vendas/reenviar',   label: 'Reenviar',          icon: Send, color: C.cyan },
                     { href: '/vendas/recuperacao', label: 'Recuperação',      icon: RotateCcw, color: C.orange },
                     { href: '/vendas/auditoria',  label: 'Auditoria',         icon: ShieldCheck, color: C.blue },
@@ -333,6 +335,15 @@ export default function Sidebar() {
             </div>
 
             <div className="sidebar-divider" />
+
+            {!!user?.shared_accounts?.length&&activeArea!=='tracking'&&<div className="sidebar-section">
+                <div className="sidebar-section-label">Operações compartilhadas</div>
+                {user.shared_accounts.filter(a=>a.source_id).map(a=><div key={a.id}>
+                    <a href={`/vendas?source=${encodeURIComponent(a.source_id!)}`} className="sidebar-link"><ShoppingCart size={18}/><span>Vendas · {a.account_name}</span></a>
+                    <a href={`/vendas/pedidos?source=${encodeURIComponent(a.source_id!)}`} className="sidebar-link"><Receipt size={18}/><span>Pedidos</span></a>
+                    <a href={`/vendas/quizzes?source=${encodeURIComponent(a.source_id!)}`} className="sidebar-link"><ClipboardList size={18}/><span>Respostas dos quizzes</span></a>
+                </div>)}
+            </div>}
 
             {/* Navegação */}
             <nav className="sidebar-nav">

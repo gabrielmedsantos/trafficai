@@ -674,7 +674,7 @@ export async function buildReportForAccount(userId: string, accountId: string, p
         SELECT ih.date::text AS date,
                COALESCE(SUM(ih.spend),0)::float AS spend,
                COALESCE(SUM(ih.clicks),0)::int AS clicks,
-               COALESCE(SUM(ih.conversions),0)::int AS conversions
+               jsonb_agg(jsonb_build_object('actions',ih.actions,'objective',c.objective,'goal',c.optimization_goal)) AS metric_rows
         FROM insights_history ih
         JOIN campaigns c ON ih.campaign_id = c.id
         WHERE c.account_id = $1 AND ih.date BETWEEN $2::date AND $3::date
@@ -682,17 +682,17 @@ export async function buildReportForAccount(userId: string, accountId: string, p
         ORDER BY ih.date ASC
     `, [accountId, periodStart, periodEnd]);
     const daily: DailyPoint[] = dailyRows.map((r: any) => ({
-        date: r.date, spend: Number(r.spend), clicks: Number(r.clicks), conversions: Number(r.conversions),
+        date: r.date, spend: Number(r.spend), clicks: Number(r.clicks), conversions: sumPrimaryResults(r.metric_rows),
     }));
 
     // Por campanha
     const campRows = await query<any>(`
-        SELECT c.id, c.meta_campaign_id, c.name, c.objective,
+        SELECT c.id, c.meta_campaign_id, c.name, c.objective, c.optimization_goal,
                COALESCE(SUM(ih.spend),0)::float AS spend,
                COALESCE(SUM(ih.impressions),0)::float AS impressions,
                COALESCE(SUM(ih.reach),0)::float AS reach,
                COALESCE(SUM(ih.clicks),0)::float AS clicks,
-               COALESCE(SUM(ih.conversions),0)::float AS conversions
+               jsonb_agg(jsonb_build_object('actions',ih.actions,'objective',c.objective,'goal',c.optimization_goal)) AS metric_rows
         FROM campaigns c
         LEFT JOIN insights_history ih ON ih.campaign_id = c.id
             AND ih.date BETWEEN $2::date AND $3::date
@@ -706,11 +706,11 @@ export async function buildReportForAccount(userId: string, accountId: string, p
         const spend = Number(c.spend);
         const clicks = Number(c.clicks);
         const impr = Number(c.impressions);
-        const conv = Number(c.conversions);
+        const conv = sumPrimaryResults(c.metric_rows);
         return {
             id: c.id, meta_campaign_id: c.meta_campaign_id, name: c.name, objective: c.objective || '',
             spend, impressions: impr, reach: Number(c.reach), clicks, conversions: conv,
-            action_label: labelForObjective(c.objective),
+            action_label: primaryResultLabel(c.metric_rows, c.objective, c.optimization_goal),
             ctr: impr > 0 ? (clicks / impr) * 100 : 0,
             cpc: clicks > 0 ? spend / clicks : 0,
             cpm: impr > 0 ? (spend / impr) * 1000 : 0,
@@ -742,28 +742,17 @@ export async function buildReportForAccount(userId: string, accountId: string, p
         const thumbMap = adIds.length > 0
             ? await metaService.getAdThumbnails(userId, accessToken, acc.meta_account_id, adIds)
             : new Map();
-        // Determina a AÇÃO DOMINANTE da conta (a métrica que domina o gasto).
-        // Todos os ads mostram essa mesma métrica pra consistência com o KPI geral.
-        const allActionsArr = raw.map((r: any) => r.actions || []);
-        const dominant = extractDominantAction(allActionsArr);
+        const campaignMap = new Map(campRows.map((c: any) => [c.meta_campaign_id, c]));
 
         topAds = raw.map((r: any) => {
             const spend = parseFloat(r.spend || '0');
             const impressions = parseInt(r.impressions || '0', 10);
             const clicks = parseInt(r.clicks || '0', 10);
             const actions: any[] = r.actions || [];
-            // Se temos ação dominante, extrai APENAS ela (pode ser 0 pra ads sem essa ação).
-            // Se não temos (nenhuma conta com priority action), cai no fallback.
-            let convCount = 0;
-            let convLabel = 'Result.';
-            if (dominant) {
-                convCount = extractSpecificAction(actions, dominant.type);
-                convLabel = dominant.label;
-            } else {
-                const p = extractPrimaryAction(actions);
-                convCount = p.count;
-                convLabel = p.label;
-            }
+            const campaign = campaignMap.get(r.campaign_id);
+            const primary = metaService.extractPrimaryAction(actions, campaign?.objective, campaign?.optimization_goal);
+            const convCount = primary.count;
+            const convLabel = primary.label;
             return {
                 ad_name: r.ad_name || '(sem nome)',
                 campaign_name: r.campaign_name || '',
@@ -867,6 +856,20 @@ export async function buildReportForAccount(userId: string, accountId: string, p
     };
 }
 
+export function sumPrimaryResults(rows: any[]): number {
+    return (rows || []).reduce((sum, row) => sum + metaService.extractPrimaryAction(row.actions, row.objective, row.goal).count, 0);
+}
+
+function primaryResultLabel(rows: any[], objective?: string, goal?: string): string {
+    const labels = new Map<string, number>();
+    for (const row of rows || []) {
+        const result = metaService.extractPrimaryAction(row.actions, row.objective, row.goal);
+        labels.set(result.label, (labels.get(result.label) || 0) + result.count);
+    }
+    return [...labels].sort((a, b) => b[1] - a[1])[0]?.[0]
+        || metaService.extractPrimaryAction([], objective, goal).label;
+}
+
 async function queryTotals(accountId: string, periodStart: string, periodEnd: string): Promise<Totals> {
     const t = await query<any>(`
         SELECT COALESCE(SUM(ih.spend),0)::float AS spend,
@@ -879,13 +882,18 @@ async function queryTotals(accountId: string, periodStart: string, periodEnd: st
         JOIN campaigns c ON ih.campaign_id = c.id
         WHERE c.account_id = $1 AND ih.date BETWEEN $2::date AND $3::date
     `, [accountId, periodStart, periodEnd]);
+    const metrics = await query<any>(`
+        SELECT ih.actions, c.objective, c.optimization_goal AS goal
+        FROM insights_history ih JOIN campaigns c ON ih.campaign_id=c.id
+        WHERE c.account_id=$1 AND ih.date BETWEEN $2::date AND $3::date
+    `, [accountId, periodStart, periodEnd]);
     const r = t[0] || {};
     return {
         spend: Number(r.spend) || 0,
         impressions: Number(r.impressions) || 0,
         reach: Number(r.reach) || 0,
         clicks: Number(r.clicks) || 0,
-        conversions: Number(r.conversions) || 0,
+        conversions: sumPrimaryResults(metrics),
         ctr: r.impressions > 0 ? (Number(r.clicks) / Number(r.impressions)) * 100 : 0,
         cpc: r.clicks > 0 ? Number(r.spend) / Number(r.clicks) : 0,
         cpm: r.impressions > 0 ? (Number(r.spend) / Number(r.impressions)) * 1000 : 0,

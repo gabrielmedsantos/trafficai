@@ -1,3 +1,4 @@
+import {recordReceipt} from '../../../automation/workflows/receipts';
 // ==============================
 // TrafficAI — WhatsApp Cloud API (oficial) Webhook
 // URL única pro App inteiro (configurada 1x no Meta Developer Console,
@@ -111,6 +112,9 @@ async function handleMessagesValue(value: any): Promise<void> {
         return;
     }
 
+    if(APP_SECRET&&process.env.AUTOMATION_WORKFLOWS_ENABLED==='true'){
+        for(const status of value.statuses||[]){await recordReceipt(intg.id,intg.user_id,'whatsapp_cloud',String(status.id)+':'+String(status.status)+':'+String(status.timestamp),String(status.id),String(status.status));}
+    }
     const contactsByWaId = new Map<string, string | null>();
     for (const c of value.contacts || []) {
         if (c?.wa_id) contactsByWaId.set(c.wa_id, c.profile?.name || null);

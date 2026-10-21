@@ -1,3 +1,4 @@
+import { checkoutAttribution } from './checkout-attribution';
 // ==============================
 // TrafficAI — Webhooks de Hotmart, Eduzz, Cakto e Zouti
 // Cada plataforma vira o mesmo NormalizedOrder da Kiwify; daqui o fluxo é um
@@ -15,11 +16,14 @@
 //  - Zouti: { event: 'ORDER_PAID'|'ORDER_REFUNDED'|etc, order_id, customer{name,email,phone},
 //    amount, currency, product{name,id}, payment_method, utm{...}, sck, created_at, paid_at }
 //    Validação HMAC-SHA256 via header x-zouti-signature (t=timestamp,v1=hash).
+//  - Cooud (webhook de loja, docs.cooud.com/public-doc/dev/webhooks/events): { id, store_id,
+//    type: 'order.created'|'order.updated'|'order.paid'|'order.refunded', data: { id, status,
+//    currency (minúscula), total_amount (centavos), user{id,email}, items[], metadata{} }, created_at }.
 // ==============================
 
 import { NormalizedOrder, OrderStatus, normalizePaymentMethod, metaIdsFromUtms } from './sales-orders.service';
 
-export type Platform = 'hotmart' | 'eduzz' | 'cakto' | 'zouti' | 'other';
+export type Platform = 'hotmart' | 'eduzz' | 'cakto' | 'ticto' | 'zouti' | 'cooud' | 'pushinpay' | 'other';
 
 export type PlatformResult =
     | { kind: 'order'; order: NormalizedOrder }
@@ -85,23 +89,96 @@ const ZOUTI_EVENTS = new Set([
 export function detectPlatform(b: any): Platform | null {
     if (!b || typeof b !== 'object') return null;
     const ev = String(b.event || '');
+    // PushinPay envia formulário; não exige um campo event no PIX recebido.
+    const pushinEvent = String(b.event || b.type || '').toLowerCase();
+    if (['pix_cashin', 'pix_cashout', 'pix_med'].includes(pushinEvent)
+        || (b.transaction_id != null && b.status_infraction != null)
+        || (b.id != null && b.status != null && b.value != null
+            && ('endToEndId' in b || 'payer_national_registration' in b || 'payer_name' in b || 'receiver_name' in b))) return 'pushinpay';
     if (/^PURCHASE_|^SUBSCRIPTION_CANCELLATION$|^SWITCH_PLAN$/.test(ev) && b.data && typeof b.data === 'object') return 'hotmart';
     if (/^myeduzz\.invoice_|^sun\.cart_abandonment$/.test(ev)) return 'eduzz';
     if (CAKTO_EVENTS.has(ev) && b.data && typeof b.data === 'object') return 'cakto';
+    if (typeof b.status==='string' && b.order && !Array.isArray(b.order) && b.item && b.item.product_id!=null) return 'ticto';
     if (ZOUTI_EVENTS.has(ev) && (b.order_id || b.id)) return 'zouti';
+    if (/^order\.(created|updated|paid|refunded)$/.test(String(b.type || b.kind || '')) && b.store_id && b.data && typeof b.data === 'object') return 'cooud';
     // Formato próprio do TrafficAI pra qualquer outro checkout/automação (n8n, Make…)
     if (ev === 'order' && (b.order_id || b.id)) return 'other';
     return null;
 }
 
-export function parsePlatformWebhook(platform: Platform, b: any): PlatformResult {
+function parsePlatformPayload(platform: Platform, b: any): PlatformResult {
     switch (platform) {
         case 'hotmart': return parseHotmart(b);
         case 'eduzz': return parseEduzz(b);
         case 'cakto': return parseCakto(b);
+        case 'ticto': return parseTicto(b);
         case 'zouti': return parseZouti(b);
+        case 'cooud': return parseCooud(b);
+        case 'pushinpay': return parsePushinPay(b);
         case 'other': return parseGeneric(b);
     }
+}
+
+/** Completa a atribuição sem substituir os campos específicos de cada adaptador. */
+export function parsePlatformWebhook(platform: Platform, b: any): PlatformResult {
+    const result = parsePlatformPayload(platform, b);
+    if (result.kind !== 'order' && result.kind !== 'cart') return result;
+    const attribution = checkoutAttribution(b);
+    const order = result.order;
+    for (const key of ['utm_source','utm_medium','utm_campaign','utm_content','utm_term','sck'] as const) {
+        if (!order[key] && attribution[key]) order[key] = attribution[key];
+    }
+    if (attribution.quiz_session_id) {
+        order.raw = { ...(order.raw || {}), tracking: { ...(order.raw?.tracking || {}), quiz_session_id: attribution.quiz_session_id } };
+    }
+    return result;
+}
+
+// Ticto v2: https://webhook.ticto.dev/docs/v2 . Values are cents, not reais.
+function parseTicto(b:any):PlatformResult {
+    const c=b.customer||{},item=b.item||{},transaction=b.order||{};
+    // Exact fixture of Ticto's "Testar" button, even when testing approval.
+    if(String(c.email||'').toLowerCase()==='emailteste@customerteste.com.io')return {kind:'test'};
+    const statuses:Record<string,OrderStatus>={authorized:'approved',waiting_payment:'pending',bank_slip_created:'pending',bank_slip_delayed:'pending',pix_created:'pending',refused:'refused',refunded:'refunded',chargeback:'chargeback',pix_expired:'canceled',close:'canceled',abandoned_cart:'abandoned'};
+    const status=statuses[b.status];
+    if(!status)return {kind:'ignore',reason:`status Ticto ${String(b.status)} sem mudança de pedido`};
+    const id=pick(transaction.hash,transaction.transaction_hash);
+    if(!id)throw new Error('Ticto: pedido sem hash');
+    const cents=(v:any):number|undefined=>{if(v==null||v==='')return undefined;const n=Number(v);if(!Number.isFinite(n)||n<0)throw new Error('Ticto: valor inválido');return Math.round(n)/100;};
+    const clean=(...values:any[])=>pick(...values.filter(v=>typeof v==='string'||typeof v==='number').filter(v=>!/^n[aã]o informado$/i.test(String(v).trim())));
+    const params=b.url_params?.query_params||b.url_params||{},tracking=b.tracking||{};
+    const utms=Object.fromEntries(['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].map(k=>[k,clean(tracking[k],params[k])]));
+    const quizId=clean(tracking.quiz_session_id,params.quiz_session_id,tracking.s1,params.s1);
+    const bumps=Array.isArray(b.bumps)?b.bumps.map((x:any)=>({product_id:pick(x.product_id),product_name:pick(x.product_name),gross_value:cents(x.offer_price)})):[];
+    if(b.bumps!=null&&!Array.isArray(b.bumps))throw new Error('Ticto: adicionais inválidos');
+    if(bumps.some((x:any)=>!x.product_id||x.gross_value==null)||new Set(bumps.map((x:any)=>x.product_id)).size!==bumps.length)throw new Error('Ticto: adicional incompleto ou repetido');
+    const quantity=Number(item.quantity??1);
+    if(!Number.isInteger(quantity)||quantity<1)throw new Error('Ticto: quantidade inválida');
+    const unit=cents(item.amount);
+    const base=cents(transaction.paid_amount)??(unit!=null?unit*quantity:undefined);
+    if(status==='approved'&&base==null)throw new Error('Ticto: aprovação sem valor');
+    const extras=bumps.reduce((n:number,x:any)=>n+x.gross_value,0)+(cents(b.shipping?.amount)??0);
+    const gross=base==null?undefined:Math.round((base+extras)*100)/100;
+    const producerAmount=cents(b.producer?.amount);
+    const marketplaceCommission=cents(b.marketplace_commission)??0;
+    const splitCommissions=[...(Array.isArray(b.affiliates)?b.affiliates:[]),...(Array.isArray(b.coproducers)?b.coproducers:[])]
+        .reduce((n:number,x:any)=>n+(cents(x?.amount)??0),0);
+    // Ticto's producer.amount is the producer commission, and can match only
+    // the base offer while order bumps/shipping are sent separately. If the
+    // producer receives the entire base and there are no platform or split
+    // commissions, the full order total is what they receive.
+    const net=producerAmount!=null&&base!=null&&Math.abs(producerAmount-base)<0.005
+        &&marketplaceCommission===0&&splitCommissions===0?gross:producerAmount;
+    const phone=typeof c.phone==='string'?c.phone:[c.phone?.ddi||'55',c.phone?.ddd,c.phone?.number].filter(Boolean).join('').replace(/\D/g,'');
+    const raw={status:b.status,order:{hash:id,paid_amount:transaction.paid_amount},item:{product_id:item.product_id,product_name:item.product_name,offer_id:item.offer_id,offer_code:item.offer_code,quantity:item.quantity},
+        tracking:{...utms,sck:clean(tracking.sck,params.sck),quiz_session_id:quizId},order_bumps:bumps,
+        items:[{product_id:pick(item.product_id),product_name:pick(item.product_name),gross_value:base},...bumps]};
+    const order:NormalizedOrder={platform:'ticto',external_order_id:(status==='abandoned'?'cart-':'')+id,status,
+        payment_method:normalizePaymentMethod(b.payment_method),product_id:pick(item.product_id),product_name:pick(item.product_name),
+        gross_value:gross,net_value:net,currency:'BRL',customer_name:pick(c.name),customer_email:pick(c.email),customer_phone:phone||undefined,
+        ...utms,sck:clean(tracking.sck,params.sck),checkout_url:pick(b.checkout_url),order_created_at:iso(transaction.order_date),
+        approved_at:status==='approved'?iso(b.status_date):undefined,refunded_at:status==='refunded'||status==='chargeback'?iso(b.status_date):undefined,raw};
+    return {kind:status==='abandoned'?'cart':'order',order};
 }
 
 // ─── Hotmart ────────────────────────────────────────────────────────────
@@ -238,14 +315,39 @@ function caktoStatus(ev: string): OrderStatus | 'cart' | null {
 }
 
 function parseCakto(b: any): PlatformResult {
+    if (Array.isArray(b.data)) {
+        if (!b.data.length || b.data.length>100) throw new Error('Lista Cakto vazia ou excessiva');
+        if (b.data.length===1) return parseCakto({...b,data:b.data[0]});
+        const primary=b.data.filter((item:any)=>!item.parent_order && item.offer_type!=='orderbump');
+        if(primary.length!==1) throw new Error('Lista Cakto precisa identificar um pedido principal');
+        const root=primary[0];
+        const rootId=pick(root.refId,root.id);
+        if(!rootId || b.data.some((item:any)=>item!==root && String(item.parent_order)!==rootId && String(item.parent_order)!==String(root.id))) throw new Error('Lista Cakto contém pedidos de compras distintas');
+        const parsed=b.data.map((item:any)=>parseCakto({...b,data:item}));
+        if(parsed.every((r:PlatformResult)=>r.kind==='test')) return {kind:'test'};
+        if(parsed.some((r:PlatformResult)=>r.kind!=='order')) throw new Error('Item Cakto incompleto na compra');
+        const orders=parsed.map((r:any)=>r.order as NormalizedOrder);
+        if(new Set(orders.map((o:NormalizedOrder)=>o.external_order_id)).size!==orders.length) throw new Error('Item Cakto repetido na compra');
+        const parent=orders.find((o:NormalizedOrder)=>o.external_order_id===rootId)!;
+        if(orders.some((o:NormalizedOrder)=>o.status!==parent.status)) throw new Error('Lista Cakto com estados de pagamento diferentes');
+        const sum=(field:'gross_value'|'net_value')=>orders.every((o:NormalizedOrder)=>o[field]!=null)?Math.round(orders.reduce((n:number,o:NormalizedOrder)=>n+Number(o[field]),0)*100)/100:undefined;
+        return {kind:'order',order:{...parent,gross_value:sum('gross_value'),net_value:sum('net_value'),raw:{...parent.raw,
+            order_bumps:orders.filter((o:NormalizedOrder)=>o.external_order_id!==rootId).map((o:NormalizedOrder)=>({order_id:o.external_order_id,product_id:o.product_id,product_name:o.product_name,gross_value:o.gross_value,net_value:o.net_value})),
+            items:orders.map((o:NormalizedOrder)=>({order_id:o.external_order_id,product_id:o.product_id,product_name:o.product_name,gross_value:o.gross_value,net_value:o.net_value}))}}};
+    }
     const d = b.data || {};
-    const c = d.customer || {};
+    const c = d.customer || {name:d.customerName,email:d.customerEmail,phone:d.customerCellphone};
     const product = d.product || {};
     if (looksLikeTest(c.email, product.name)) return { kind: 'test' };
     const st = caktoStatus(String(b.event || ''));
     if (!st) return { kind: 'ignore', reason: `evento ${b.event} sem mudança de pedido` };
     const tracking = { ...(d.tracking || {}), ...(d.utm || {}), ...d };
     const utm = utmFrom(tracking);
+    let linkParams:Record<string,string>={};
+    try { linkParams=Object.fromEntries(new URL(d.checkoutUrl||d.recoveryLink).searchParams); } catch { /* link ausente */ }
+    for(const key of Object.keys(utm) as (keyof typeof utm)[]) if(!utm[key]) utm[key]=pick(linkParams[key]);
+    const sck=pick(tracking.sck,linkParams.sck);
+    const raw={event:b.event,data:d,tracking:{quiz_session_id:pick(tracking.quiz_session_id,tracking.s1,linkParams.quiz_session_id,linkParams.s1)}};
     const producerCut = Array.isArray(d.commissions) ? d.commissions.find((x: any) => /producer/i.test(String(x.type || ''))) : null;
 
     if (st === 'cart') {
@@ -258,8 +360,8 @@ function parseCakto(b: any): PlatformResult {
                 product_id: pick(product.id), product_name: pick(product.name, d.offer?.name),
                 gross_value: num(d.amount) ?? num(d.offer?.price),
                 customer_name: pick(c.name), customer_email: pick(c.email), customer_phone: pick(c.phone),
-                checkout_url: pick(d.checkoutUrl), ...utm, sck: pick(tracking.sck),
-                order_created_at: iso(d.createdAt), raw: b,
+                checkout_url: pick(d.recoveryLink,d.checkoutUrl), ...utm, sck,
+                order_created_at: iso(d.createdAt), raw,
             },
         };
     }
@@ -277,9 +379,9 @@ function parseCakto(b: any): PlatformResult {
             currency: 'BRL',
             customer_name: pick(c.name), customer_email: pick(c.email), customer_phone: pick(c.phone),
             checkout_url: pick(d.checkoutUrl),
-            ...utm, sck: pick(tracking.sck),
+            ...utm, sck,
             order_created_at: iso(d.createdAt), approved_at: st === 'approved' ? iso(d.paidAt) : undefined,
-            raw: b,
+            raw,
         },
     };
 }
@@ -366,7 +468,93 @@ function parseZouti(b: any): PlatformResult {
     return { kind: 'order', order };
 }
 
+// ─── Cooud ─────────────────────────────────────────────────────────────
+// O tipo do evento manda no status; em order.created/updated vale o status do pedido.
+// O snapshot é parcial ("pode trazer user, items e metadata"), então todo campo é opcional.
+const COOUD_STATUS: Record<string, OrderStatus> = {
+    paid: 'approved', refunded: 'refunded', partially_refunded: 'refunded', pending: 'pending', open: 'pending',
+    created: 'pending', processing: 'pending', canceled: 'canceled', cancelled: 'canceled', expired: 'canceled',
+    failed: 'refused', refused: 'refused', declined: 'refused', chargeback: 'chargeback', disputed: 'chargeback',
+};
+
+function parseCooud(b: any): PlatformResult {
+    const type = String(b.type || b.kind || '');
+    const d = b.data || {};
+    const st: OrderStatus | undefined = type === 'order.paid' ? 'approved' : type === 'order.refunded' ? 'refunded'
+        : COOUD_STATUS[String(d.status || '').toLowerCase()];
+    if (!st) return { kind: 'ignore', reason: `evento Cooud ${type} com status ${d.status || 'ausente'} sem mapeamento` };
+    const id = pick(d.id);
+    if (!id) return { kind: 'ignore', reason: 'webhook Cooud sem id do pedido' };
+    const user = d.user || d.customer || {};
+    const item = (Array.isArray(d.items) && d.items[0]) || {};
+    const meta = d.metadata || {};
+    if (looksLikeTest(user.email, item.product_name)) return { kind: 'test' };
+    const cents = (v: any): number | undefined => { const n = num(v); return n != null ? n / 100 : undefined; };
+    const order: NormalizedOrder = {
+        platform: 'cooud',
+        external_order_id: id,
+        status: st,
+        payment_method: normalizePaymentMethod(d.payment_method || d.payment_method_type),
+        product_id: pick(item.product_id, item.price_id),
+        product_name: pick(item.product_name, item.name, item.description),
+        gross_value: cents(d.total_amount ?? d.amount),
+        net_value: cents(d.net_amount),
+        currency: (pick(d.currency) || 'BRL').toUpperCase(),
+        customer_name: pick(user.name, d.customer_name, meta.name),
+        customer_email: pick(user.email, d.customer_email, meta.email),
+        customer_phone: pick(user.phone, d.customer_phone, meta.phone),
+        ...utmFrom(meta),
+        sck: pick(meta.sck, meta.quiz_session_id, meta.s1),
+        order_created_at: iso(d.created_at || b.created_at),
+        approved_at: st === 'approved' ? iso(d.paid_at || b.created_at) : undefined,
+        refunded_at: st === 'refunded' ? iso(d.refunded_at || b.created_at) : undefined,
+        raw: b,
+    };
+    return { kind: 'order', order };
+}
+
+
+// ─── PushinPay ───────────────────────────────────────────────────────────
+// Webhooks enviados / PIX recebido: formulário urlencoded, valor em centavos.
+// Saídas de caixa e MED não são vendas e nunca geram Purchase.
+function parsePushinPay(b: any): PlatformResult {
+    const event = String(b.event || b.type || '').toLowerCase();
+    if ((event && event !== 'pix_cashin') || 'receiver_name' in b || 'status_infraction' in b
+        || 'status_transaction' in b || 'infraction_id' in b) {
+        return { kind: 'ignore', reason: 'PushinPay: evento fora de PIX recebido' };
+    }
+    const statusMap: Record<string, OrderStatus> = {
+        paid: 'approved', pending: 'pending', created: 'pending', expired: 'canceled', canceled: 'canceled',
+    };
+    const status = statusMap[String(b.status || '').toLowerCase()];
+    if (!status) return { kind: 'ignore', reason: 'PushinPay: status de recebimento não reconhecido' };
+    const rawId = b.id;
+    if (!['string', 'number'].includes(typeof rawId) || !String(rawId).trim()) throw new Error('PushinPay: id da transação ausente');
+    // O provedor usa UUID no checkout e também documenta ids numéricos.
+    const id = String(rawId).trim().toLowerCase();
+    const rawValue = b.value;
+    if (!['string', 'number'].includes(typeof rawValue) || !/^\d+$/.test(String(rawValue))
+        || !Number.isSafeInteger(Number(rawValue)) || Number(rawValue) <= 0) throw new Error('PushinPay: valor em centavos inválido');
+    const grossValue = Number(rawValue) / 100;
+    // Guarda somente campos úteis: não persiste webhook_url, chave, CPF, QR ou cabeçalhos.
+    const raw = { id, event: 'pix_cashin', status: b.status, value: Number(rawValue),
+        paid_at: pick(b.paid_at), endToEndId: pick(b.endToEndId),
+        payer_name: pick(b.payer_name), ...utmFrom(b), sck: pick(b.sck, b.session_id) };
+    return { kind: 'order', order: {
+        platform: 'pushinpay', external_order_id: id, status, payment_method: 'pix',
+        gross_value: grossValue, currency: 'BRL', customer_name: pick(b.payer_name),
+        ...utmFrom(b), sck: pick(b.sck, b.session_id),
+        approved_at: status === 'approved' ? iso(b.paid_at) : undefined, raw,
+    } };
+}
+
 /** Evento Purchase pra Meta a partir do pedido aprovado (mesmo formato da Kiwify). */
+export function applyTictoNetPolicy(order: NormalizedOrder, platform: Platform, settings: { ticto_no_fees?: boolean }): NormalizedOrder {
+    if (platform === 'ticto' && settings.ticto_no_fees === true && order.gross_value != null) {
+        return { ...order, net_value: order.gross_value };
+    }
+    return order;
+}
 export function buildPurchaseFromOrder(o: NormalizedOrder): any {
     const [firstName, ...rest] = String(o.customer_name || '').trim().split(/\s+/);
     const ids = metaIdsFromUtms(o);
@@ -384,6 +572,9 @@ export function buildPurchaseFromOrder(o: NormalizedOrder): any {
             source: o.platform,
             order_id: o.external_order_id,
             content_name: o.product_name,
+            ...(Array.isArray(o.raw?.items) && {content_type:'product',num_items:o.raw.items.length,
+                contents:o.raw.items.map((item:any)=>({id:item.product_id||item.order_id,quantity:1,item_price:item.gross_value})),
+                content_ids:o.raw.items.map((item:any)=>item.product_id||item.order_id)}),
             ...(o.utm_source && { utm_source: o.utm_source }),
             ...(o.utm_campaign && { utm_campaign: o.utm_campaign }),
             ...(o.utm_medium && { utm_medium: o.utm_medium }),

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Plug, MessageCircle, Building2, RefreshCw, Trash2, Check, AlertCircle, X, Loader2 } from 'lucide-react';
+import { Plug, MessageCircle, Building2, RefreshCw, Trash2, Check, AlertCircle, X, Loader2, QrCode } from 'lucide-react';
 import { api } from '@/lib/api';
 import ClientPicker from '../_components/ClientPicker';
 import styles from './integrations.module.css';
@@ -32,6 +32,11 @@ export default function IntegrationsPage() {
     const [loading, setLoading] = useState(true);
     const [showKommoModal, setShowKommoModal] = useState(false);
     const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
+    const [existingWhatsAppId,setExistingWhatsAppId]=useState<string|null>(null);
+    useEffect(()=>{
+        const id=new URL(window.location.href).searchParams.get('whatsapp');
+        if(id&&/^[a-f0-9-]{36}$/i.test(id)){setExistingWhatsAppId(id);setShowWhatsAppModal(true);}
+    },[]);
     const [syncingId, setSyncingId] = useState<string | null>(null);
 
     const load = useCallback(() => {
@@ -115,6 +120,7 @@ export default function IntegrationsPage() {
                                         )}
                                     </div>
                                     <div className={styles.activeActions}>
+                                        {int.type==='whatsapp_evolution'&&int.status!=='connected'&&<button className={styles.iconBtn} style={{width:'auto',padding:'8px 12px',gap:6}} onClick={()=>{setExistingWhatsAppId(int.id);setShowWhatsAppModal(true);}}><QrCode size={14}/> Conectar / Ver QR</button>}
                                         <button
                                             onClick={() => handleSync(int.id)}
                                             disabled={syncingId === int.id || int.status === 'connecting'}
@@ -154,7 +160,7 @@ export default function IntegrationsPage() {
                         color="#10b981"
                         name="WhatsApp (Evolution)"
                         description="Conecta seu número via QR Code. Captura conversas e calcula tempo de resposta."
-                        action={{ label: 'Conectar', onClick: () => setShowWhatsAppModal(true) }}
+                        action={{ label: 'Conectar', onClick: () => {setExistingWhatsAppId(null);setShowWhatsAppModal(true);} }}
                     />
                     <IntegrationCard
                         icon={MessageCircle}
@@ -181,7 +187,7 @@ export default function IntegrationsPage() {
             </section>
 
             {showKommoModal && <KommoConnectModal onClose={() => setShowKommoModal(false)} onConnected={load} />}
-            {showWhatsAppModal && <WhatsAppConnectModal onClose={() => setShowWhatsAppModal(false)} onConnected={load} />}
+            {showWhatsAppModal && <WhatsAppConnectModal key={existingWhatsAppId||'new'} initialIntegrationId={existingWhatsAppId} onClose={() => setShowWhatsAppModal(false)} onConnected={load} />}
         </div>
     );
 }
@@ -323,7 +329,7 @@ const WEBHOOK_EVENTS = [
     { id: 'MESSAGES_UPDATE', label: 'Atualizações de status (entregue/lido)', recommended: false },
 ];
 
-function WhatsAppConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
+function WhatsAppConnectModal({ onClose, onConnected,initialIntegrationId }: { onClose: () => void; onConnected: () => void;initialIntegrationId?:string|null }) {
     const [name, setName] = useState('');
     const [clientId, setClientId] = useState('');
     const [showAdvanced, setShowAdvanced] = useState(false);
@@ -332,10 +338,10 @@ function WhatsAppConnectModal({ onClose, onConnected }: { onClose: () => void; o
     const [selectedEvents, setSelectedEvents] = useState<string[]>(
         WEBHOOK_EVENTS.filter(e => e.recommended).map(e => e.id)
     );
-    const [stage, setStage] = useState<'form' | 'qr' | 'connected' | 'error'>('form');
+    const [stage, setStage] = useState<'form' | 'qr' | 'connected' | 'error'>(initialIntegrationId?'qr':'form');
     const [qrCode, setQrCode] = useState<string | null>(null);
     const [pairingCode, setPairingCode] = useState<string | null>(null);
-    const [integrationId, setIntegrationId] = useState<string | null>(null);
+    const [integrationId, setIntegrationId] = useState<string | null>(initialIntegrationId||null);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
 
@@ -381,9 +387,10 @@ function WhatsAppConnectModal({ onClose, onConnected }: { onClose: () => void; o
                     setTimeout(() => { onConnected(); onClose(); }, 1500);
                     return;
                 }
-                if (r.qrCode) setQrCode(r.qrCode);
+                if (r.qrCode) {setQrCode(r.qrCode);setError(null);}
                 if (r.pairingCode) setPairingCode(r.pairingCode);
             } catch (err: any) {
+                if(!stopped)setError(err.message||'Não foi possível atualizar o QR.');
                 console.warn('QR poll falhou', err.message);
             }
         };

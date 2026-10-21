@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { MessageCircle, Search } from 'lucide-react';
+import { OrderWhatsapp } from '@/components/vendas/order-whatsapp';
+import { QuizAnswers } from '@/components/vendas/quiz-answers';
+import { OrderDelivery } from '@/components/vendas/order-delivery';
+import { whatsappPhone } from '@/lib/order-whatsapp';
 import { api } from '@/lib/api';
 import { useVendas, Card, ErrorBox, brl, thStyle, selectStyle, STATUS_LABEL, PAYMENT_LABEL } from '@/components/vendas/shared';
 
@@ -21,15 +25,29 @@ export default function PedidosPage() {
     const [error, setError] = useState('');
     const [status, setStatus] = useState('');
     const [search, setSearch] = useState('');
+    const [searchTerm,setSearchTerm]=useState('');
+    const [answerSession,setAnswerSession]=useState<string|null>(null);
+    const closeAnswers=useCallback(()=>setAnswerSession(null),[]);
+    useEffect(()=>{const timer=setTimeout(()=>setSearchTerm(search.trim()),300);return()=>clearTimeout(timer);},[search]);
+    const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+    const closeWhatsapp = useCallback(() => setSelectedOrder(null), []);
+    const [deliveryOrder,setDeliveryOrder]=useState<any|null>(null);
+    const closeDelivery=useCallback(()=>setDeliveryOrder(null),[]);
+    const [deliveryReload,setDeliveryReload]=useState(0);
+    const reloadDelivery=useCallback(()=>setDeliveryReload(n=>n+1),[]);
+    useEffect(()=>{setDeliveryOrder(null);},[sourceId,since,until]);
+    useEffect(() => { setSelectedOrder(null);setAnswerSession(null); }, [sourceId, since, until]);
 
     useEffect(() => {
         if (!sourceId) return;
         setLoading(true); setError('');
-        api.getSalesOrders(sourceId, { since, until, limit: '500' })
-            .then((r) => setOrders(r || []))
-            .catch((e) => setError(e.message || 'Erro ao carregar pedidos'))
-            .finally(() => setLoading(false));
-    }, [sourceId, since, until, reloadToken]);
+        let active=true;
+        api.getSalesOrders(sourceId, { since, until, limit: '500',search:searchTerm })
+            .then((r) => {if(active)setOrders(r || []);})
+            .catch((e) => {if(active)setError(e.message || 'Erro ao carregar pedidos');})
+            .finally(() => {if(active)setLoading(false);});
+        return()=>{active=false;};
+    }, [sourceId, since, until, reloadToken,searchTerm,deliveryReload]);
 
     const counts = useMemo(() => {
         const c: Record<string, number> = { '': orders.length };
@@ -38,11 +56,9 @@ export default function PedidosPage() {
     }, [orders]);
 
     const list = useMemo(() => {
-        const q = search.trim().toLowerCase();
         return orders
-            .filter(o => !status || o.status === status)
-            .filter(o => !q || [o.customer_name, o.product_name, o.external_order_id, o.utm_campaign, o.utm_content].some(v => String(v || '').toLowerCase().includes(q)));
-    }, [orders, status, search]);
+            .filter(o => !status || o.status === status);
+    }, [orders, status]);
 
     return (
         <>
@@ -56,10 +72,11 @@ export default function PedidosPage() {
                 ))}
                 <div style={{ position: 'relative', marginLeft: 'auto' }}>
                     <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                    <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cliente, produto, pedido, UTM"
-                        style={{ ...selectStyle, padding: '6px 8px 6px 26px', fontSize: 12, width: 240 }} />
+                    <input className="input" type="search" aria-label="Buscar pedidos por criança, comprador, telefone ou e-mail" maxLength={120} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Criança, comprador, telefone, e-mail"
+                        style={{ ...selectStyle, padding: '6px 8px 6px 26px', fontSize: 12, width: 'min(320px,85vw)' }} />
                 </div>
             </div>
+            <p style={{fontSize:12,color:'var(--text-muted)'}}>Busca no período selecionado. As respostas continuam vinculadas ao pedido.</p>
             <Card flat style={{ padding: 0 }}>
                 <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -85,9 +102,9 @@ export default function PedidosPage() {
                                     <tr key={o.id} style={{ borderTop: '1px solid var(--border)' }}>
                                         <td style={cell}>{new Date(o.order_date).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
                                         <td style={{ ...cell, textTransform: 'capitalize' }}>{o.platform}</td>
-                                        <td style={{ ...cell, maxWidth: 200 }} title={o.product_name || ''}>{o.product_name || '—'}</td>
-                                        <td style={{ ...cell, maxWidth: 170 }} title={o.customer_name || ''}>{o.customer_name || '—'}</td>
-                                        <td style={cell}>{PAYMENT_LABEL[o.payment_method] || '—'}</td>
+                                        <td style={{ ...cell, maxWidth: 240 }} title={o.product_name || ''}><div>{o.product_name || '—'}</div>{Array.isArray(o.order_bumps)&&o.order_bumps.map((b:any)=><small key={b.order_id} style={{display:'block',marginTop:5,color:'var(--text-muted)',whiteSpace:'normal'}}>+ {b.product_name}{b.gross_value!=null?' · '+brl(Number(b.gross_value)):''}</small>)}</td>
+                                        <td style={{ ...cell, maxWidth: 260,whiteSpace:'normal' }}><div title={o.customer_name || ''}>{o.customer_name || '—'}{o.shared_journey&&<small style={{display:'block'}}>Jornada Historinha compartilhada · pedido único</small>}</div>{o.child_name&&<small style={{display:'block',marginTop:4}}>Criança: <strong>{o.child_name}</strong></small>}{o.customer_email&&<small style={{display:'block',marginTop:4,overflowWrap:'anywhere'}}>{o.customer_email}</small>}{o.customer_phone&&<small style={{display:'block',marginTop:4}}>{o.customer_phone}</small>}<button type="button" className="btn btn-sm btn-secondary" disabled={!whatsappPhone(o.customer_phone)} title={whatsappPhone(o.customer_phone)?'Preparar mensagem para este cliente':'Cliente sem telefone válido'} onClick={()=>setSelectedOrder(o)} style={{fontSize:11,marginTop:5,gap:5}}><MessageCircle size={13}/> WhatsApp</button>{o.quiz_sessions?.map((s:any)=><button key={s.id} type="button" className="btn btn-sm btn-secondary" onClick={()=>setAnswerSession(s.id)} style={{display:'block',fontSize:11,marginTop:5}}>Ver respostas{s.child_name?' · '+s.child_name:''}</button>)}</td>
+                                        <td style={cell}>{PAYMENT_LABEL[o.payment_method] || '—'}{o.delivery_enabled&&o.status==='approved'&&<button type="button" className="btn btn-sm btn-secondary" style={{display:'block',marginTop:7,fontSize:11}} onClick={()=>setDeliveryOrder(o)}>{o.delivery_status==='delivered'?'Entregue · Ver histórico':'Entregável'}</button>}</td>
                                         <td className="num" style={{ ...cell, textAlign: 'right' }}>{o.gross_value != null ? brl(Number(o.gross_value)) : '—'}</td>
                                         <td className="num" style={{ ...cell, textAlign: 'right' }}>{o.net_value != null ? brl(Number(o.net_value)) : '—'}</td>
                                         <td style={cell}>
@@ -106,6 +123,9 @@ export default function PedidosPage() {
                 </div>
             </Card>
             {orders.length >= 500 && <p style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8 }}>Mostrando os 500 pedidos mais recentes — reduza o período pra ver todos.</p>}
+            {selectedOrder && <OrderWhatsapp key={selectedOrder.id} order={selectedOrder} onClose={closeWhatsapp}/>}
+            {answerSession&&<QuizAnswers key={`${sourceId}:${answerSession}`} sourceId={sourceId} sessionId={answerSession} onClose={closeAnswers}/>}
+            {deliveryOrder&&<OrderDelivery key={`${sourceId}:${deliveryOrder.id}`} sourceId={deliveryOrder.source_id||sourceId} order={deliveryOrder} onClose={closeDelivery} onChange={reloadDelivery}/>}
         </>
     );
 }

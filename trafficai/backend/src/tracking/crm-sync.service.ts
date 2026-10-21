@@ -114,6 +114,19 @@ export function clampEventTime(eventTime: number, strategy: 'original' | 'now' |
     return eventTime < sixDaysAgo ? now : eventTime;
 }
 
+// Painel e métricas filtram por created_at. No backfill do Kommo gravamos ali
+// a data real do CRM (fechamento/criação); event_time segue clampado, só pra
+// Meta aceitar. Também corrige eventos importados antes dessa regra.
+async function redateKommoBackfillEvent(rowId: string, crmTime: number | null): Promise<void> {
+    if (!crmTime) return;
+    await query(
+        `UPDATE tracking_events SET created_at = to_timestamp($2::bigint)
+         WHERE id = $1 AND custom_data->>'source' = 'kommo_backfill'
+           AND created_at IS DISTINCT FROM to_timestamp($2::bigint)`,
+        [rowId, crmTime]
+    );
+}
+
 // ─── Backfill: enriquece eventos antigos com dados do CRM ────────────────────
 
 export interface BackfillResult {
@@ -398,7 +411,8 @@ export async function backfillSource(
 
                 const hashed = buildHashedUserData(userData);
                 const eventId = `kommo-${leadId}-Purchase`;
-                const eventTime = clampEventTime(lead.closed_at || lead.updated_at || Math.floor(Date.now() / 1000), timeStrat);
+                const crmTime = Number(lead.closed_at || lead.updated_at) || null;
+                const eventTime = clampEventTime(crmTime || Math.floor(Date.now() / 1000), timeStrat);
 
                 // Dedupe idempotente: se esse event_id já foi enviado, pula sem
                 // reenviar pra Meta (evita inflar Purchase em execuções repetidas).
@@ -408,6 +422,7 @@ export async function backfillSource(
                     [sourceId, eventId]
                 );
                 if (existing.length > 0) {
+                    await redateKommoBackfillEvent(existing[0].id, crmTime);
                     result.skipped++;
                     continue;
                 }
@@ -434,14 +449,16 @@ export async function backfillSource(
                         `INSERT INTO tracking_events
                             (source_id, event_name, event_id, event_time, action_source,
                              external_id, value, currency, custom_data, user_data_hashed,
-                             emq_score, meta_status, meta_response, meta_fbtrace_id)
-                         VALUES ($1,'Purchase',$2,$3,'system_generated',$4,$5,'BRL',$6,$7,$8,'sent',$9,$10)
+                             emq_score, meta_status, meta_response, meta_fbtrace_id, created_at)
+                         VALUES ($1,'Purchase',$2,$3,'system_generated',$4,$5,'BRL',$6,$7,$8,'sent',$9,$10,
+                                 COALESCE(to_timestamp($11::bigint), NOW()))
                          ON CONFLICT DO NOTHING`,
                         [
                             sourceId, eventId, eventTime, `kommo-${leadId}`, price,
                             JSON.stringify(payload.custom_data),
                             JSON.stringify(hashed), emq,
                             JSON.stringify(metaRes.response), metaRes.fbtrace_id || null,
+                            crmTime,
                         ]
                     );
                     result.purchases_created++;
@@ -519,7 +536,8 @@ export async function backfillSource(
 
                 const hashed = buildHashedUserData(userData);
                 const eventId = `kommo-${leadId}-Lead`;
-                const eventTime = clampEventTime(lead.created_at || Math.floor(Date.now() / 1000), timeStrat);
+                const crmTime = Number(lead.created_at) || null;
+                const eventTime = clampEventTime(crmTime || Math.floor(Date.now() / 1000), timeStrat);
 
                 // Dedupe idempotente
                 const existing = await query<{ id: string }>(
@@ -528,6 +546,7 @@ export async function backfillSource(
                     [sourceId, eventId]
                 );
                 if (existing.length > 0) {
+                    await redateKommoBackfillEvent(existing[0].id, crmTime);
                     result.skipped++;
                     continue;
                 }
@@ -553,14 +572,16 @@ export async function backfillSource(
                         `INSERT INTO tracking_events
                             (source_id, event_name, event_id, event_time, action_source,
                              external_id, custom_data, user_data_hashed,
-                             emq_score, meta_status, meta_response, meta_fbtrace_id)
-                         VALUES ($1,'Lead',$2,$3,'system_generated',$4,$5,$6,$7,'sent',$8,$9)
+                             emq_score, meta_status, meta_response, meta_fbtrace_id, created_at)
+                         VALUES ($1,'Lead',$2,$3,'system_generated',$4,$5,$6,$7,'sent',$8,$9,
+                                 COALESCE(to_timestamp($10::bigint), NOW()))
                          ON CONFLICT DO NOTHING`,
                         [
                             sourceId, eventId, eventTime, `kommo-${leadId}`,
                             JSON.stringify(payload.custom_data),
                             JSON.stringify(hashed), emq,
                             JSON.stringify(metaRes.response), metaRes.fbtrace_id || null,
+                            crmTime,
                         ]
                     );
                     result.leads_created++;

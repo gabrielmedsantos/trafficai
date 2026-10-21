@@ -108,6 +108,12 @@ router.get('/me', authMiddleware, async (req: Request, res: Response, next: Next
             impersonatedBy = admin ? { id: admin.id, name: admin.name || admin.email } : { id: req.user!.imp, name: 'Admin' };
         }
         const { password_hash, access_token, ...safeUser } = user;
+        const { query } = await import('../database/connection');
+        const sharedAccounts = await query(`SELECT a.id,a.account_name,source.id AS source_id
+            FROM account_read_access g JOIN ad_accounts a ON a.id=g.account_id
+            LEFT JOIN LATERAL (SELECT s.id FROM tracking_sources s WHERE s.account_id=a.id AND s.user_id=a.user_id
+                ORDER BY s.is_active DESC,s.created_at ASC LIMIT 1) source ON TRUE
+            WHERE g.user_id=$1 ORDER BY a.account_name`, [actorId]);
         res.json({
             success: true,
             data: {
@@ -115,6 +121,7 @@ router.get('/me', authMiddleware, async (req: Request, res: Response, next: Next
                 // Durante "Entrar como" o papel é o do cliente — nunca o do admin.
                 role: (user as any).role,
                 is_team_member: actorId !== req.user!.userId,
+                shared_accounts: sharedAccounts,
                 impersonated_by: impersonatedBy,
                 meta_connected: !!owner?.access_token && !!owner?.token_expiration && new Date(owner.token_expiration) > new Date(),
             },

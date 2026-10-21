@@ -6,6 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 import { query } from '../database/connection';
 
 export const CAPABILITIES = [
+    { key: 'automations', label: 'Gerenciar automações de relacionamento' },
     { key: 'meta_campaigns', label: 'Gerenciar Campanhas Meta' },
     { key: 'google_campaigns', label: 'Gerenciar Campanhas Google' },
     { key: 'ai_agent', label: 'Acesso ao Agente IA' },

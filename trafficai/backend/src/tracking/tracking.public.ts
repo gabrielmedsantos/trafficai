@@ -27,10 +27,14 @@ import {
 } from './sales-orders.service';
 import { normalizeSalesSettings } from './sales-report.service';
 import { notifySale } from './sales-notify.service';
-import { detectPlatform, parsePlatformWebhook, buildPurchaseFromOrder } from './checkout-platforms';
+import { detectPlatform, parsePlatformWebhook, buildPurchaseFromOrder, applyTictoNetPolicy } from './checkout-platforms';
 import { saveClick, saveScrollDepth } from './behavior.service';
+import { checkoutAttribution } from './checkout-attribution';
+import { attributionSdk } from './attribution-sdk';
+import { recordDiagnosticEvent } from './diagnostics.service';
 
 const router = Router();
+router.get('/attribution/sdk.js', (_req,res) => { res.type('application/javascript').set('Cache-Control','public, max-age=300').send(attributionSdk); });
 
 // O pixel manda o JSON como text/plain: é o único tipo que o navegador envia
 // cross-origin sem preflight (sendBeacon com application/json é descartado em
@@ -183,6 +187,25 @@ router.post('/event/:token', eventLimiter, async (req: Request, res: Response) =
 
         if (!event.event_name) {
             return res.status(400).json({ success: false, error: { message: 'event_name obrigatório' } });
+        }
+
+        // Sem fbc no navegador (ex: upsell pós-checkout, onde o cookie se perde e a
+        // URL volta com fbclid vazio): reaproveita o fbc já visto na mesma sessão —
+        // a do próprio evento ou a que o checkout devolve em ?sck=.
+        if (!userData.fbc) {
+            const sck = /[?&]sck=([0-9a-f-]{36})(?:&|#|$)/i.exec(String(event.event_source_url || ''))?.[1];
+            const sessions = [event.session_id, sck].filter((v): v is string => typeof v === 'string' && v.length > 0);
+            if (sessions.length) {
+                try {
+                    const prev = await queryOne<{ fbc: string }>(
+                        `SELECT fbc FROM tracking_events
+                          WHERE source_id = $1 AND session_id = ANY($2::text[]) AND fbc IS NOT NULL
+                          ORDER BY created_at DESC LIMIT 1`,
+                        [source.id, sessions]
+                    );
+                    if (prev?.fbc) userData.fbc = prev.fbc;
+                } catch { /* sem fbc anterior, segue */ }
+            }
         }
 
         // Se esse evento identificou o visitante (email/phone), marca o clique
@@ -443,14 +466,22 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
         // celular na mudança de situação e só manda Purchase na aprovação.
         const platform = detectPlatform(b);
         if (platform) {
-            logger.info(`webhook ${platform} recebido — corpo bruto pra conferência`, { source: source.id, event: b.event, raw: JSON.stringify(b).slice(0, 3000) });
+            logger.info(`webhook ${platform} recebido`, { source: source.id, event: b.event,
+                items: Array.isArray(b.data)?b.data.length:1, data_type:Array.isArray(b.data)?'array':typeof b.data });
+            if (platform === 'cooud') logger.info('webhook Cooud — corpo bruto pra conferência', { source: source.id, raw: JSON.stringify(b).slice(0, 6000) });
             const r = parsePlatformWebhook(platform, b);
             if (r.kind === 'test') {
                 return res.json({ success: true, data: { test: true, message: 'Teste recebido. Conexão funcionando — pedidos de teste não entram no relatório nem vão pra Meta.' } });
             }
             if (r.kind === 'ignore') return res.json({ success: true, data: { ignored: true, reason: r.reason } });
 
-            const order = r.order;
+            let order = r.order;
+            let settings = normalizeSalesSettings(null);
+            try {
+                const [row] = await query<any>(`SELECT sales_settings FROM tracking_sources WHERE id = $1`, [source.id]);
+                settings = normalizeSalesSettings(row?.sales_settings);
+            } catch { /* padrão */ }
+            order = applyTictoNetPolicy(order, platform, settings);
             // Carrinho sem preço: último valor conhecido do mesmo produto.
             if (r.kind === 'cart' && order.gross_value == null && (order.product_id || order.product_name)) {
                 try {
@@ -466,16 +497,23 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
             }
 
             const saved = await upsertOrder(source.id, order);
+            if (!saved.previous_status) void recordDiagnosticEvent({
+                userId: source.user_id, sourceId: source.id,
+                severity: order.sck || order.raw?.tracking?.quiz_session_id ? 'info' : 'warning',
+                eventType: 'checkout_webhook', title: 'Webhook de checkout processado',
+                message: order.sck || order.raw?.tracking?.quiz_session_id
+                    ? 'Pedido recebido com identificador de sessão; o vínculo exige correspondência exata.'
+                    : 'Pedido recebido sem identificador de sessão. As UTMs não identificam a pessoa do quiz.',
+                errorCode: order.sck || order.raw?.tracking?.quiz_session_id ? null : 'SESSION_ID_MISSING',
+                summaryPayload: { platform, status: order.status, has_session: !!order.sck,
+                    has_quiz_id: !!order.raw?.tracking?.quiz_session_id,
+                    has_campaign: !!order.utm_campaign }
+            });
             if (saved.previous_status !== order.status) void notifySale(source.id, { ...order, order_id: saved.id, utm_campaign: saved.utm_campaign });
             if (r.kind === 'cart' || !saved.became_approved) {
                 return res.json({ success: true, data: { order_id: saved.id, status: order.status, purchase_sent: false } });
             }
 
-            let settings = normalizeSalesSettings(null);
-            try {
-                const [row] = await query<any>(`SELECT sales_settings FROM tracking_sources WHERE id = $1`, [source.id]);
-                settings = normalizeSalesSettings(row?.sales_settings);
-            } catch { /* padrão */ }
             if (settings.purchase_products.length && !settings.purchase_products.includes(String(order.product_name || '').trim())) {
                 return res.json({ success: true, data: { order_id: saved.id, status: order.status, purchase_sent: false, reason: 'produto fora do filtro' } });
             }
@@ -531,6 +569,10 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 logger.info('webhook Kiwify: pedido de TESTE recebido — conexão ok, nada gravado/enviado', { source: source.id, order: k.order.external_order_id });
                 return res.json({ success: true, data: { test: true, message: 'Teste recebido. Conexão funcionando — pedidos de teste não entram no relatório nem vão pra Meta.' } });
             }
+            const attribution = checkoutAttribution(b);
+            if (!k.order.sck && attribution.sck) k.order.sck = attribution.sck;
+            if (attribution.quiz_session_id) k.order.raw = { ...(k.order.raw || {}), tracking: { ...(k.order.raw?.tracking || {}), quiz_session_id: attribution.quiz_session_id } };
+            if (!k.purchase.session_id && k.order.sck) k.purchase.session_id = k.order.sck;
             const saved = await upsertOrder(source.id, k.order);
             // Aviso de venda/Pix/recusa no celular — só na mudança de situação
             // (a Kiwify às vezes reenvia o mesmo webhook).
@@ -618,6 +660,21 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
         const derivedEventId = b.event_id
             || (b.external_id && b.event ? `${b.external_id}-${b.event}` : null);
 
+        let browserCtx: { client_ip?: string; client_user_agent?: string; fbp?: string; fbc?: string; event_source_url?: string } | null = null;
+        if (orderRecordId && b.session_id) {
+            try {
+                browserCtx = await queryOne<any>(
+                    `SELECT client_ip, client_user_agent, fbp, fbc, event_source_url
+                       FROM tracking_events
+                      WHERE source_id = $1 AND session_id = $2
+                        AND client_user_agent IS NOT NULL AND client_ip IS NOT NULL
+                        AND event_name <> 'Purchase'
+                      ORDER BY created_at DESC LIMIT 1`,
+                    [source.id, String(b.session_id)]
+                );
+            } catch { /* sem contexto de navegador, segue */ }
+        }
+
         const event: TrackingEventInput = {
             event_name: b.event || b.event_name,
             event_id: derivedEventId,
@@ -638,15 +695,20 @@ router.post('/webhook/:token', webhookLimiter, async (req: Request, res: Respons
                 zip: b.user?.zip,
                 country: b.user?.country,
                 external_id: b.external_id,
-                client_ip: extractClientContext(req).ip || undefined,
+                // Pedido de checkout: quem chama o webhook é o servidor da plataforma,
+                // então o IP da requisição não é do comprador. Usa IP/navegador do
+                // último evento de navegador da mesma sessão (ou nenhum).
+                client_ip: orderRecordId ? browserCtx?.client_ip || undefined : extractClientContext(req).ip || undefined,
+                client_user_agent: browserCtx?.client_user_agent || undefined,
                 // Atribuição (Meta não hasha)
                 ctwa_clid: b.user?.ctwa_clid,
-                fbc: b.user?.fbc,
-                fbp: b.user?.fbp,
+                fbc: b.user?.fbc || browserCtx?.fbc || undefined,
+                fbp: b.user?.fbp || browserCtx?.fbp || undefined,
                 gclid: b.user?.gclid,
                 page_id: b.user?.page_id,
             },
             session_id: b.session_id,
+            ...(browserCtx?.event_source_url && !b.event_source_url ? { event_source_url: browserCtx.event_source_url } : {}),
         };
 
         if (!event.event_name) {
@@ -1124,12 +1186,13 @@ function normalizeKiwifyPayload(body: any): { order: NormalizedOrder; purchase: 
 }
 
 function buildPixelScript(token: string, apiBase: string, pixelId: string | null): string {
-    return `/* TrafficAI Pixel · token=${token} · v3 */
+    return attributionSdk + `/* TrafficAI Pixel · token=${token} · v3 */
 (function(){
   if (window.TrafficAI && window.TrafficAI._loaded) return;
   var API = ${JSON.stringify(apiBase)};
   var TOKEN = ${JSON.stringify(token)};
   var PIXEL_ID = ${JSON.stringify(pixelId || '')};
+  var attributionClient = window.TrafficAIAttribution.create({sourceToken:TOKEN});
   var EP_EVENT = API + '/api/v1/track/event/' + TOKEN;
   var EP_CLICK = API + '/api/v1/track/click/' + TOKEN;
 
@@ -1204,17 +1267,7 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
 
   // ── Session ID — único por sessão de browsing, sobrevive a navegação SPA ──
   var SESSION_KEY = '__tai_session__';
-  function getSession(){
-    try {
-      var sid = sessionStorage.getItem(SESSION_KEY);
-      if (!sid) { sid = uuid(); sessionStorage.setItem(SESSION_KEY, sid); }
-      return sid;
-    } catch(e) {
-      // Sem sessionStorage (privacidade extrema): gera por load.
-      if (!window.__taiSid) window.__taiSid = uuid();
-      return window.__taiSid;
-    }
-  }
+  function getSession(){ return attributionClient.sessionId(); }
 
   // ── fbp / fbc (padrão Meta) ───────────────────────────────────────────
   function ensureFbp(){
@@ -1262,9 +1315,11 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   // ── Perfil do usuário (identify) persistido na sessão ─────────────────
   var IDENT_KEY = '__tai_ident__';
   function getIdent(){
+    if (window.__taiQuizPersonalDataAllowed === false) return {};
     try { return JSON.parse(sessionStorage.getItem(IDENT_KEY) || '{}'); } catch(e) { return {}; }
   }
   function setIdent(data){
+    if (window.__taiQuizPersonalDataAllowed === false) return;
     var cur = getIdent();
     var next = Object.assign(cur, data || {});
     try { sessionStorage.setItem(IDENT_KEY, JSON.stringify(next)); } catch(e){}
@@ -1396,60 +1451,9 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   // guardamos as UTMs da chegada (30 dias, último toque) e anexamos UTMs +
   // sck=<session_id> em todo link que aponte pra um checkout. É o que liga a
   // venda ao clique/campanha de origem.
-  var UTM_KEY = '__tai_utms__';
-  var UTM_FIELDS = ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
-  function saveUtms(p){
-    var has = false, data = {};
-    UTM_FIELDS.forEach(function(f){ if (p[f]) { data[f] = p[f]; has = true; } });
-    if (!has) return;
-    data._ts = Date.now();
-    try { localStorage.setItem(UTM_KEY, JSON.stringify(data)); } catch(e){}
-  }
-  function getUtms(){
-    try {
-      var d = JSON.parse(localStorage.getItem(UTM_KEY) || 'null');
-      if (d && Date.now() - d._ts < 30*86400000) return d;
-    } catch(e){}
-    return null;
-  }
-  saveUtms(initParams);
-
-  var CHECKOUT_HOSTS = /kiwify|hotmart|eduzz|monetizze|cakto|hub\\.la|perfectpay|braip|ticto|greenn|payt/i;
-  function isCheckoutLink(el){
-    if (!el || !el.href) return false;
-    if (el.hasAttribute && el.hasAttribute('data-tai-checkout')) return true;
-    try {
-      var h = new URL(el.href, window.location.href).hostname;
-      return h !== window.location.hostname && CHECKOUT_HOSTS.test(h);
-    } catch(e){ return false; }
-  }
-  function decorate(url){
-    try {
-      var u = new URL(url, window.location.href);
-      var utms = getUtms() || {};
-      UTM_FIELDS.forEach(function(f){ if (utms[f] && !u.searchParams.get(f)) u.searchParams.set(f, utms[f]); });
-      if (!u.searchParams.get('sck')) u.searchParams.set('sck', getSession());
-      // Eduzz devolve o rastreio em tracker.code1, que vem do parâmetro trk
-      if (/eduzz/i.test(u.hostname) && !u.searchParams.get('trk')) u.searchParams.set('trk', getSession());
-      return u.toString();
-    } catch(e){ return url; }
-  }
-  function decorateAll(){
-    var links = document.querySelectorAll('a[href]');
-    for (var i = 0; i < links.length; i++) {
-      if (isCheckoutLink(links[i])) links[i].href = decorate(links[i].href);
-    }
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', decorateAll);
-  else decorateAll();
-  // Páginas que montam o botão depois (builders, SPA) — redecora em mudanças
-  try {
-    var decorTimer = null;
-    new MutationObserver(function(){
-      if (decorTimer) return;
-      decorTimer = setTimeout(function(){ decorTimer = null; decorateAll(); }, 400);
-    }).observe(document.documentElement, { childList: true, subtree: true });
-  } catch(e){}
+  function isCheckoutLink(el){ return attributionClient.isCheckout(el); }
+  function decorate(url){ return attributionClient.decorate(url); }
+  attributionClient.bind();
 
   // ── Detecção automática de AddToCart e InitiateCheckout por texto ─────
   // Padrão UTMFY: detecta cliques em botões/links com texto configurável.
@@ -1491,6 +1495,15 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
 
   var addToCartTracked = false;
   var checkoutTracked = false;
+  function trackCheckout(params) {
+    if (checkoutTracked) return;
+    checkoutTracked = true;
+    if (window.__taiQuizSessionId) {
+      var key = '__tai_quiz_checkout__:' + TOKEN + ':' + window.__taiQuizSessionId;
+      try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch(e){}
+    }
+    track('InitiateCheckout', params);
+  }
   document.addEventListener('click', function(e){
     var el = e.target;
     var clickedText = '';
@@ -1498,17 +1511,21 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       // Coleta texto do elemento clicado e pais próximos
       if (!clickedText) clickedText = getText(el);
 
+      // Quiz: só o botão final marcado inicia checkout. "Continuar" é uma resposta.
+      if (el.hasAttribute && el.hasAttribute('data-tai-checkout') && el.tagName !== 'A') {
+        trackCheckout({ custom_data: { trigger: 'checkout_button' } });
+        return;
+      }
+
       // Link de checkout externo (Kiwify, Hotmart, etc.)
       if (el.tagName === 'A' && isCheckoutLink(el)) {
         el.href = decorate(el.href);
-        if (!checkoutTracked) {
-          checkoutTracked = true;
-          track('InitiateCheckout', { custom_data: { checkout_url: el.href.split('?')[0] } });
-        }
+        trackCheckout({ custom_data: { checkout_url: el.href.split('?')[0] } });
         return;
       }
 
       // Botão/link com texto de AddToCart
+      if (window.__taiQuizActive && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT')) return;
       if ((el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT') && !addToCartTracked) {
         if (matchesText(clickedText, ADD_TO_CART_TEXTS)) {
           addToCartTracked = true;
@@ -1520,8 +1537,7 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
       // Botão/link com texto de InitiateCheckout (não é link externo)
       if ((el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'INPUT') && !checkoutTracked) {
         if (matchesText(clickedText, CHECKOUT_TEXTS)) {
-          checkoutTracked = true;
-          track('InitiateCheckout', { custom_data: { trigger: 'text_detection' } });
+          trackCheckout({ custom_data: { trigger: 'text_detection' } });
           return;
         }
       }
@@ -1604,6 +1620,7 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
   document.addEventListener('submit', function(e){
     var form = e.target;
     if (!form || form.dataset.taiIgnore) return;
+    if (window.__taiQuizPersonalDataAllowed === false) return;
     var ident = {};
     var email = form.querySelector('input[type=email]');
     var phone = form.querySelector('input[type=tel], input[name*=phone i], input[name*=celular i], input[name*=telefone i]');
@@ -1678,6 +1695,7 @@ function buildPixelScript(token: string, apiBase: string, pixelId: string | null
     sessionId: getSession,
     // Pra checkout em domínio próprio/não detectado: TrafficAI.checkoutUrl(url)
     checkoutUrl: decorate,
+    integrationStatus: attributionClient.diagnose,
     pageView: function(params){ return track('PageView', params); },
     viewContent: function(params){ return track('ViewContent', params); },
     lead: function(params){ return track('Lead', params); },

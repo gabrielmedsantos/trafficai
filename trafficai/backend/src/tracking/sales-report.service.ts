@@ -1,3 +1,4 @@
+import { salesAccountScope, salesSourceScope } from './sales-account-scope';
 // ==============================
 // TrafficAI — Relatório de vendas (estilo UTMify)
 // Cruza pedidos (tracking_orders) com a Meta: gasto, status e orçamento de
@@ -42,6 +43,7 @@ export interface SalesSettings {
     product_costs: Record<string, number>;
     purchase_value: 'gross' | 'net';
     purchase_products: string[];
+    ticto_no_fees: boolean;
     notify: SalesNotifySettings;
 }
 
@@ -67,6 +69,7 @@ export function normalizeSalesSettings(raw: any): SalesSettings {
         purchase_products: Array.isArray(r.purchase_products)
             ? r.purchase_products.map((p: any) => String(p).trim()).filter(Boolean)
             : [],
+        ticto_no_fees: r.ticto_no_fees === true,
         notify: Object.fromEntries(
             (Object.keys(NOTIFY_DEFAULTS) as (keyof SalesNotifySettings)[]).map(k => [
                 k, typeof r.notify?.[k] === 'boolean' ? r.notify[k] : NOTIFY_DEFAULTS[k],
@@ -127,6 +130,23 @@ export interface SourceCtx {
     account_id: string | null;
     meta_account_id: string | null;
     sales_settings?: any;
+    /** Filtros do Resumo: produtos (nomes) e contas de anúncio usadas em vendas e gastos. */
+    filters?: ReportFilters;
+}
+
+export interface ReportFilters {
+    products: string[] | null;
+    accounts: Array<{ id: string; meta_account_id: string | null }> | null;
+}
+
+const NO_PRODUCT = '(sem produto)';
+/** Condição de produto pros pedidos (o = tracking_orders); $n recebe text[] ou NULL. */
+const productCond = (n: number) => `($${n}::text[] IS NULL OR COALESCE(o.product_name, '${NO_PRODUCT}') = ANY($${n}::text[]))`;
+const productParam = (source: SourceCtx) => source.filters?.products?.length ? source.filters.products : null;
+/** Contas cujo gasto entra no relatório: as escolhidas no filtro ou a conta da fonte. */
+function spendAccounts(source: SourceCtx): Array<{ id: string; meta_account_id: string | null }> {
+    if (source.filters?.accounts?.length) return source.filters.accounts;
+    return source.account_id ? [{ id: source.account_id, meta_account_id: source.meta_account_id }] : [];
 }
 
 // Receita = líquido quando a plataforma informa (o que realmente entra no
@@ -402,17 +422,17 @@ async function campaignSpendFromDb(accountId: string, since: string, until: stri
 }
 
 async function levelData(source: SourceCtx, level: MetaLevel, since: string, until: string): Promise<{ map: Map<string, MetaObj>; live: boolean }> {
-    if (source.meta_account_id) {
-        const token = await getUserAdsToken(source.user_id);
-        if (token) {
-            const m = await fetchMetaLevel(token, source.meta_account_id, level, since, until);
-            if (m) return { map: m, live: true };
-        }
+    const map = new Map<string, MetaObj>();
+    const accounts = spendAccounts(source);
+    const token = accounts.some(a => a.meta_account_id) ? await getUserAdsToken(source.user_id) : null;
+    let live = accounts.length > 0;
+    for (const account of accounts) {
+        const remote = token && account.meta_account_id ? await fetchMetaLevel(token, account.meta_account_id, level, since, until) : null;
+        if (remote) { for (const [id, row] of remote) map.set(id, row); continue; }
+        live = false;
+        if (level === 'campaign') for (const [id, row] of await campaignSpendFromDb(account.id, since, until)) map.set(id, row);
     }
-    if (level === 'campaign' && source.account_id) {
-        return { map: await campaignSpendFromDb(source.account_id, since, until), live: false };
-    }
-    return { map: new Map(), live: false };
+    return { map, live };
 }
 
 // ── Pedidos ─────────────────────────────────────────────────────────────
@@ -427,7 +447,7 @@ interface OrderAgg {
     refunded_count: string;
 }
 
-async function aggregateOrders(sourceId: string, since: string, until: string, groupExpr: string, settings: SalesSettings): Promise<OrderAgg[]> {
+async function aggregateOrders(source: SourceCtx, since: string, until: string, groupExpr: string, settings: SalesSettings, products: string[] | null = null): Promise<OrderAgg[]> {
     return query<OrderAgg>(
         `SELECT ${groupExpr} AS k,
                 COUNT(*) FILTER (WHERE o.status = 'approved') AS sales,
@@ -437,9 +457,9 @@ async function aggregateOrders(sourceId: string, since: string, until: string, g
                 COALESCE(SUM(COALESCE(o.gross_value, o.net_value, 0)) FILTER (WHERE o.status = 'pending'), 0) AS pending_value,
                 COUNT(*) FILTER (WHERE o.status IN ('refunded', 'chargeback')) AS refunded_count
          FROM tracking_orders o
-         WHERE o.source_id = $1 AND ${ORDER_DATE}::date BETWEEN $2 AND $3
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND ${ORDER_DATE}::date BETWEEN $2 AND $3 AND ${productCond(5)}
          GROUP BY 1`,
-        [sourceId, since, until, JSON.stringify(settings.product_costs)]
+        [source.id, since, until, JSON.stringify(settings.product_costs), products]
     );
 }
 
@@ -481,7 +501,7 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
     if (group === 'campaign' || group === 'adset' || group === 'ad') {
         const col = group === 'campaign' ? 'o.meta_campaign_id' : group === 'adset' ? 'o.meta_adset_id' : 'o.meta_ad_id';
         const [agg, { map, live }] = await Promise.all([
-            aggregateOrders(source.id, since, until, col, settings),
+            aggregateOrders(source, since, until, col, settings, productParam(source)),
             levelData(source, group, since, until),
         ]);
         // Mesmo critério da UTMify: tudo que está ativo agora + o que gastou
@@ -505,38 +525,45 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
     }
 
     if (group === 'day') {
-        const agg = await aggregateOrders(source.id, since, until, `to_char(${ORDER_DATE}::date, 'YYYY-MM-DD')`, settings);
-        let spendByDay = new Map<string, { spend: number; impressions: number; clicks: number }>();
-        let live = false;
-        const token = source.meta_account_id ? await getUserAdsToken(source.user_id) : null;
-        if (token && source.meta_account_id) {
-            try {
-                const rows = await metaPaged(`https://graph.facebook.com/${META_VERSION}/${actId(source.meta_account_id)}/insights`, {
-                    level: 'account', fields: 'spend,impressions,inline_link_clicks', time_increment: 1,
-                    time_range: JSON.stringify({ since, until }), limit: 500, access_token: token,
-                }, 5);
-                spendByDay = new Map(rows.map((r: any) => [r.date_start, {
-                    spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.inline_link_clicks) || 0,
-                }]));
-                live = true;
-            } catch (err: any) {
-                logger.warn('sales-report: gasto diário na Meta falhou', { error: err.response?.data?.error?.message || err.message });
+        const agg = await aggregateOrders(source, since, until, `to_char(${ORDER_DATE}::date, 'YYYY-MM-DD')`, settings, productParam(source));
+        const spendByDay = new Map<string, { spend: number; impressions: number; clicks: number }>();
+        const addDay = (d: string, v: { spend: number; impressions: number; clicks: number }) => {
+            const cur = spendByDay.get(d) || { spend: 0, impressions: 0, clicks: 0 };
+            spendByDay.set(d, { spend: cur.spend + v.spend, impressions: cur.impressions + v.impressions, clicks: cur.clicks + v.clicks });
+        };
+        const accounts = spendAccounts(source);
+        const token = accounts.some(a => a.meta_account_id) ? await getUserAdsToken(source.user_id) : null;
+        let live = accounts.length > 0;
+        for (const acc of accounts) {
+            let ok = false;
+            if (token && acc.meta_account_id) {
+                try {
+                    const rows = await metaPaged(`https://graph.facebook.com/${META_VERSION}/${actId(acc.meta_account_id)}/insights`, {
+                        level: 'account', fields: 'spend,impressions,inline_link_clicks', time_increment: 1,
+                        time_range: JSON.stringify({ since, until }), limit: 500, access_token: token,
+                    }, 5);
+                    for (const r of rows as any[]) addDay(r.date_start, { spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.inline_link_clicks) || 0 });
+                    ok = true;
+                } catch (err: any) {
+                    logger.warn('sales-report: gasto diário na Meta falhou', { account: acc.meta_account_id, error: err.response?.data?.error?.message || err.message });
+                }
             }
-        }
-        if (!live && source.account_id) {
-            const rows = await query<any>(
-                `SELECT to_char(ih.date, 'YYYY-MM-DD') AS d, COALESCE(SUM(ih.spend), 0) AS spend,
-                        COALESCE(SUM(ih.impressions), 0) AS impressions, COALESCE(SUM(ih.clicks), 0) AS clicks
-                 FROM insights_history ih JOIN campaigns c ON c.id = ih.campaign_id
-                 WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3
-                 GROUP BY 1`,
-                [source.account_id, since, until]
-            );
-            spendByDay = new Map(rows.map((r: any) => [r.d, { spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0 }]));
+            if (!ok) {
+                live = false;
+                const rows = await query<any>(
+                    `SELECT to_char(ih.date, 'YYYY-MM-DD') AS d, COALESCE(SUM(ih.spend), 0) AS spend,
+                            COALESCE(SUM(ih.impressions), 0) AS impressions, COALESCE(SUM(ih.clicks), 0) AS clicks
+                     FROM insights_history ih JOIN campaigns c ON c.id = ih.campaign_id
+                     WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3
+                     GROUP BY 1`,
+                    [acc.id, since, until]
+                );
+                for (const r of rows) addDay(r.d, { spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0 });
+            }
         }
         const expenses = await query<any>(
             `SELECT to_char(expense_date, 'YYYY-MM-DD') AS d, SUM(amount) AS total
-             FROM tracking_expenses WHERE source_id = $1 AND expense_date BETWEEN $2 AND $3 GROUP BY 1`,
+             FROM tracking_expenses WHERE source_id IN (${salesSourceScope('$1', source.filters?.accounts?.map(a=>a.id))}) AND expense_date BETWEEN $2 AND $3 GROUP BY 1`,
             [source.id, since, until]
         );
         const out: ReportRow[] = [];
@@ -557,7 +584,7 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
     }
 
     if (group === 'product') {
-        const agg = await aggregateOrders(source.id, since, until, 'o.product_name', settings);
+        const agg = await aggregateOrders(source, since, until, 'o.product_name', settings, productParam(source));
         return {
             rows: agg.map(a => buildRow({ key: a.k || NONE, name: a.k || '(sem produto)', ...aggToPartial(a) }, tax))
                 .sort((x, y) => y.revenue - x.revenue),
@@ -567,7 +594,7 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
 
     // utm_*: agrupa pelo valor cru; quando o valor segue "nome|id", mostra o
     // nome e soma o gasto do nível correspondente (campanha/conjunto/anúncio).
-    const agg = await aggregateOrders(source.id, since, until, `o.${group}`, settings);
+    const agg = await aggregateOrders(source, since, until, `o.${group}`, settings, productParam(source));
     const level: MetaLevel | null = group === 'utm_campaign' ? 'campaign' : group === 'utm_medium' ? 'adset' : group === 'utm_content' ? 'ad' : null;
     const { map, live } = level ? await levelData(source, level, since, until) : { map: new Map<string, MetaObj>(), live: false };
     return {
@@ -592,6 +619,7 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
 
 export async function buildSummary(source: SourceCtx, since: string, until: string) {
     const settings = normalizeSalesSettings(source.sales_settings);
+    const products = productParam(source);
     const [tot] = await query<any>(
         `SELECT
             COUNT(*) FILTER (WHERE o.status = 'approved') AS approved_count,
@@ -610,32 +638,30 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
             COUNT(*) FILTER (WHERE o.status IN ('abandoned', 'pending', 'refused') AND o.recovered_order_id IS NOT NULL) AS recovered_count,
             COUNT(*) FILTER (WHERE o.status IN ('abandoned', 'pending', 'refused')) AS recoverable_count
          FROM tracking_orders o
-         WHERE o.source_id = $1 AND ${ORDER_DATE}::date BETWEEN $2 AND $3`,
-        [source.id, since, until, JSON.stringify(settings.product_costs)]
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND ${ORDER_DATE}::date BETWEEN $2 AND $3 AND ${productCond(5)}`,
+        [source.id, since, until, JSON.stringify(settings.product_costs), products]
     );
 
-    let spend: number | null = null;
-    let spendLive = false;
-    if (source.meta_account_id) {
-        const token = await getUserAdsToken(source.user_id);
-        if (token) {
-            spend = await fetchAccountSpend(token, source.meta_account_id, since, until);
-            spendLive = spend != null;
-        }
-    }
-    if (spend == null && source.account_id) {
-        const [s] = await query<{ spend: string }>(
+    // Gasto: soma das contas escolhidas (Meta ao vivo; sem token ou com erro, última sincronização).
+    let spend = 0;
+    const accounts = spendAccounts(source);
+    let spendLive = accounts.length > 0;
+    const token = accounts.some(a => a.meta_account_id) ? await getUserAdsToken(source.user_id) : null;
+    for (const acc of accounts) {
+        const live = token && acc.meta_account_id ? await fetchAccountSpend(token, acc.meta_account_id, since, until) : null;
+        if (live != null) { spend += live; continue; }
+        spendLive = false;
+        const [row] = await query<{ spend: string }>(
             `SELECT COALESCE(SUM(ih.spend), 0) AS spend
              FROM insights_history ih JOIN campaigns c ON c.id = ih.campaign_id
              WHERE c.account_id = $1 AND ih.date BETWEEN $2 AND $3`,
-            [source.account_id, since, until]
+            [acc.id, since, until]
         );
-        spend = Number(s?.spend) || 0;
+        spend += Number(row?.spend) || 0;
     }
-    spend = spend || 0;
 
     const [exp] = await query<{ total: string }>(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM tracking_expenses WHERE source_id = $1 AND expense_date BETWEEN $2 AND $3`,
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM tracking_expenses WHERE source_id IN (${salesSourceScope('$1', source.filters?.accounts?.map(a=>a.id))}) AND expense_date BETWEEN $2 AND $3`,
         [source.id, since, until]
     );
 
@@ -645,48 +671,62 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
                 COALESCE(SUM(${REVENUE}) FILTER (WHERE o.status = 'approved'), 0) AS approved_value,
                 COUNT(*) FILTER (WHERE o.status IN ('approved', 'refused', 'pending', 'refunded', 'chargeback')) AS total_count
          FROM tracking_orders o
-         WHERE o.source_id = $1 AND ${ORDER_DATE}::date BETWEEN $2 AND $3
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND ${ORDER_DATE}::date BETWEEN $2 AND $3 AND ${productCond(4)}
          GROUP BY 1`,
-        [source.id, since, until]
+        [source.id, since, until, products]
     );
 
     const byProduct = await query<any>(
         `SELECT COALESCE(o.product_name, '(sem produto)') AS product, COUNT(*) AS count, COALESCE(SUM(${REVENUE}), 0) AS value
          FROM tracking_orders o
-         WHERE o.source_id = $1 AND o.status = 'approved' AND ${ORDER_DATE}::date BETWEEN $2 AND $3
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND o.status = 'approved' AND ${ORDER_DATE}::date BETWEEN $2 AND $3 AND ${productCond(4)}
          GROUP BY 1 ORDER BY count DESC LIMIT 20`,
-        [source.id, since, until]
+        [source.id, since, until, products]
     );
 
     const bySource = await query<any>(
         `SELECT COALESCE(NULLIF(o.utm_source, ''), 'N/A') AS source, COUNT(*) AS count
          FROM tracking_orders o
-         WHERE o.source_id = $1 AND o.status = 'approved' AND ${ORDER_DATE}::date BETWEEN $2 AND $3
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND o.status = 'approved' AND ${ORDER_DATE}::date BETWEEN $2 AND $3 AND ${productCond(4)}
          GROUP BY 1 ORDER BY count DESC LIMIT 20`,
-        [source.id, since, until]
+        [source.id, since, until, products]
     );
 
     const byHour = await query<any>(
         `SELECT EXTRACT(HOUR FROM ${ORDER_DATE})::int AS hour, COUNT(*) AS count
          FROM tracking_orders o
-         WHERE o.source_id = $1 AND o.status = 'approved' AND ${ORDER_DATE}::date BETWEEN $2 AND $3
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND o.status = 'approved' AND ${ORDER_DATE}::date BETWEEN $2 AND $3 AND ${productCond(4)}
          GROUP BY 1`,
-        [source.id, since, until]
+        [source.id, since, until, products]
+    );
+
+    // Opções dos filtros: produtos vendidos nos últimos 90 dias e contas de anúncio do dono da fonte.
+    const productOptions = await query<{ product: string }>(
+        `SELECT DISTINCT COALESCE(o.product_name, '${NO_PRODUCT}') AS product FROM tracking_orders o
+         WHERE ${salesAccountScope('o', '$1', source.filters?.accounts?.map(a => a.id))} AND o.status <> 'abandoned' AND ${ORDER_DATE}::date >= LEAST($2::date, CURRENT_DATE - 90)
+         ORDER BY 1 LIMIT 100`,
+        [source.id, since]
+    );
+    const accountOptions = await query<{ id: string; name: string; meta_account_id: string | null }>(
+        `SELECT id, account_name AS name, meta_account_id FROM ad_accounts
+         WHERE user_id = $1 AND (is_client_active = true OR id = $2 OR id = ANY($3::uuid[]))
+         ORDER BY account_name`,
+        [source.user_id, source.account_id, accounts.map(a => a.id)]
     );
 
     // Funil: cliques (tracking_clicks) → PageView → InitiateCheckout (pixel) →
     // pedidos iniciados → aprovados. Mesmas etapas do funil da UTMify.
     const [funnelEv] = await query<any>(
         `SELECT
-            COUNT(*) FILTER (WHERE event_name = 'PageView') AS page_views,
-            COUNT(*) FILTER (WHERE event_name = 'InitiateCheckout') AS initiate_checkout
-         FROM tracking_events
-         WHERE source_id = $1 AND (created_at AT TIME ZONE '${TZ}')::date BETWEEN $2 AND $3`,
+            COUNT(DISTINCT e.event_id) FILTER (WHERE e.event_name = 'PageView') AS page_views,
+            COUNT(DISTINCT e.event_id) FILTER (WHERE e.event_name = 'InitiateCheckout') AS initiate_checkout
+         FROM tracking_events e
+         WHERE EXISTS (SELECT 1 FROM tracking_clicks tc WHERE tc.source_id=e.source_id AND tc.session_id=e.session_id AND ${salesAccountScope('tc', '$1', source.filters?.accounts?.map(a => a.id))}) AND (e.created_at AT TIME ZONE '${TZ}')::date BETWEEN $2 AND $3`,
         [source.id, since, until]
     );
     const [clicks] = await query<any>(
-        `SELECT COUNT(*) AS clicks FROM tracking_clicks
-         WHERE source_id = $1 AND (created_at AT TIME ZONE '${TZ}')::date BETWEEN $2 AND $3`,
+        `SELECT COUNT(DISTINCT COALESCE(tc.session_id,tc.id::text)) AS clicks FROM tracking_clicks tc
+         WHERE ${salesAccountScope('tc', '$1', source.filters?.accounts?.map(a => a.id))} AND (tc.created_at AT TIME ZONE '${TZ}')::date BETWEEN $2 AND $3`,
         [source.id, since, until]
     );
 
@@ -708,6 +748,11 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
     });
 
     return {
+        product_options: productOptions.map(p => p.product),
+        account_options: accountOptions,
+        filter_products: products || [],
+        filter_accounts: accounts.map(a => a.id),
+        default_account_id: source.account_id,
         revenue_net: revenueNet,
         revenue_gross: revenueGross,
         spend,

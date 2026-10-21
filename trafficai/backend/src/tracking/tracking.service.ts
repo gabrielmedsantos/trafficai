@@ -8,6 +8,7 @@
 // ==============================
 
 import axios from 'axios';
+import { mirrorCapiEvent } from './capi-mirrors';
 import crypto from 'crypto';
 import { query } from '../database/connection';
 import { logger } from '../shared/logger';
@@ -84,6 +85,17 @@ export function normPhone(phone: string): string {
     let digits = phone.replace(/\D/g, '');
     if (digits.length >= 10 && digits.length <= 11) digits = '55' + digits;
     return digits;
+}
+
+/** SQL identity match for Brazilian phone numbers with/without DDI and the ninth digit. */
+export function sameBrazilPhoneSql(left: string, right: string): string {
+    if (!/^[a-z][a-z0-9_]*$/i.test(left) || !/^[a-z][a-z0-9_]*$/i.test(right)) throw new Error('Invalid SQL alias');
+    const canonical = (alias: string) => {
+        const digits = `regexp_replace(COALESCE(${alias}.customer_phone, ''), '[^0-9]', '', 'g')`;
+        const local = `(CASE WHEN LEFT(${digits}, 2) = '55' AND LENGTH(${digits}) > 11 THEN SUBSTRING(${digits} FROM 3) ELSE ${digits} END)`;
+        return `(CASE WHEN LENGTH(${local}) = 11 AND SUBSTRING(${local} FROM 3 FOR 1) = '9' THEN SUBSTRING(${local} FROM 1 FOR 2) || SUBSTRING(${local} FROM 4) ELSE ${local} END)`;
+    };
+    return `(${left}.customer_phone IS NOT NULL AND ${right}.customer_phone IS NOT NULL AND ${canonical(left)} = ${canonical(right)})`;
 }
 
 function normName(name: string): string {
@@ -370,7 +382,8 @@ export interface TrackingSource {
 
 export async function trackEvent(
     source: TrackingSource,
-    event: TrackingEventInput
+    event: TrackingEventInput,
+    internal?: { skipMirrors: boolean },
 ): Promise<{ event_id: string; emq_score: number; meta_status: string }> {
     const eventTime = event.event_time || Math.floor(Date.now() / 1000);
     const eventIdProvided = !!event.event_id;
@@ -388,6 +401,14 @@ export async function trackEvent(
             [source.id, eventId]
         );
         if (existing.length > 0) {
+            if (!internal?.skipMirrors) {
+                try {
+                    await mirrorCapiEvent(source, { ...event, event_id: eventId, event_time: eventTime },
+                        (target, mirrored) => trackEvent(target, mirrored, { skipMirrors: true }));
+                } catch {
+                    logger.warn('tracking: espelhamento CAPI falhou', { source: source.id, event_id: eventId });
+                }
+            }
             return {
                 event_id: existing[0].event_id,
                 emq_score: existing[0].emq_score,
@@ -636,6 +657,15 @@ export async function trackEvent(
             message: metaResult.error || undefined,
             summaryPayload: { event_name: event.event_name, event_id: eventId },
         });
+    }
+
+    if (!internal?.skipMirrors) {
+        try {
+            await mirrorCapiEvent(source, { ...event, event_id: eventId, event_time: eventTime },
+                (target, mirrored) => trackEvent(target, mirrored, { skipMirrors: true }));
+        } catch {
+            logger.warn('tracking: espelhamento CAPI falhou', { source: source.id, event_id: eventId });
+        }
     }
 
     return {

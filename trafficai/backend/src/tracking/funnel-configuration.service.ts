@@ -16,7 +16,6 @@ export interface FunnelStage {
     default_value: number | null;
     default_currency: string | null;
     default_content_name: string | null;
-    button_patterns: string[] | null;
 }
 
 export interface FunnelStageInput {
@@ -27,8 +26,6 @@ export interface FunnelStageInput {
     default_value?: number | null;
     default_currency?: string | null;
     default_content_name?: string | null;
-    // NOVO: Padrões de texto para detecção automática de cliques em botões (quiz funnel)
-    button_patterns?: string[] | null;
 }
 
 // Estágios que já existiam hardcoded no frontend — usados como seed na

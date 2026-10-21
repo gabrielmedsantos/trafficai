@@ -324,7 +324,7 @@ export class MetaService {
                 return await this.fetchAllPages(client, `/${acctPath}/insights`, {
                     level: 'ad',
                     fields: [
-                        'ad_id', 'ad_name',
+                        'ad_id', 'ad_name', 'campaign_id', 'campaign_name',
                         'impressions', 'reach', 'clicks', 'ctr', 'cpc', 'spend', 'frequency',
                         'actions', 'cost_per_action_type', 'purchase_roas',
                         'video_play_actions',
@@ -1130,21 +1130,19 @@ export class MetaService {
         ],
     };
 
-    /**
-     * Mapeia optimization_goal do AD SET (mais específico que o objective da campanha)
-     * → tipo de action + label. Ex: campanha de Tráfego (objective=OUTCOME_TRAFFIC)
-     * cujo ad set otimiza pra "Visitas ao perfil" — o Meta conta isso como link_click
-     * nas actions[], mas o resultado exibido no Gerenciador é "Visitas ao perfil",
-     * não "Cliques no link". Checado ANTES do objective por ser mais específico.
-     */
+    /** O resultado específico do conjunto prevalece sobre eventos genéricos da campanha. */
     private static OPTIMIZATION_GOAL_PRIORITY: Record<string, { type: string; label: string }[]> = {
+        CONVERSATIONS: [
+            { type: 'onsite_conversion.messaging_conversation_started_7d', label: 'Conversas' },
+        ],
+        // Cliques não são uma medição de visitas ao perfil: preserve o nome real.
         PROFILE_VISIT: [
-            { type: 'link_click', label: 'Visitas ao perfil' },
+            { type: 'link_click', label: 'Cliques no link' },
         ],
     };
 
     extractPrimaryAction(actions?: any[], objective?: string, optimizationGoal?: string): { count: number; label: string; action_type: string } {
-        if (!actions || actions.length === 0) return { count: 0, label: 'Conversões', action_type: '' };
+        actions = Array.isArray(actions) ? actions : [];
         // 0) Prioridade do optimization_goal do ad set (mais específico que o objective)
         const goalList = optimizationGoal ? MetaService.OPTIMIZATION_GOAL_PRIORITY[optimizationGoal] : null;
         if (goalList) {
@@ -1154,6 +1152,8 @@ export class MetaService {
                     return { count: parseInt(match.value, 10), label: priority.label, action_type: priority.type };
                 }
             }
+            // Não substituir uma métrica ausente por leads, compras ou conexões.
+            return { count: 0, label: goalList[0].label, action_type: goalList[0].type };
         }
         // 1) Prioridade específica do objetivo da campanha (se conhecido)
         const objList = objective ? MetaService.OBJECTIVE_PRIORITY[objective] : null;
