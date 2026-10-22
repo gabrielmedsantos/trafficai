@@ -52,7 +52,7 @@ function graph(plan,ids){
  const nodes=[{id:'start',type:'trigger',position:{x:0,y:0},data:{label:plan.journey==='quiz'?'Quiz interrompido':'Compra não concluída',config:{event:plan.event}}},{id:'contact',type:'condition',position:{x:220,y:0},data:{label:'Contato disponível no canal',config:{kind:'channel_available',value:plan.channel}}},{id:'no-contact',type:'end',position:{x:440,y:250},data:{label:'Sem contato neste canal',config:{}}}];
  const edges=[{id:'start',source:'start',target:'contact'},{id:'no',source:'contact',target:'no-contact',sourceHandle:'no'},{id:'yes',source:'contact',target:'wait0',sourceHandle:'yes'}];
  plan.messages.forEach((_,n)=>{
-  nodes.push({id:'wait'+n,type:'wait',position:{x:440+n*440,y:0},data:{label:'Aguardar '+plan.delays[n]/3600+'h',config:{seconds:plan.delays[n]}}},{id:'message'+n,type:'message',position:{x:660+n*440,y:0},data:{label:'Contato '+(n+1),config:{channel:plan.channel,templateId:ids[n],integrationId:plan.integrationId}}});
+  nodes.push({id:'wait'+n,type:'wait',position:{x:440+n*440,y:0},data:{label:'Aguardar '+plan.delays[n]/3600+'h',config:{seconds:plan.delays[n]}}},{id:'message'+n,type:'message',position:{x:660+n*440,y:0},data:{label:'Contato '+(n+1),config:{channel:plan.channel,templateId:ids[n],integrationId:plan.integrationId,buttonText:plan.journey==='quiz'?'Continuar personalização':'Continuar meu pedido'}}});
   edges.push({id:'send'+n,source:'wait'+n,target:'message'+n},{id:'next'+n,source:'message'+n,target:n===plan.messages.length-1?'end':'wait'+(n+1)});
  });
  nodes.push({id:'end',type:'end',position:{x:440+plan.messages.length*440,y:0},data:{label:'Encerrar',config:{}}});

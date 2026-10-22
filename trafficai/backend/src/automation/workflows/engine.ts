@@ -518,8 +518,7 @@ export async function executeJob(
           if (unsubscribe && !template.body.includes("{{unsubscribe_url}}"))
             body += "\n\nPara não receber mais: " + unsubscribe;
           if (!r.test_mode) {
-            externalAttempted = true;
-            const result = await deliver({
+            const outbound: SendInput = {
               userId: r.user_id,
               integrationId: c.integrationId,
               channel: c.channel,
@@ -545,12 +544,14 @@ export async function executeJob(
                   : "") + "</body>",
               ),
               templateName: template.provider_template,
-              templateParameters: (template.parameters || []).map(
+              templateParameters: (template.provider_template ? template.parameters || [] : []).map(
                 (key: string) => renderVariables("{{" + key + "}}", vars),
               ),
               language: template.language,
               idempotencyKey: `aw-${r.id}-${n.id}`,
-            });
+            };
+            externalAttempted = true;
+            const result = await deliver(outbound);
             await tx(
               "UPDATE aw_messages SET status='sent',provider=$3,provider_id=$4,sent_at=NOW(),provider_reference=$5 WHERE run_id=$1 AND node_id=$2",
               [

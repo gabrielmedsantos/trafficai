@@ -65,6 +65,10 @@ test("WhatsApp seleciona Evolution/UazAPI da conta, preserva instância e não t
   );
   assert.equal(calls[1].url, "https://uazapi.example.invalid/send/text");
   assert.equal(calls[1].headers.token, key);
+  await send({ ...base, integrationId: ua, button: { text: "Continuar pedido", url: "https://example.invalid/checkout" } }, request);
+  assert.equal(calls[2].url, "https://uazapi.example.invalid/send/menu");
+  assert.equal(calls[2].body.type, "button");
+  assert.deepEqual(calls[2].body.choices, ["Continuar pedido|https://example.invalid/checkout"]);
   await assert.rejects(
     () => send({ ...base, userId: other, integrationId: ev }, request),
     /WHATSAPP_NOT_CONNECTED/,
@@ -76,7 +80,7 @@ test("WhatsApp seleciona Evolution/UazAPI da conta, preserva instância e não t
     () => send({ ...base, integrationId: ev }, request),
     /WHATSAPP_NOT_CONNECTED/,
   );
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
 test("campanha congela audiência/versão/modelo, deduplica contato e respeita pausa/cancelamento", async (t) => {
   const f = await fixture();

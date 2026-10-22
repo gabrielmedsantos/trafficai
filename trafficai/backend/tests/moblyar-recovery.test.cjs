@@ -5,7 +5,7 @@ const {recoveryCheckout}=require('../dist/automation/workflows/recovery');
 const {graphIssues}=require('../dist/automation/workflows/validation');
 test('seis fluxos separados: templates W0-W5 e E0-E6, links e saída obrigatórios',()=>{
  const list=plans();assert.equal(list.length,6);assert.equal(list.reduce((n,p)=>n+p.messages.length,0),39);
- for(const p of list){assert.equal(p.messages.length,p.channel==='email'?7:6);assert.equal(graphIssues(graph(p,p.messages.map(()=>randomUUID())),true).length,0);
+ for(const p of list){assert.equal(p.messages.length,p.channel==='email'?7:6);const g=graph(p,p.messages.map(()=>randomUUID()));assert.equal(graphIssues(g,true).length,0);assert(g.nodes.filter(n=>n.type==='message').every(n=>n.data.config.buttonText));
   for(const m of p.messages){assert(m.body.includes('{{checkout_url}}'));assert(m.body.includes('{{unsubscribe_url}}'));assert(!/desconto|meia-noite|só hoje|vagas/i.test(m.body));}
  }
  assert.equal(list.filter(p=>p.product.key==='clube-pedagogia'&&p.journey==='quiz').length,0);
