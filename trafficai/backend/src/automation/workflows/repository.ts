@@ -20,7 +20,10 @@ export async function reference(table: string, id: any, user: string) {
 export async function validateReferences(graph: Graph, user: string) {
   for (const n of graph.nodes) {
     const c = object(n.data.config);
+    if (n.type === "condition" && c.kind === "product_purchased") await owned("aw_products",c.productId,user);
     if (n.type === "message") {
+      for(const id of c.excludePurchasedProductIds || []) await owned("aw_products",id,user);
+      if(c.promotionProductId) promotionProduct(await owned("aw_products",c.promotionProductId,user));
       const t = await owned("aw_templates", c.templateId, user);
       if (t.channel !== c.channel)
         throw new ValidationError("Canal do modelo não corresponde à ação");
@@ -77,6 +80,7 @@ export async function saveFlow(user: string, input: any, id?: string) {
   const safeSettings = {
     default_whatsapp_connection_id:
       settings.default_whatsapp_connection_id || null,
+    post_purchase: settings.post_purchase === true,
     stop_on_purchase: settings.stop_on_purchase === true,
     folder: settings.folder === "templates" ? "templates" : null,
     promotion_product_id: settings.promotion_product_id || null,

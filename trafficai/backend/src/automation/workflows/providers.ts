@@ -137,6 +137,7 @@ export interface SendInput {
   channel: string;
   to: string;
   body: string;
+  button?: { text: string; url: string };
   subject?: string;
   html?: string;
   unsubscribeUrl?: string;
@@ -177,8 +178,10 @@ export async function send(
         connection.base +
           (evolution
             ? "/message/sendText/" + encodeURIComponent(connection.instance)
-            : "/send/text"),
-        { number: input.to.replace(/\D/g, ""), text: input.body },
+            : input.button ? "/send/menu" : "/send/text"),
+        input.button && !evolution
+          ? { number: input.to.replace(/\D/g, ""), type: "button", text: input.body, choices: [input.button.text + "|" + input.button.url] }
+          : { number: input.to.replace(/\D/g, ""), text: input.body },
         evolution ? { apikey: connection.key } : { token: connection.key },
         connection.trustedBase,
       );

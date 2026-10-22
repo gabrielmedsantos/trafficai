@@ -87,6 +87,7 @@ export const initialGraph = {
   edges: [{ id: "start-end", source: "start", target: "end" }],
 };
 export interface Item {
+  checkout_url?: string;
   config?: {
     paid?: boolean;
     cost_per_call?: number;
@@ -111,6 +112,11 @@ export interface Config {
   field?: string;
   seconds?: number;
   channel?: string;
+  productId?: string;
+  promotionProductId?: string;
+  buttonText?: string;
+  priorityOffer?: boolean;
+  excludePurchasedProductIds?: string[];
   templateId?: string;
   integrationId?: string;
   operation?: string;
