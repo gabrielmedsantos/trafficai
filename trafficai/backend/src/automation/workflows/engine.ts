@@ -264,13 +264,17 @@ export async function executeJob(
         await cancel(tx, r.id);
         return;
       }
+      if (!r.test_mode && r.settings.post_purchase && ctx.order?.status !== "approved") { await cancel(tx,r.id); return; }
       if (r.recovery && !purchaseTag(ctx.product)) throw new ProviderError("RECOVERY_PRODUCT_MAPPING_REQUIRED");
-      const promotion = r.settings.promotion_product_id
-        ? promotionProduct((await tx("SELECT * FROM aw_products WHERE id=$1 AND user_id=$2", [r.settings.promotion_product_id, r.user_id]))[0], r.settings.promotion_offer_id)
+      const promotionId = n.type === "message" && c.promotionProductId ? c.promotionProductId : r.settings.promotion_product_id;
+      const nodePromotion = !!(n.type === "message" && c.promotionProductId);
+      let skipMessage = false;
+      const promotion = promotionId
+        ? promotionProduct((await tx("SELECT * FROM aw_products WHERE id=$1 AND user_id=$2", [promotionId, r.user_id]))[0], r.settings.promotion_offer_id)
         : null;
       if (r.settings.sales_mode === "upsell" && !promotion) throw new ProviderError("PROMOTION_PRODUCT_REQUIRED");
       ctx.promotion = promotion;
-      if (promotion && (!ctx.deal || (!ctx.deal.contact_email && !ctx.deal.contact_phone))) {
+      if (!r.test_mode && promotion && (!ctx.deal || (!ctx.deal.contact_email && !ctx.deal.contact_phone))) {
         await cancel(tx, r.id);
         return;
       }
@@ -285,8 +289,8 @@ export async function executeJob(
       ) {
         const paid = await hasJourneyPurchase(r.user_id,purchaseProduct,{email:ctx.deal.contact_email,phone:ctx.deal.contact_phone},tx,!(r.recovery||promotion));
         if (paid) {
-          await cancel(tx, r.id);
-          return;
+          if (nodePromotion) skipMessage = true;
+          else { await cancel(tx, r.id); return; }
         }
       }
       if (!r.test_mode && r.context?.enrollment_id) {
@@ -309,10 +313,27 @@ export async function executeJob(
       let branch: string | undefined;
       let delay = 0;
       let output: any = {};
-      if (n.type === "condition")
-        branch = conditionMatches(c, ctx) ? "yes" : "no";
+      if (n.type === "condition") {
+        if (c.kind === "product_purchased") {
+          const [target] = await tx("SELECT * FROM aw_products WHERE id=$1 AND user_id=$2", [c.productId,r.user_id]);
+          if (!target) throw new ProviderError("CONDITION_PRODUCT_MISSING");
+          branch = ctx.deal && await hasJourneyPurchase(r.user_id,target,{email:ctx.deal.contact_email,phone:ctx.deal.contact_phone},tx) ? "yes" : "no";
+        } else branch = conditionMatches(c, ctx) ? "yes" : "no";
+      }
       if (n.type === "wait") delay = Number(c.seconds);
-      if (n.type === "message") {
+      if (n.type === "message" && nodePromotion && ctx.deal) {
+        for (const productId of c.excludePurchasedProductIds || []) {
+          const [excluded] = await tx("SELECT * FROM aw_products WHERE id=$1 AND user_id=$2",[productId,r.user_id]);
+          if (!excluded) throw new ProviderError("OFFER_EXCLUSION_MISSING");
+          if (await hasJourneyPurchase(r.user_id,excluded,{email:ctx.deal.contact_email,phone:ctx.deal.contact_phone},tx)) skipMessage = true;
+        }
+      }
+      if (!r.test_mode && n.type === "message" && nodePromotion && c.priorityOffer) {
+        const [delivered] = await tx("SELECT id FROM tracking_order_deliveries WHERE order_id=$1 AND status='delivered' LIMIT 1",[r.order_id]);
+        if (!ctx.order || Date.now()-new Date(ctx.order.created_at).getTime()>2*3600000 || delivered) skipMessage = true;
+      }
+      if (skipMessage) output = { skipped: true, reason: "already_purchased_or_ineligible" };
+      if (n.type === "message" && !skipMessage) {
         if (!r.test_mode && !isSendWindow(r.settings)) {
           await tx(
             "UPDATE aw_jobs SET status='waiting',due_at=NOW()+INTERVAL '15 minutes',locked_until=NULL WHERE id=$1",
@@ -504,6 +525,7 @@ export async function executeJob(
               channel: c.channel,
               to,
               body,
+              button: c.buttonText && trackedCheckout ? { text: String(c.buttonText), url: trackedCheckout } : undefined,
               unsubscribeUrl: unsubscribe || undefined,
               subject: renderVariables(template.subject, vars),
               html: emailHtml(

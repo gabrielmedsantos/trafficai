@@ -68,7 +68,7 @@ export async function dispatchEvents(limit = 50) {
           (n: any) => n.type === "trigger",
         );
         if (trigger?.data.config.event !== e.event_type) continue;
-        if(e.event_type==='checkout.recovery' && f.version_recovery && e.deal_id){
+        if(((e.event_type==='checkout.recovery' && f.version_recovery) || (e.event_type==='payment.approved' && f.settings?.post_purchase===true)) && e.deal_id){
           // Repeated PIX/order attempts must not restart the same channel's
           // recovery for the same product/contact during its seven-day cycle.
           const duplicate=await tx(`SELECT r.id FROM aw_runs r

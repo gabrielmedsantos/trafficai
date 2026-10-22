@@ -972,6 +972,7 @@ export default function FlowEditor({ id }: { id: string }) {
               <small>Para verificar compra por tag, use {"{{product_tag}}"} (entrada) ou {"{{promotion_tag}}"} (oferta). Pedidos aprovados também são consultados pelo motor.</small>
               {select("Condição", "kind", [
                 { id: "order_status", name: "Estado do pedido" },
+                { id: "product_purchased", name: "Já comprou o produto" },
                 { id: "has_tag", name: "Contato tem tag" },
                 { id: "field_equals", name: "Campo do CRM" },
                 { id: "channel_available", name: "Canal disponível" },
@@ -985,13 +986,15 @@ export default function FlowEditor({ id }: { id: string }) {
                   { id: "contact_name", name: "Nome" },
                   { id: "status", name: "Estado" },
                 ])}
-              <label>
+              {config.kind === "product_purchased" && select("Produto comprado", "productId", products)}
+              {config.kind !== "product_purchased" && <label>
                 Valor para comparar
                 <input
                   value={config.value || ""}
                   onChange={(e) => field("value", e.target.value)}
                 />
               </label>
+              }
               <p>
                 Saída verde: Sim. Saída rosa: Não. Conecte as duas a caminhos
                 com término.
@@ -1018,6 +1021,11 @@ export default function FlowEditor({ id }: { id: string }) {
                 "templateId",
                 templates.filter((t) => t.channel === config.channel),
               )}
+              {select("Produto oferecido neste bloco (opcional)", "promotionProductId", products.filter(p => !!p.checkout_url))}
+              <label>Texto do botão de compra<input maxLength={60} value={config.buttonText || ""} onChange={e => field("buttonText", e.target.value)} /></label>
+              {config.promotionProductId && <small>A oferta será pulada se este produto já tiver compra aprovada. O botão usa o checkout cadastrado no produto.</small>}
+              {config.priorityOffer && <p>Oferta de prioridade: só envia para pedido ainda não entregue e criado há menos de 2 horas.</p>}
+              {(config.excludePurchasedProductIds || []).length > 0 && <p>Não oferecer se já comprou: {(config.excludePurchasedProductIds || []).map((id: string) => products.find(p => p.id === id)?.name || id).join(", ")}.</p>}
               <MessageContent
                 key={chosen.id + ":" + config.channel + ":" + config.templateId}
                 channel={String(config.channel || "email")}

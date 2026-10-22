@@ -120,6 +120,7 @@ export function graphIssues(g: any, publish = false): Issue[] {
     if (n.type === "condition") {
       if (
         ![
+          "product_purchased",
           "order_status",
           "has_tag",
           "field_equals",
@@ -130,6 +131,7 @@ export function graphIssues(g: any, publish = false): Issue[] {
         ].includes(c.kind)
       )
         issues.push({ nodeId: n.id, message: "Escolha uma condição válida" });
+      if(c.kind === "product_purchased" && !UUID.test(c.productId || "")) issues.push({nodeId:n.id,message:"Selecione o produto cuja compra será consultada"});
       for (const handle of ["yes", "no"])
         if (edges.filter((e) => e.sourceHandle === handle).length !== 1)
           issues.push({
@@ -181,6 +183,9 @@ export function graphIssues(g: any, publish = false): Issue[] {
         nodeId: n.id,
         message: "Escolha canal, modelo e integração",
       });
+    if(n.type === "message" && c.excludePurchasedProductIds != null && (!Array.isArray(c.excludePurchasedProductIds) || c.excludePurchasedProductIds.length>10 || c.excludePurchasedProductIds.some((id:any)=>!UUID.test(id)))) issues.push({nodeId:n.id,message:"Exclusões de compra inválidas"});
+    if(n.type === "message" && c.promotionProductId && !UUID.test(c.promotionProductId)) issues.push({nodeId:n.id,message:"Produto da oferta inválido"});
+    if(n.type === "message" && c.buttonText && (typeof c.buttonText !== "string" || c.buttonText.length>60 || /[|\n\r]/.test(c.buttonText))) issues.push({nodeId:n.id,message:"Texto do botão inválido"});
     if (
       n.type === "tag" &&
       (!["add", "remove"].includes(c.operation) ||
