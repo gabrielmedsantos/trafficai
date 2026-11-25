@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import ClientBillingLedger from '@/components/ClientBillingLedger';
 import {
     ChevronLeft, ChevronRight, Plus, X, ArrowUpCircle, ArrowDownCircle,
     Wallet, TrendingUp, TrendingDown, RefreshCw, Trash2, Edit2,
@@ -17,6 +18,7 @@ const token = () => localStorage.getItem('trafficai_token') || '';
 
 interface DashboardData {
     regime?: 'cash' | 'accrual';
+    billing_receipts?: { id: string; client_id: string; client_name: string; reference_month: string; total_amount: number; received_date: string; paid_at: string; payment_method: string | null }[];
     income: number;
     expense: number;
     balance: number;
@@ -121,6 +123,12 @@ interface BillingSummary {
     total_owed: number;
     total_paid: number;
     oldest_pending: string | null;
+    overdue_count: number;
+    overdue_amount: number;
+    oldest_overdue: string | null;
+    upcoming_count: number;
+    upcoming_amount: number;
+    next_due_date: string | null;
 }
 
 interface PendingReminder {
@@ -229,8 +237,10 @@ export default function FinanceiroPage() {
     const [clients, setClients] = useState<Client[]>([]);
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<'overview' | 'management' | 'income' | 'expense' | 'recurring' | 'contracts'>('overview');
-    const [regime, setRegime] = useState<'cash' | 'accrual'>('accrual');
+    const [activeTab, setActiveTab] = useState<'overview' | 'management' | 'income' | 'expense' | 'recurring' | 'contracts' | 'collections'>('overview');
+    const [collectionClient, setCollectionClient] = useState('');
+    const [loadError, setLoadError] = useState('');
+    const [regime, setRegime] = useState<'cash' | 'accrual'>('cash');
 
     // Management
     const [metrics, setMetrics] = useState<MetricsData | null>(null);
@@ -258,7 +268,7 @@ export default function FinanceiroPage() {
     const [billingMonths, setBillingMonths] = useState(3);
     const [generatingBilling, setGeneratingBilling] = useState(false);
     const [billingModal, setBillingModal] = useState<BillingRecord | null>(null);
-    const [billingForm, setBillingForm] = useState({ status: 'paid', percentage_amount: '', payment_method: '', notes: '', due_date: '' });
+    const [billingForm, setBillingForm] = useState({ status: 'paid', percentage_amount: '', payment_method: '', notes: '', due_date: '', paid_at: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) });
 
     // Lembretes automáticos de fatura (WhatsApp)
     const [reminderEnabled, setReminderEnabled] = useState(false);
@@ -361,6 +371,7 @@ export default function FinanceiroPage() {
 
     const fetchAll = useCallback(async () => {
         setLoading(true);
+        setLoadError('');
         try {
             const [dashRes, txRes, clientsRes, accountsRes] = await Promise.all([
                 fetch(`${API}/financial/dashboard?month=${month}&year=${year}&regime=${regime}`, { headers: { Authorization: `Bearer ${token()}` } }),
@@ -369,12 +380,13 @@ export default function FinanceiroPage() {
                 fetch(`${API}/financial/accounts`, { headers: { Authorization: `Bearer ${token()}` } }),
             ]);
             const [dash, tx, cl, acc] = await Promise.all([dashRes.json(), txRes.json(), clientsRes.json(), accountsRes.json()]);
-            if (dash.success) setDashboard(dash.data);
+            if (!dashRes.ok || !dash.success) throw new Error(dash.error?.message || 'Não foi possível carregar o resumo financeiro.');
+            setDashboard(dash.data);
             if (tx.success) setTransactions(tx.data);
             if (cl.success) setClients(cl.data);
             if (acc.success) setAccounts(acc.data);
-        } catch {
-            // ignore
+        } catch (e) {
+            setLoadError(e instanceof Error ? e.message : 'Não foi possível carregar o financeiro.');
         } finally {
             setLoading(false);
         }
@@ -425,6 +437,7 @@ export default function FinanceiroPage() {
 
     useEffect(() => { fetchAll(); }, [fetchAll]);
     useEffect(() => { if (activeTab === 'recurring') { fetchRecurring(); fetchBilling(); fetchReminderSettings(); fetchPendingReminders(); } }, [activeTab, fetchRecurring, fetchBilling, fetchReminderSettings, fetchPendingReminders]);
+    useEffect(() => { if (activeTab === 'collections') fetchBilling(); }, [activeTab, fetchBilling]);
     useEffect(() => { if (activeTab === 'contracts') fetchContracts(); }, [activeTab, fetchContracts]);
     useEffect(() => { if (activeTab === 'recurring') fetchBilling(); }, [billingMonths, fetchBilling]);
     useEffect(() => { if (activeTab === 'management') fetchManagement(); }, [activeTab, fetchManagement]);
@@ -531,7 +544,8 @@ export default function FinanceiroPage() {
         { key: 'management', label: 'Gestão' },
         { key: 'income',     label: 'Entradas' },
         { key: 'expense',    label: 'Saídas' },
-        { key: 'recurring',  label: 'Recorrências' },
+        { key: 'collections', label: 'Cobranças e recebimentos' },
+        { key: 'recurring',  label: 'Recorrências e ajustes' },
         { key: 'contracts',  label: 'Contratos' },
     ] as const;
 
@@ -595,10 +609,13 @@ export default function FinanceiroPage() {
                 </div>
             </div>
 
+            {loadError && <div role="alert" style={{ padding: 16, color: '#f87171', border: '1px solid #f87171', borderRadius: 10, marginBottom: 16 }}>{loadError} Os valores abaixo podem estar desatualizados. <button onClick={fetchAll}>Tentar novamente</button></div>}
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>{regime === 'cash' ? 'Caixa: dinheiro efetivamente recebido ou pago no período selecionado, incluindo mensalidades antigas quitadas agora.' : 'Competência: receitas e despesas referentes ao período selecionado, mesmo sem pagamento.'} A receber reúne as mensalidades em aberto de todos os meses e as entradas avulsas pendentes do período.</p>
+
             {/* ─── KPI Cards ─── */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
                 <KpiCard
-                    label="Receitas"
+                    label={regime === 'cash' ? 'Recebido no período' : 'Receitas por competência'}
                     value={formatBRL(dashboard?.income || 0)}
                     icon={TrendingUp}
                     color="#10b981"
@@ -709,6 +726,27 @@ export default function FinanceiroPage() {
                 </div>
             )}
 
+            {activeTab === 'collections' && <div style={{ display: 'grid', gap: 16, marginBottom: 24 }}>
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+                    <h3 style={{ marginTop: 0 }}>Cobranças e recebimentos por cliente</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Selecione o cliente para ver todas as mensalidades, dar baixa na mais antiga ou conferir pagamentos anteriores.</p>
+                    <select aria-label="Cliente das cobranças" value={collectionClient} onChange={e => setCollectionClient(e.target.value)} style={{ width: '100%', padding: 12, borderRadius: 8, background: 'var(--bg-input)', color: 'var(--text)', border: '1px solid var(--border)' }}>
+                        <option value="">Selecione um cliente</option>
+                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                </div>
+                {collectionClient && <ClientBillingLedger key={collectionClient} clientId={collectionClient} onChanged={() => { fetchAll(); fetchBilling(); fetchManagement(); }} />}
+            </div>}
+            {(activeTab === 'overview' || activeTab === 'income') && <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 20 }}>
+                <h3 style={{ marginTop: 0 }}>Mensalidades recebidas no período</h3>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Histórico pela data real do recebimento. Cada pagamento aparece uma única vez nos totais; não é necessário lançar outra entrada.</p>
+                {!dashboard?.billing_receipts?.length ? <p style={{ color: 'var(--text-muted)' }}>Nenhum recebimento de mensalidade registrado neste período. Consulte os meses anteriores ou registre um pagamento em Cobranças e recebimentos.</p> : dashboard.billing_receipts.map(r => <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderTop: '1px solid var(--border)', padding: '12px 0' }}>
+                    <div style={{ flex: 1 }}><strong>{r.client_name}</strong><div style={{ color: 'var(--text-muted)', fontSize: 12 }}>Mensalidade de {fmtMonthYear(r.reference_month)} · recebido em {formatDate(r.received_date)}{r.payment_method ? ` · ${r.payment_method}` : ''}</div></div>
+                    <strong style={{ color: '#10b981' }}>{formatBRL(Number(r.total_amount))}</strong>
+                    <button onClick={() => { setCollectionClient(r.client_id); setActiveTab('collections'); }} style={{ background: 'transparent', color: 'var(--primary)', border: '1px solid var(--border)', borderRadius: 8, padding: 8, cursor: 'pointer' }}>Ver mensalidades</button>
+                </div>)}
+            </section>}
+
             {/* ─── Management tab ─── */}
             {activeTab === 'management' && (
                 <ManagementTab
@@ -720,7 +758,7 @@ export default function FinanceiroPage() {
             )}
 
             {/* ─── Transactions list (overview / income / expense) ─── */}
-            {activeTab !== 'recurring' && activeTab !== 'contracts' && activeTab !== 'management' && (
+            {activeTab !== 'recurring' && activeTab !== 'contracts' && activeTab !== 'management' && activeTab !== 'collections' && (
                 <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
                     <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
@@ -939,9 +977,9 @@ export default function FinanceiroPage() {
 
                     {/* ── Reminders / Alerts ── */}
                     {(() => {
-                        const overdue = billingSummary.filter(s => Number(s.total_owed) > 0);
+                        const overdue = billingSummary.filter(s => Number(s.overdue_amount) > 0);
                         if (overdue.length === 0) return null;
-                        const totalDebt = overdue.reduce((sum, s) => sum + Number(s.total_owed), 0);
+                        const totalDebt = overdue.reduce((sum, s) => sum + Number(s.overdue_amount), 0);
                         return (
                             <div style={{ background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.25)', borderRadius: 14, padding: '16px 20px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -951,7 +989,7 @@ export default function FinanceiroPage() {
                                             {overdue.length} cliente{overdue.length !== 1 ? 's' : ''} inadimplente{overdue.length !== 1 ? 's'  : ''}
                                         </span>
                                         <span style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 10 }}>
-                                            Total em aberto: <strong style={{ color: '#ef4444' }}>{formatBRL(totalDebt)}</strong>
+                                            Total em atraso: <strong style={{ color: '#ef4444' }}>{formatBRL(totalDebt)}</strong>
                                         </span>
                                     </div>
                                 </div>
@@ -964,12 +1002,12 @@ export default function FinanceiroPage() {
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.client_name}</div>
                                                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                                                    {Number(s.pending_count)} {Number(s.pending_count) === 1 ? 'mês em atraso' : 'meses em atraso'}
-                                                    {s.oldest_pending && ` • desde ${fmtMonthYear(s.oldest_pending)}`}
+                                                    {Number(s.overdue_count)} {Number(s.overdue_count) === 1 ? 'mês em atraso' : 'meses em atraso'}
+                                                    {s.oldest_overdue && ` • desde ${fmtMonthYear(s.oldest_overdue)}`}
                                                 </div>
                                             </div>
                                             <div style={{ fontSize: 15, fontWeight: 700, color: '#ef4444', flexShrink: 0 }}>
-                                                {formatBRL(Number(s.total_owed))}
+                                                {formatBRL(Number(s.overdue_amount))}
                                             </div>
                                         </div>
                                     ))}
@@ -982,7 +1020,7 @@ export default function FinanceiroPage() {
                     {billingSummary.length > 0 && (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
                             {billingSummary.map(s => (
-                                <div key={s.client_id} style={{ background: 'var(--bg-card)', border: `1px solid ${Number(s.total_owed) > 0 ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, borderRadius: 14, padding: '16px 18px' }}>
+                                <div key={s.client_id} style={{ background: 'var(--bg-card)', border: `1px solid ${Number(s.overdue_amount) > 0 ? 'rgba(239,68,68,.3)' : 'var(--border)'}`, borderRadius: 14, padding: '16px 18px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                                         <div style={{ width: 34, height: 34, borderRadius: 10, background: s.avatar_color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0 }}>
                                             {s.client_name.split(' ').slice(0, 2).map((w: string) => w[0]).join('').toUpperCase()}
@@ -992,14 +1030,26 @@ export default function FinanceiroPage() {
                                             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.pending_count} {Number(s.pending_count) === 1 ? 'parcela' : 'parcelas'} pendente{Number(s.pending_count) !== 1 ? 's' : ''}</div>
                                         </div>
                                     </div>
-                                    {Number(s.total_owed) > 0 ? (
-                                        <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>{formatBRL(Number(s.total_owed))}</div>
+                                    {Number(s.overdue_amount) > 0 ? (
+                                        <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>{formatBRL(Number(s.overdue_amount))} em atraso</div>
                                     ) : (
                                         <div style={{ fontSize: 13, color: '#10b981', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle2 size={14} /> Em dia</div>
                                     )}
-                                    {s.oldest_pending && (
+                                    {Number(s.overdue_count) > 0 && (
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                                            Desde {(safeDate(s.oldest_pending)?.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })) || '—'}
+                                            {s.overdue_count} {Number(s.overdue_count) === 1 ? 'mensalidade atrasada' : 'mensalidades atrasadas'}
+                                            {s.oldest_overdue && ` • desde ${fmtMonthYear(s.oldest_overdue)}`}
+                                        </div>
+                                    )}
+                                    {Number(s.upcoming_count) > 0 && (
+                                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 6 }}>
+                                            A vencer: {formatBRL(Number(s.upcoming_amount))}
+                                            {s.next_due_date && ` • próximo vencimento ${safeDate(s.next_due_date)?.toLocaleDateString('pt-BR') || '—'}`}
+                                        </div>
+                                    )}
+                                    {Number(s.total_owed) > 0 && (
+                                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                                            Total em aberto: {formatBRL(Number(s.total_owed))}
                                         </div>
                                     )}
                                     {reminderEnabled && (
@@ -1131,7 +1181,7 @@ export default function FinanceiroPage() {
                                                         onClick={() => {
                                                             if (isPaid) return;
                                                             setBillingModal(r);
-                                                            setBillingForm({ status: 'paid', percentage_amount: hasPercentage ? String(r.percentage_amount || '') : '', payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
+                                                            setBillingForm({ status: 'paid', percentage_amount: hasPercentage ? String(r.percentage_amount || '') : '', payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10), paid_at: r.paid_at ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(r.paid_at)) : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) });
                                                         }}
                                                         title={isPaid ? 'Recebido' : 'Marcar como recebido'}
                                                         style={{
@@ -1205,7 +1255,7 @@ export default function FinanceiroPage() {
                                                         <button
                                                             onClick={() => {
                                                                 setBillingModal(r);
-                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
+                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10), paid_at: r.paid_at ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(r.paid_at)) : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) });
                                                             }}
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 4, flexShrink: 0 }}
                                                         >
@@ -1216,7 +1266,7 @@ export default function FinanceiroPage() {
                                                         <button
                                                             onClick={() => {
                                                                 setBillingModal(r);
-                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10) });
+                                                                setBillingForm({ status: r.status, percentage_amount: String(r.percentage_amount || ''), payment_method: r.payment_method || '', notes: r.notes || '', due_date: (r.due_date || '').toString().slice(0, 10), paid_at: r.paid_at ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(r.paid_at)) : new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()) });
                                                             }}
                                                             title="Editar cobrança"
                                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(148,163,184,.4)', padding: 4, flexShrink: 0 }}
@@ -1352,6 +1402,7 @@ export default function FinanceiroPage() {
                             </div>
 
                             {/* Percentage amount (if contract has %) */}
+                            {billingForm.status === 'paid' && <label style={{ display: 'block', marginBottom: 16, color: 'var(--text)' }}>Data do recebimento<input type="date" required value={billingForm.paid_at} onChange={e => setBillingForm(f => ({ ...f, paid_at: e.target.value }))} style={{ display: 'block', marginTop: 6, padding: 10, background: 'var(--bg-input)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8 }} /></label>}
                             {(billingModal.contract_type === 'percentage' || billingModal.contract_type === 'mixed') && (
                                 <div>
                                     <label style={labelSt}>
@@ -1431,14 +1482,17 @@ export default function FinanceiroPage() {
                                         notes: billingForm.notes || null,
                                         due_date: billingForm.due_date || null,
                                     };
+                                    if (billingForm.status === 'paid') body.paid_at = billingForm.paid_at;
                                     if (billingForm.percentage_amount) body.percentage_amount = parseFloat(billingForm.percentage_amount);
-                                    await fetch(`${API}/financial/billing/${billingModal!.id}`, {
+                                    const response = await fetch(`${API}/financial/billing/${billingModal!.id}`, {
                                         method: 'PUT',
                                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
                                         body: JSON.stringify(body),
                                     });
+                                    const result = await response.json();
+                                    if (!response.ok || !result.success) { alert(result.error?.message || 'Não foi possível salvar o recebimento.'); return; }
                                     setBillingModal(null);
-                                    fetchBilling();
+                                    fetchBilling(); fetchAll(); fetchManagement();
                                 }}
                                 style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 14, fontWeight: 600, background: billingForm.status === 'paid' ? '#10b981' : 'var(--primary)', border: 'none', color: '#fff', cursor: 'pointer' }}
                             >

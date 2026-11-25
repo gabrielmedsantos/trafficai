@@ -44,12 +44,31 @@ function handlePlanBlocked(err: NonNullable<ApiResponse['error']>): void {
 
 const PUBLIC_PREFIXES = ['/d/', '/report/', '/r/', '/marketing'];
 
-/** Guarda o token renovado pelo backend (sessão deslizante). */
-function storeRenewedToken(res: Response): void {
-    if (typeof window === 'undefined') return;
+export class ApiError extends Error {
+    constructor(message: string, public readonly status: number, public readonly code?: string | number, public readonly action?: string) {
+        super(message);
+        this.name = 'ApiError';
+    }
+}
+
+/** Apenas a rejeição da sessão TrafficAI pode deslogar. Integrações têm autenticação própria. */
+function isSessionRejection(res: Response, json: ApiResponse): boolean {
+    if (res.status !== 401) return false;
+    const code = json.error?.code;
+    if (['AUTH_SESSION_INVALID', 'AUTH_TOKEN_INVALID', 'AUTH_TOKEN_EXPIRED', 'AUTH_REQUIRED'].includes(String(code))) return true;
+    // Compatibilidade com o backend anterior, sem interpretar um erro do Google/Meta como sessão expirada.
+    return (code === undefined || code === 401) &&
+        ['Invalid or expired token', 'No authentication token provided'].includes(json.error?.message || '');
+}
+
+/** Uma resposta antiga nunca pode trocar a sessão de um login mais recente. */
+function storeRenewedToken(res: Response, requestToken: string | null): void {
+    if (typeof window === 'undefined' || !requestToken) return;
     const renewed = res.headers.get('X-Renewed-Token');
     if (!renewed) return;
-    try { localStorage.setItem('trafficai_token', renewed); } catch { /* sem storage */ }
+    try {
+        if (localStorage.getItem('trafficai_token') === requestToken) localStorage.setItem('trafficai_token', renewed);
+    } catch { /* sem storage */ }
 }
 
 /**
@@ -69,9 +88,10 @@ export function endImpersonation(): boolean {
     } catch { return false; }
 }
 
-function handleUnauthorized(path: string): void {
+function handleUnauthorized(path: string, requestToken: string | null): void {
     if (typeof window === 'undefined') return;
     if (path.startsWith('/auth/login') || path.startsWith('/auth/register')) return;
+    if (!requestToken || localStorage.getItem('trafficai_token') !== requestToken) return;
     // Sessão de suporte venceu: volta pra conta do admin em vez de deslogar.
     if (endImpersonation()) return;
     const here = window.location.pathname;
@@ -84,8 +104,9 @@ function handleUnauthorized(path: string): void {
 }
 
 /** Conta suspensa pelo admin: sai e mostra o aviso no login. */
-function handleSuspended(): void {
+function handleSuspended(requestToken: string | null): void {
     if (typeof window === 'undefined' || window.location.pathname === '/') return;
+    if (!requestToken || localStorage.getItem('trafficai_token') !== requestToken) return;
     try { localStorage.removeItem('trafficai_token'); } catch { /* sem storage */ }
     window.location.assign('/?suspended=1');
 }
@@ -102,26 +123,26 @@ class ApiClient {
         return localStorage.getItem('trafficai_token');
     }
 
-    private getHeaders(): HeadersInit {
+    private getHeaders(token: string | null = this.getToken()): HeadersInit {
         const headers: HeadersInit = { 'Content-Type': 'application/json' };
-        const token = this.getToken();
         if (token) headers['Authorization'] = `Bearer ${token}`;
         return headers;
     }
 
     async request<T>(method: string, path: string, body?: any): Promise<T> {
         const url = `${this.baseUrl}${path}`;
+        const requestToken = this.getToken();
         const options: RequestInit = {
             method,
-            headers: this.getHeaders(),
+            headers: this.getHeaders(requestToken),
             ...(body && { body: JSON.stringify(body) }),
         };
 
         const res = await fetch(url, options);
-        storeRenewedToken(res);
-        if (res.status === 401 && this.getToken()) handleUnauthorized(path);
         const json: ApiResponse<T> = await res.json();
-        if (res.status === 403 && json.error?.code === 'ACCOUNT_SUSPENDED') handleSuspended();
+        storeRenewedToken(res, requestToken);
+        if (isSessionRejection(res, json)) handleUnauthorized(path, requestToken);
+        if (res.status === 403 && json.error?.code === 'ACCOUNT_SUSPENDED') handleSuspended(requestToken);
 
         // 402 Payment Required — trial expirou / plano inativo → redireciona
         if (res.status === 402 && json.error) {
@@ -130,7 +151,7 @@ class ApiClient {
         }
 
         if (!json.success) {
-            throw new Error(json.error?.message || 'API request failed');
+            throw new ApiError(json.error?.message || 'API request failed', res.status, json.error?.code, json.error?.action);
         }
 
         return json.data as T;
@@ -143,15 +164,15 @@ class ApiClient {
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
         const res = await fetch(url, { method: 'POST', headers, body: formData });
-        storeRenewedToken(res);
-        if (res.status === 401 && this.getToken()) handleUnauthorized(path);
         const json: ApiResponse<T> = await res.json();
-        if (res.status === 403 && json.error?.code === 'ACCOUNT_SUSPENDED') handleSuspended();
+        storeRenewedToken(res, token);
+        if (isSessionRejection(res, json)) handleUnauthorized(path, token);
+        if (res.status === 403 && json.error?.code === 'ACCOUNT_SUSPENDED') handleSuspended(token);
         if (res.status === 402 && json.error) {
             handlePlanBlocked(json.error);
             throw new Error(json.error.message || 'Plano inativo');
         }
-        if (!json.success) throw new Error(json.error?.message || 'Upload failed');
+        if (!json.success) throw new ApiError(json.error?.message || 'Upload failed', res.status, json.error?.code, json.error?.action);
         return json.data as T;
     }
 
@@ -534,15 +555,20 @@ class ApiClient {
         return this.request<any>('POST',`/tracking/sources/${sourceId}/orders/${orderId}/delivery/complete-manual`,{confirmed:true});
     }
     async downloadOrderDelivery(sourceId:string,orderId:string,kind:string) {
-        const response=await fetch(`${this.baseUrl}/tracking/sources/${sourceId}/orders/${orderId}/delivery/files/${kind}`,{headers:this.getHeaders()});
-        storeRenewedToken(response);
-        if(!response.ok){const result=await response.json();throw new Error(result.error?.message||'Arquivo indisponível');}
+        const requestToken=this.getToken();
+        const path=`/tracking/sources/${sourceId}/orders/${orderId}/delivery/files/${kind}`;
+        const response=await fetch(`${this.baseUrl}${path}`,{headers:this.getHeaders(requestToken)});
+        storeRenewedToken(response,requestToken);
+        if(!response.ok){const result=await response.json();if(isSessionRejection(response,result))handleUnauthorized(path,requestToken);throw new ApiError(result.error?.message||'Arquivo indisponível',response.status,result.error?.code,result.error?.action);}
         return response.blob();
     }
     /** Foto que o responsável enviou no quiz (null quando não há). */
     async getQuizSessionPhoto(sourceId:string,sessionId:string):Promise<Blob|null> {
-        const response=await fetch(`${this.baseUrl}/tracking/quiz/sources/${sourceId}/sessions/${sessionId}/photo`,{headers:this.getHeaders()});
-        storeRenewedToken(response);
+        const requestToken=this.getToken();
+        const path=`/tracking/quiz/sources/${sourceId}/sessions/${sessionId}/photo`;
+        const response=await fetch(`${this.baseUrl}${path}`,{headers:this.getHeaders(requestToken)});
+        storeRenewedToken(response,requestToken);
+        if(response.status===401){const result=await response.json();if(isSessionRejection(response,result))handleUnauthorized(path,requestToken);return null;}
         return response.ok?response.blob():null;
     }
     async testSalesNotify(sourceId: string) {
@@ -692,19 +718,21 @@ class ApiClient {
         console.log('[AUDITORIA] Chamando getTrackingLeads:', url);
 
         try {
-            const res = await fetch(url, { method: 'GET', headers: this.getHeaders() });
-            storeRenewedToken(res);
+            const requestToken = this.getToken();
+            const res = await fetch(url, { method: 'GET', headers: this.getHeaders(requestToken) });
+            const json = await res.json() as ApiResponse<any> & { meta?: { total?: number; limit?: number; offset?: number } };
+            storeRenewedToken(res, requestToken);
 
-            if (res.status === 401 && this.getToken()) {
-                handleUnauthorized(`/tracking/sources/${sourceId}/leads`);
+            if (isSessionRejection(res, json)) {
+                handleUnauthorized(`/tracking/sources/${sourceId}/leads`, requestToken);
                 throw new Error('Não autorizado');
             }
 
-            const json = await res.json() as ApiResponse<any> & { meta?: { total?: number; limit?: number; offset?: number } };
+
             console.log('[AUDITORIA] Resposta do backend:', { success: json.success, dataLength: json.data?.length || 0, total: json.meta?.total });
 
             if (!json.success) {
-                throw new Error(json.error?.message || 'API request failed');
+                throw new ApiError(json.error?.message || 'API request failed', res.status, json.error?.code, json.error?.action);
             }
 
             return {
@@ -868,7 +896,7 @@ class ApiClient {
 
     // ── Google Calendar events (via /routine) ──
     async getRoutineGoogleEvents(start: string, end: string) {
-        return this.request<any>('GET', `/routine/google/events?start=${start}&end=${end}`).catch(() => []);
+        return this.request<any>('GET', `/routine/google/events?start=${start}&end=${end}`);
     }
     async getRoutineGoogleStatus() {
         return this.request<{ connected: boolean; email: string | null; configured: boolean }>('GET', '/routine/google/status').catch(() => ({ connected: false, email: null, configured: false }));

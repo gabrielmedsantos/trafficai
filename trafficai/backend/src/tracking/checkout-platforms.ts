@@ -135,6 +135,13 @@ export function parsePlatformWebhook(platform: Platform, b: any): PlatformResult
 }
 
 // Ticto v2: https://webhook.ticto.dev/docs/v2 . Values are cents, not reais.
+function tictoDate(value: unknown): string | undefined {
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(value.trim())) {
+        return iso(value.trim() + '-03:00');
+    }
+    return iso(value);
+}
+
 function parseTicto(b:any):PlatformResult {
     const c=b.customer||{},item=b.item||{},transaction=b.order||{};
     // Exact fixture of Ticto's "Testar" button, even when testing approval.
@@ -176,8 +183,8 @@ function parseTicto(b:any):PlatformResult {
     const order:NormalizedOrder={platform:'ticto',external_order_id:(status==='abandoned'?'cart-':'')+id,status,
         payment_method:normalizePaymentMethod(b.payment_method),product_id:pick(item.product_id),product_name:pick(item.product_name),
         gross_value:gross,net_value:net,currency:'BRL',customer_name:pick(c.name),customer_email:pick(c.email),customer_phone:phone||undefined,
-        ...utms,sck:clean(tracking.sck,params.sck),checkout_url:pick(b.checkout_url),order_created_at:iso(transaction.order_date),
-        approved_at:status==='approved'?iso(b.status_date):undefined,refunded_at:status==='refunded'||status==='chargeback'?iso(b.status_date):undefined,raw};
+        ...utms,sck:clean(tracking.sck,params.sck),checkout_url:pick(b.checkout_url),order_created_at:tictoDate(transaction.order_date),
+        approved_at:status==='approved'?tictoDate(b.status_date):undefined,refunded_at:status==='refunded'||status==='chargeback'?tictoDate(b.status_date):undefined,raw};
     return {kind:status==='abandoned'?'cart':'order',order};
 }
 

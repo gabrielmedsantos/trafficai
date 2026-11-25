@@ -78,8 +78,7 @@ async function generateAndSend(settings: any, kind: 'weekly' | 'monthly', daysBa
 
     // Gera PDF snapshot
     const data = await buildReportForAccount(settings.user_id, settings.account_id, startStr, endStr);
-    const html = renderReportHTML(data);
-    const snapshot = await saveReportSnapshot(settings.user_id, settings.account_id, html, {
+    const snapshot = await saveReportSnapshot(settings.user_id, settings.account_id, token => renderReportHTML(data, token), {
         periodStart: startStr,
         periodEnd: endStr,
         accountName: data.accountName,

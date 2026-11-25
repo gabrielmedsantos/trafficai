@@ -15,6 +15,7 @@ export class AppError extends Error {
 }
 
 export class AuthError extends AppError {
+    public readonly code = 'AUTH_SESSION_INVALID';
     constructor(message: string = 'Unauthorized') {
         super(message, 401);
         Object.setPrototypeOf(this, AuthError.prototype);

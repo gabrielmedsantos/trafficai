@@ -66,6 +66,7 @@ export default function AgendaListPanel() {
     const [editing, setEditing] = useState<Routine | null>(null);
     // Fontes externas unificadas
     const [gcalEvents, setGcalEvents] = useState<any[]>([]);
+    const [gcalError, setGcalError] = useState<{ message: string; reconnect: boolean } | null>(null);
     const [gcalStatus, setGcalStatus] = useState<{ connected: boolean; email: string | null; configured: boolean }>({ connected: false, email: null, configured: false });
     const [optimTasks, setOptimTasks] = useState<any[]>([]);
 
@@ -82,7 +83,14 @@ export default function AgendaListPanel() {
                 api.getRoutinesWeek(),
                 api.listRoutinesConfig(),
                 api.getActiveAccounts().catch(() => []),
-                api.getRoutineGoogleEvents(todayStr, weekEndStr),
+                api.getRoutineGoogleEvents(todayStr, weekEndStr)
+                    .then(events => ({ events, error: null }))
+                    .catch(error => ({ events: [], error: {
+                        message: error.code === 'GOOGLE_REAUTH_REQUIRED' || error.message === 'Token Google inválido'
+                            ? 'Sua conexão com o Google Agenda precisa ser renovada.'
+                            : 'Não foi possível carregar o Google Agenda agora. Suas rotinas continuam disponíveis.',
+                        reconnect: error.code === 'GOOGLE_REAUTH_REQUIRED' || error.message === 'Token Google inválido',
+                    } })),
                 api.getRoutineGoogleStatus(),
                 api.listOptimizationTasks(todayStr, weekEndStr),
             ]);
@@ -90,7 +98,8 @@ export default function AgendaListPanel() {
             setWeek(w as any);
             setRoutines(r as any);
             setAccounts(a as any);
-            setGcalEvents(Array.isArray(gcal) ? gcal : (gcal as any)?.events || (gcal as any)?.data || []);
+            setGcalEvents(Array.isArray(gcal.events) ? gcal.events : (gcal.events as any)?.events || (gcal.events as any)?.data || []);
+            setGcalError(gcal.error);
             setGcalStatus(gcalSt as any);
             setOptimTasks(Array.isArray(tasks) ? tasks : (tasks as any)?.tasks || (tasks as any)?.data || []);
         } catch (err) { console.error(err); }
@@ -135,6 +144,10 @@ export default function AgendaListPanel() {
                 </button>
             </div>
 
+            {gcalError && <div role="alert" className="card" style={{ marginBottom: 20, padding: 16, borderColor: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <span>{gcalError.message}</span>
+                {gcalError.reconnect ? <Link href="/rotina" className="btn btn-primary">Reconectar Google Agenda</Link> : <button className="btn" onClick={load}>Tentar novamente</button>}
+            </div>}
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-secondary)' }}>
                     <div className="spinner" style={{ margin: '0 auto 16px' }} /> Carregando sua agenda…

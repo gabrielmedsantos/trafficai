@@ -45,6 +45,15 @@ const PLATFORMS: { key: string; name: string; steps: string[] }[] = [
             'Salve e envie o teste.',
         ],
     },
+    {
+        key: 'ticto', name: 'Ticto',
+        steps: [
+            'Selecione a fonte de vendas no Track AI e copie a URL acima.',
+            'Na área de Webhooks da Ticto, crie uma configuração, cole a URL e selecione a versão 2 e os produtos desejados.',
+            'Marque os eventos Venda Realizada, Pix Gerado, Boleto Impresso, Aguardando Pagamento, Venda Recusada, Reembolso, Chargeback e Pix Expirado.',
+            'Salve e use o botão Testar da Ticto para verificar o recebimento. O teste não contabiliza uma venda.',
+        ],
+    },
 ];
 
 const GENERIC_EXAMPLE = `{
@@ -130,7 +139,7 @@ export default function IntegracoesPage() {
                 </div>
                 {lastLine(lastByPlatform.other)}
                 <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    Monetizze, PerfectPay, Braip, Ticto, checkout próprio ou uma automação (n8n, Make, Zapier): mande um POST pra mesma URL
+                    Monetizze, PerfectPay, Braip, checkout próprio ou uma automação (n8n, Make, Zapier): mande um POST pra mesma URL
                     com este formato. O pedido entra em Vendas, Pedidos, Recuperação e nas notificações, e a venda aprovada vira Purchase na Meta.
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>

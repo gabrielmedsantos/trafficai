@@ -561,7 +561,9 @@ function PublicReportPageInner() {
               {topAds.map((ad, i) => {
                 const isVid = isVideoAd(ad);
                 const color = isVid ? C.purple : C.primary;
-                const canInline = isVid ? (!!ad.video_id || isInstagramPermalink(ad.watch_url)) : !!ad.thumbnail_url;
+                // Sempre abrir o lightbox: criativos antigos podem não ter thumbnail/video_id
+                // salvos, mas o endpoint público tenta buscá-los novamente na Meta.
+                const canInline = !!ad.ad_id;
                 const canOpen = canInline || !!ad.watch_url;
                 const canWatch = isVid && canOpen;
                 const openAd = () => {
@@ -570,21 +572,15 @@ function PublicReportPageInner() {
                 };
                 const thumbBox = (
                   <>
-                    {ad.thumbnail_url ? (
-                      <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', overflow: 'hidden', background: '#000' }}>
-                        {/* Fundo blurred da mesma imagem pra preencher moldura sem cortar */}
-                        <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt="" aria-hidden="true" loading="eager" decoding="async"
-                          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) brightness(.5)', transform: 'scale(1.2)' }} />
-                        {/* Imagem principal — contain, imageRendering pra melhor upscale */}
-                        <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt={ad.name} loading="eager" decoding="async"
-                          style={{ position: 'relative', width: '100%', height: '100%', objectFit: 'contain', display: 'block', imageRendering: 'auto' as any }}
-                          onError={e => { (e.currentTarget.parentElement!.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;color:${C.textDim};font-size:12px">sem preview</div>`); }} />
-                      </div>
-                    ) : (
-                      <div style={{ width: '100%', aspectRatio: '1/1', background: `linear-gradient(135deg, ${C.bg}, ${C.border})`, display: 'grid', placeItems: 'center', color: C.textDim, fontSize: 14, fontWeight: 700 }}>
-                        {isVid ? '▶ VÍDEO' : '📷 IMAGEM'}
-                      </div>
-                    )}
+                    <div style={{ width: '100%', aspectRatio: '1/1', position: 'relative', overflow: 'hidden', background: `linear-gradient(135deg, ${C.bg}, ${C.border})` }}>
+                      {ad.ad_id ? (
+                        <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt={ad.name} loading="lazy" decoding="async"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                          onError={e => { (e.currentTarget.parentElement!.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;color:${C.textDim};font-size:12px">prévia indisponível · clique para tentar abrir</div>`); }} />
+                      ) : (
+                        <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: C.textDim, fontSize: 12 }}>prévia indisponível</div>
+                      )}
+                    </div>
                     {canWatch && (
                       <div style={{
                         position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
@@ -882,26 +878,33 @@ function InstagramEmbed({ url }: { url: string }) {
 }
 
 function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose: () => void }) {
-  const isVid = !!ad.is_video || !!ad.video_id;
-  const igUrl = isInstagramPermalink(ad.watch_url) ? ad.watch_url! : null;
+  const knownVideo = !!ad.is_video || !!ad.video_id;
+  const [isVid, setIsVid] = React.useState(knownVideo);
+  const [watchUrl, setWatchUrl] = React.useState<string | undefined>(ad.watch_url);
   const [videoUrl, setVideoUrl] = React.useState<string | null>(null);
-  const [videoLoading, setVideoLoading] = React.useState(isVid && !igUrl && !!ad.video_id);
+  const [videoLoading, setVideoLoading] = React.useState(!!ad.ad_id);
   const [videoError, setVideoError] = React.useState(false);
+  const [imageError, setImageError] = React.useState(false);
+  const igUrl = isInstagramPermalink(watchUrl) ? watchUrl! : null;
 
   React.useEffect(() => {
-    if (!isVid || igUrl || !ad.video_id) return;
+    if (!ad.ad_id) { setVideoLoading(false); return; }
     let cancelled = false;
     fetch(`${API}/reports/public/${token}/ad-video/${ad.ad_id}`)
       .then(r => r.json())
       .then(json => {
         if (cancelled) return;
-        if (json.success && json.data?.url) setVideoUrl(json.data.url);
-        else setVideoError(true);
+        if (json.success) {
+          setIsVid(!!json.data?.is_video || !!json.data?.video_id || knownVideo);
+          if (json.data?.url) setVideoUrl(json.data.url);
+          if (json.data?.watch_url) setWatchUrl(json.data.watch_url);
+          if ((json.data?.is_video || json.data?.video_id || knownVideo) && !json.data?.url) setVideoError(true);
+        } else if (knownVideo) setVideoError(true);
       })
-      .catch(() => { if (!cancelled) setVideoError(true); })
+      .catch(() => { if (!cancelled && knownVideo) setVideoError(true); })
       .finally(() => { if (!cancelled) setVideoLoading(false); });
     return () => { cancelled = true; };
-  }, [ad.ad_id, ad.video_id, isVid, igUrl, token]);
+  }, [ad.ad_id, knownVideo, token]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -935,18 +938,24 @@ function AdLightbox({ ad, token, onClose }: { ad: AdData; token: string; onClose
             ) : (
               <div style={{ padding: 60, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>
                 Não foi possível carregar o vídeo aqui.
-                {ad.watch_url && (
-                  <><br /><a href={ad.watch_url} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 700 }}>Abrir no Facebook/Instagram</a></>
+                {watchUrl && (
+                  <><br /><a href={watchUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 700 }}>Abrir no Facebook/Instagram</a></>
                 )}
               </div>
             )}
           </div>
-        ) : ad.thumbnail_url ? (
+        ) : ad.ad_id ? (
           <div style={{ width: '100%', aspectRatio: '1/1', maxHeight: '80vh', position: 'relative', overflow: 'hidden', borderRadius: 12, background: '#000' }}>
-            <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt="" aria-hidden="true"
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(30px) brightness(.5)', transform: 'scale(1.2)' }} />
-            <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt={ad.name}
-              style={{ position: 'relative', width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+            {imageError ? (
+              <div style={{ height: '100%', display: 'grid', placeContent: 'center', gap: 12, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>
+                Prévia indisponível na Meta.
+                {watchUrl && <a href={watchUrl} target="_blank" rel="noopener noreferrer" style={{ color: C.primary, fontWeight: 700 }}>Abrir no Facebook/Instagram</a>}
+              </div>
+            ) : (
+              <img src={liveThumbSrc(token, ad.ad_id, ad.thumbnail_url)} alt={ad.name}
+                onError={() => setImageError(true)}
+                style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+            )}
           </div>
         ) : (
           <div style={{ borderRadius: 12, background: '#000', padding: 60, textAlign: 'center', color: C.textMuted, fontSize: 13 }}>Sem preview disponível</div>

@@ -16,6 +16,14 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/v1/routine/google/callback';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
+function googleReconnectRequired(res: Response) {
+    return res.status(409).json({ success: false, error: {
+        code: 'GOOGLE_REAUTH_REQUIRED', action: 'reconnect_google',
+        message: 'A conexão com o Google Agenda precisa ser renovada. Reconecte o Google em Rotina.'
+    } });
+}
+
+
 // ─── GOOGLE OAUTH (público — callback do Google) ───────────────────────────
 
 // GET /routine/google/callback — OAuth callback do Google
@@ -161,7 +169,7 @@ router.get('/google/events', async (req: Request, res: Response) => {
 
         const token = await getValidToken(userId, tokenRows[0]);
         if (!token) {
-            return res.status(401).json({ success: false, error: { message: 'Token Google inválido' } });
+            return googleReconnectRequired(res);
         }
 
         const startDate = start || new Date().toISOString().split('T')[0];
@@ -211,7 +219,7 @@ router.post('/google/create-event', async (req: Request, res: Response) => {
         );
         if (!tokenRows.length) return res.status(400).json({ success: false, error: { message: 'Google Calendar não conectado' } });
         const token = await getValidToken(userId, tokenRows[0]);
-        if (!token) return res.status(401).json({ success: false, error: { message: 'Token Google inválido' } });
+        if (!token) return googleReconnectRequired(res);
 
         const guestList: string[] = Array.isArray(attendees) ? attendees.filter(Boolean) : [];
 
@@ -268,7 +276,7 @@ router.put('/google/event/:eventId', async (req: Request, res: Response) => {
         );
         if (!tokenRows.length) return res.status(400).json({ success: false, error: { message: 'Google Calendar não conectado' } });
         const token = await getValidToken(userId, tokenRows[0]);
-        if (!token) return res.status(401).json({ success: false, error: { message: 'Token Google inválido' } });
+        if (!token) return googleReconnectRequired(res);
 
         const guestList: string[] = Array.isArray(attendees) ? attendees.filter(Boolean) : [];
 
@@ -317,7 +325,7 @@ router.delete('/google/event/:eventId', async (req: Request, res: Response) => {
         );
         if (!tokenRows.length) return res.status(400).json({ success: false, error: { message: 'Google Calendar não conectado' } });
         const token = await getValidToken(userId, tokenRows[0]);
-        if (!token) return res.status(401).json({ success: false, error: { message: 'Token Google inválido' } });
+        if (!token) return googleReconnectRequired(res);
 
         await axios.delete(
             `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,

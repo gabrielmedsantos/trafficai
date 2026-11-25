@@ -44,10 +44,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
             }
         } catch (error) {
             console.error('Failed to load accounts:', error);
-            // Se erro 401, limpa o token inválido
-            if (error instanceof Error && error.message.includes('Invalid or expired token')) {
-                localStorage.removeItem('trafficai_token');
-            }
+            // O cliente de API decide quando a sessão realmente foi rejeitada.
+            // Uma resposta atrasada não deve apagar o token de um login novo.
         } finally {
             setLoading(false);
         }
