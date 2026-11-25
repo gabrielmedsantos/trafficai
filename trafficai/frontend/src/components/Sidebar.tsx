@@ -114,6 +114,7 @@ const AREAS = [
                 label: 'Vendas',
                 items: [
                     { href: '/vendas',            label: 'Resumo',            icon: LayoutDashboard, color: C.cyan, exact: true },
+                    { href: '/vendas/ao-vivo',    label: 'Ao vivo',           icon: Radio, color: C.orange },
                     { href: '/vendas/campanhas',  label: 'Campanhas',         icon: Megaphone, color: C.orange },
                     { href: '/vendas/utms',       label: 'UTMs',              icon: Link2, color: C.purple },
                     { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },

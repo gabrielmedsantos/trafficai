@@ -7,8 +7,10 @@ import { RefreshCw, Plus } from 'lucide-react';
 import { NovaFonteModal } from '@/components/vendas/NovaFonteModal';
 import Sidebar from '@/components/Sidebar';
 import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox } from '@/components/vendas/shared';
+import { MetricsTabs, METRICS_TAB_ROUTES } from '@/components/vendas/MetricsTabs';
 
 const PAGES: Record<string, { title: string; subtitle: string; period: boolean }> = {
+    '/vendas/ao-vivo': { title: 'Ao vivo', subtitle: 'Quem está no funil agora, o ritmo do dia e a projeção de vendas.', period: false },
     '/vendas/quizzes': { title: 'Funis de Quiz', subtitle: 'Respostas, etapas e pedidos dos quizzes personalizados.', period: true },
     '/vendas': { title: 'Resumo', subtitle: 'Faturamento, gastos e lucro das vendas atribuídas aos anúncios.', period: true },
     '/vendas/campanhas': { title: 'Campanhas', subtitle: 'Vendas, CPA e lucro por campanha, conjunto e anúncio — com status e orçamento da Meta ao vivo.', period: true },
@@ -108,6 +110,11 @@ function Header() {
     );
 }
 
+function TabsBar() {
+    const pathname = usePathname() || '/vendas';
+    return METRICS_TAB_ROUTES.includes(pathname) ? <MetricsTabs /> : null;
+}
+
 function Body({ children }: { children: React.ReactNode }) {
     const { sources, sourcesLoaded } = useVendas();
     const pathname=usePathname();
@@ -129,6 +136,7 @@ export default function VendasLayout({ children }: { children: React.ReactNode }
             <main className="main-content" style={{ minWidth: 0 }}>
                 <VendasProvider>
                     <Header />
+                    <TabsBar />
                     <Body>{children}</Body>
                 </VendasProvider>
             </main>

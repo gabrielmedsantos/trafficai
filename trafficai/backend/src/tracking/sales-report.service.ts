@@ -372,7 +372,7 @@ async function fetchMetaLevel(
     }
 }
 
-async function fetchAccountSpend(token: string, metaAccountId: string, since: string, until: string): Promise<number | null> {
+export async function fetchAccountSpend(token: string, metaAccountId: string, since: string, until: string): Promise<number | null> {
     try {
         const r: any = await axios.get(`https://graph.facebook.com/${META_VERSION}/${actId(metaAccountId)}/insights`, {
             params: { level: 'account', fields: 'spend', time_range: JSON.stringify({ since, until }), access_token: token },

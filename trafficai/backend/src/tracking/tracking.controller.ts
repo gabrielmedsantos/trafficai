@@ -26,6 +26,7 @@ import {
 } from './conversion-rules/conversion-rules.service';
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
 import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
+import { buildLiveMetrics } from './live-metrics.service';
 import axios from 'axios';
 import { sendTestSaleNotice, notifySale } from './sales-notify.service';
 import { saveClick, saveScrollDepth, getHeatmapData, getScrollAnalysis, getTopUrls } from './behavior.service';
@@ -90,6 +91,18 @@ router.get('/sources/:id/sales-report', async (req: Request, res: Response) => {
         res.json({ success: true, data: { ...range, group, summary, rows: grouped.rows, meta_live: grouped.live } });
     } catch (err: any) {
         logger.error('sales-report falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /tracking/sources/:id/live — aba "Ao vivo": ativos agora, ritmo e projeção do dia
+router.get('/sources/:id/live', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        res.json({ success: true, data: await buildLiveMetrics(source) });
+    } catch (err: any) {
+        logger.error('live-metrics falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });
