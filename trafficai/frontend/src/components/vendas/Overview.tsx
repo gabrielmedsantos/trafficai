@@ -169,3 +169,70 @@ export function TaperFunnel({ t }: { t: OverviewTotals }) {
         </section>
     );
 }
+
+/** Linha de tendência no rodapé do card (lucro diário). */
+function CardSpark({ values, color }: { values: number[]; color: string }) {
+    if (values.length < 2) return null;
+    const min = Math.min(...values), max = Math.max(...values), span = max - min || 1;
+    const d = values.map((v, i) => `${i ? 'L' : 'M'}${((i / (values.length - 1)) * 600).toFixed(1)} ${(62 - ((v - min) / span) * 52).toFixed(1)}`).join(' ');
+    return (
+        <svg viewBox="0 0 600 70" preserveAspectRatio="none" aria-hidden className={styles.spark}>
+            <path d={`${d} L600 70 L0 70 Z`} fill={color} opacity={0.08} />
+            <path className="tai-draw" d={d} fill="none" stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        </svg>
+    );
+}
+
+/**
+ * Segunda fileira do Resumo, no mesmo formato dos cards de cima e só com o que
+ * eles não mostram: resultado (lucro), composição dos custos e o que está em aberto.
+ */
+export function ResultCards({ s, dailyProfit, flashing }: { s: any; dailyProfit: number[]; flashing?: boolean }) {
+    const ticketGross = s.approved_count > 0 ? s.revenue_gross / s.approved_count : null;
+    const positive = (s.profit || 0) >= 0;
+    const profitColor = positive ? 'var(--accent-green)' : 'var(--accent-red)';
+    const parts = [
+        { label: 'Anúncios', value: s.spend || 0, color: 'var(--accent-orange)' },
+        { label: 'Taxas da plataforma', value: s.fees || 0, color: 'var(--text-subtle)' },
+        { label: 'Imposto', value: s.tax || 0, color: 'var(--accent-purple)' },
+        { label: 'Custo de produto', value: s.product_cost || 0, color: 'var(--accent-blue)' },
+        { label: 'Despesas', value: s.expenses || 0, color: 'var(--text-muted)' },
+    ];
+    const costTotal = parts.reduce((n, p) => n + p.value, 0);
+    const share = (v: number) => (costTotal > 0 ? ` · ${pct((v / costTotal) * 100)}` : '');
+    return (
+        <section className={styles.three} aria-label="Resultado, custos e pendências">
+            <div className={`${styles.card} ${positive ? styles.result : styles.resultNeg}${flashing ? ' tai-flash' : ''}`}>
+                <div className={styles.hd}><span className={styles.lbl}><b style={{ background: positive ? '#00a862' : '#dc2626' }} />Resultado</span><span className={styles.chip} style={{ color: profitColor }}>margem {pct(s.margin)}</span></div>
+                <div className={`${styles.main} tai-mono`} style={{ color: profitColor }}>{brl(s.profit)}</div>
+                <div className={styles.ms}>{positive ? 'lucro' : 'prejuízo'} depois de anúncios, taxas, imposto e custos</div>
+                <Line label="ROAS" sub="recebido ÷ investimento" value={s.roas == null ? '—' : s.roas.toFixed(2).replace('.', ',')} color={s.roas != null && s.roas >= 1 ? 'var(--accent-green)' : undefined} />
+                <Line label="ROI" sub="lucro ÷ custos" value={s.roi == null ? '—' : s.roi.toFixed(2).replace('.', ',')} />
+                <Line label="Ticket médio" sub={s.ticket != null ? `líquido ${brl(s.ticket)}` : 'sem vendas no período'} value={ticketGross != null ? brl(ticketGross) : '—'} />
+                <CardSpark values={dailyProfit} color={positive ? '#00d27a' : '#ef4444'} />
+            </div>
+            <div className={`${styles.card} ${styles.costs}`}>
+                <div className={styles.hd}><span className={styles.lbl}><b style={{ background: '#e8551f' }} />Para onde foi o dinheiro</span><Link href="/vendas/custos">custos →</Link></div>
+                <div className={`${styles.main} tai-mono`}>{brl(costTotal)}</div>
+                <div className={styles.ms}>custos totais no período</div>
+                <div className={styles.stack} role="img" aria-label={parts.map((p) => `${p.label} ${brl(p.value)}`).join(', ')}>
+                    {costTotal > 0 && parts.filter((p) => p.value > 0).map((p) => <i key={p.label} style={{ width: `${(p.value / costTotal) * 100}%`, background: p.color }} />)}
+                </div>
+                {parts.filter((p) => p.value > 0 || p.label === 'Anúncios').map((p) => (
+                    <div key={p.label} className={styles.line}>
+                        <div><span className={styles.swatch} style={{ background: p.color }} />{p.label}<small>{share(p.value).replace(' · ', '') || '—'} dos custos</small></div>
+                        <span className="tai-mono">{brl(p.value)}</span>
+                    </div>
+                ))}
+            </div>
+            <div className={`${styles.card} ${styles.open}`}>
+                <div className={styles.hd}><span className={styles.lbl}><b style={{ background: '#ca8a04' }} />Em aberto e devoluções</span><Link href="/vendas/recuperacao">recuperar →</Link></div>
+                <div className={`${styles.main} tai-mono`} style={{ color: 'var(--accent-yellow)' }}>{brl(s.pending_value)}</div>
+                <div className={styles.ms}>{(s.pending_count || 0).toLocaleString('pt-BR')} {s.pending_count === 1 ? 'pedido aguardando' : 'pedidos aguardando'} pagamento (Pix/boleto)</div>
+                <Line label="Recusados" sub="pagamento negado" value={(s.refused_count || 0).toLocaleString('pt-BR')} />
+                <Line label="Reembolsos" sub={`${s.refunded_count || 0} ${s.refunded_count === 1 ? 'pedido' : 'pedidos'}`} value={brl(s.refunded_value)} color={s.refunded_count ? 'var(--accent-red)' : undefined} />
+                <Line label="Chargeback" sub={`${s.chargeback_count || 0} · taxa ${pct(s.chargeback_rate)}`} value={brl(s.chargeback_value)} color={s.chargeback_count ? 'var(--accent-red)' : undefined} />
+            </div>
+        </section>
+    );
+}
