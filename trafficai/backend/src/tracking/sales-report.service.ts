@@ -526,10 +526,15 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
 
     if (group === 'day') {
         const agg = await aggregateOrders(source, since, until, `to_char(${ORDER_DATE}::date, 'YYYY-MM-DD')`, settings, productParam(source));
-        const spendByDay = new Map<string, { spend: number; impressions: number; clicks: number }>();
-        const addDay = (d: string, v: { spend: number; impressions: number; clicks: number }) => {
-            const cur = spendByDay.get(d) || { spend: 0, impressions: 0, clicks: 0 };
-            spendByDay.set(d, { spend: cur.spend + v.spend, impressions: cur.impressions + v.impressions, clicks: cur.clicks + v.clicks });
+        // lpv/ic só vêm da Meta ao vivo; no fallback do banco ficam null (desconhecido).
+        type DayTraffic = { spend: number; impressions: number; clicks: number; lpv: number | null; ic: number | null };
+        const spendByDay = new Map<string, DayTraffic>();
+        const addN = (a: number | null, b: number | null) => (a == null && b == null ? null : (a || 0) + (b || 0));
+        const addDay = (d: string, v: DayTraffic) => {
+            const cur = spendByDay.get(d);
+            spendByDay.set(d, cur
+                ? { spend: cur.spend + v.spend, impressions: cur.impressions + v.impressions, clicks: cur.clicks + v.clicks, lpv: addN(cur.lpv, v.lpv), ic: addN(cur.ic, v.ic) }
+                : v);
         };
         const accounts = spendAccounts(source);
         const token = accounts.some(a => a.meta_account_id) ? await getUserAdsToken(source.user_id) : null;
@@ -539,10 +544,14 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
             if (token && acc.meta_account_id) {
                 try {
                     const rows = await metaPaged(`https://graph.facebook.com/${META_VERSION}/${actId(acc.meta_account_id)}/insights`, {
-                        level: 'account', fields: 'spend,impressions,inline_link_clicks', time_increment: 1,
+                        level: 'account', fields: 'spend,impressions,inline_link_clicks,actions', time_increment: 1,
                         time_range: JSON.stringify({ since, until }), limit: 500, access_token: token,
                     }, 5);
-                    for (const r of rows as any[]) addDay(r.date_start, { spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.inline_link_clicks) || 0 });
+                    for (const r of rows as any[]) addDay(r.date_start, {
+                        spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.inline_link_clicks) || 0,
+                        lpv: actionSum(r.actions, ['landing_page_view', 'omni_landing_page_view']),
+                        ic: actionSum(r.actions, ['initiate_checkout', 'omni_initiated_checkout', 'offsite_conversion.fb_pixel_initiate_checkout']),
+                    });
                     ok = true;
                 } catch (err: any) {
                     logger.warn('sales-report: gasto diário na Meta falhou', { account: acc.meta_account_id, error: err.response?.data?.error?.message || err.message });
@@ -558,7 +567,7 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
                      GROUP BY 1`,
                     [acc.id, since, until]
                 );
-                for (const r of rows) addDay(r.d, { spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0 });
+                for (const r of rows) addDay(r.d, { spend: Number(r.spend) || 0, impressions: Number(r.impressions) || 0, clicks: Number(r.clicks) || 0, lpv: null, ic: null });
             }
         }
         const expenses = await query<any>(
@@ -577,6 +586,7 @@ export async function buildGroupedRows(source: SourceCtx, group: ReportGroup, si
             const p = a ? aggToPartial(a) : { product_cost: 0 };
             out.push(buildRow({
                 key, name: key, spend: s?.spend || 0, impressions: s?.impressions ?? null, clicks: s?.clicks ?? null,
+                landing_views: s?.lpv ?? null, initiate_checkouts: s?.ic ?? null,
                 ...p, product_cost: (p.product_cost || 0) + exp,
             }, tax));
         }
@@ -634,6 +644,7 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
             COUNT(*) FILTER (WHERE o.status = 'chargeback') AS chargeback_count,
             COALESCE(SUM(COALESCE(o.gross_value, o.net_value, 0)) FILTER (WHERE o.status = 'chargeback'), 0) AS chargeback_value,
             COUNT(*) FILTER (WHERE o.status <> 'abandoned') AS total_orders,
+            COUNT(DISTINCT COALESCE(o.customer_phone_hash, o.customer_email_hash, o.id::text)) FILTER (WHERE o.status <> 'abandoned') AS order_people,
             COUNT(*) FILTER (WHERE o.status = 'abandoned') AS abandoned_count,
             COUNT(*) FILTER (WHERE o.status IN ('abandoned', 'pending', 'refused') AND o.recovered_order_id IS NOT NULL) AS recovered_count,
             COUNT(*) FILTER (WHERE o.status IN ('abandoned', 'pending', 'refused')) AS recoverable_count
@@ -780,6 +791,8 @@ export async function buildSummary(source: SourceCtx, since: string, until: stri
         chargeback_rate: approved > 0 ? (Number(tot.chargeback_count) / approved) * 100 : 0,
         approval_rate: approved + refused > 0 ? (approved / (approved + refused)) * 100 : null,
         total_orders: totalOrders,
+        // Pessoas distintas que geraram pedido (quem gera 2 Pix conta uma vez).
+        order_people: Number(tot.order_people) || 0,
         abandoned_count: Number(tot.abandoned_count) || 0,
         recovered_count: Number(tot.recovered_count) || 0,
         recovery_rate: Number(tot.recoverable_count) > 0 ? (Number(tot.recovered_count) / Number(tot.recoverable_count)) * 100 : null,

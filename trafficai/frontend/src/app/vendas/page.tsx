@@ -8,6 +8,7 @@ import {
     brl, num2, pct, signColor, brtToday, PAYMENT_LABEL, PAYMENT_COLOR, Row,
 } from '@/components/vendas/shared';
 import { BrazilMap, StateData } from '@/components/BrazilMap';
+import { OverviewCards, TaperFunnel, overviewTotals } from '@/components/vendas/Overview';
 import { api } from '@/lib/api';
 
 const PERIOD_WORD: Record<string, string> = {
@@ -120,14 +121,6 @@ export default function ResumoPage() {
         );
     }
 
-    const funnelSteps = [
-        { label: 'Cliques', value: s.funnel.clicks, color: 'var(--accent-blue)' },
-        { label: 'Vis. página', value: s.funnel.page_views, color: 'var(--accent-blue)' },
-        { label: 'Checkouts', value: s.funnel.initiate_checkout, color: 'var(--primary)' },
-        { label: 'Vendas inic.', value: s.funnel.orders, color: 'var(--accent-green)' },
-        { label: 'Aprovadas', value: s.funnel.approved, color: 'var(--accent-green)' },
-    ];
-    const funnelMax = Math.max(1, ...funnelSteps.map((f) => f.value));
     const hourMax = Math.max(1, ...s.by_hour.map((h: any) => h.count));
     const peakHour = s.by_hour.reduce((best: any, h: any) => (h.count > best.count ? h : best), { hour: 0, count: 0 });
     const dayMax = Math.max(1, ...days.map((d) => Math.max(d.revenue, d.spend)));
@@ -141,6 +134,7 @@ export default function ResumoPage() {
     ];
     const partsTotal = parts.reduce((n, p) => n + p.value, 0) || 1;
     const noOrders = s.total_orders === 0;
+    const overview = overviewTotals(days, s);
 
     return (
         <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -200,6 +194,10 @@ export default function ResumoPage() {
                     <Link href="/vendas/pixel" style={{ color: 'var(--accent-blue)' }}>pixel</Link> na página de vendas.
                 </Card>
             )}
+
+            {/* Visão geral — tráfego, funil e vendas + funil do anúncio ao pagamento */}
+            <OverviewCards t={overview} live={!!s.spend_live} />
+            <TaperFunnel t={overview} />
 
             {/* Linha 1 — lucro em destaque + faturamento + gastos */}
             <section className="tai-grid-4">
@@ -333,28 +331,8 @@ export default function ResumoPage() {
                 </Card>
             </section>
 
-            {/* Funil + horário */}
+            {/* Horário */}
             <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: 14 }}>
-                <Card reveal style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <SectionTitle>Funil de conversão</SectionTitle>
-                    {funnelSteps.map((f, i) => {
-                        const prev = i > 0 ? funnelSteps[i - 1].value : null;
-                        return (
-                            <div key={f.label} style={{ display: 'grid', gridTemplateColumns: '110px minmax(0, 1fr) 64px', alignItems: 'center', gap: 12 }}>
-                                <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{f.label}</span>
-                                <div style={{ height: 26, background: 'var(--bg-surface-2)', borderRadius: 6, overflow: 'hidden' }}>
-                                    <div className="tai-barx" style={{
-                                        width: `${Math.max(f.value ? 8 : 0, Math.sqrt(f.value / funnelMax) * 100)}%`, height: '100%', background: f.color, borderRadius: 6,
-                                        display: 'flex', alignItems: 'center', paddingLeft: 10, boxSizing: 'border-box', animationDelay: `${i * 90}ms`,
-                                    }}>
-                                        <span className="tai-mono" style={{ fontSize: 12, fontWeight: 600, color: 'var(--bg-base)' }}>{f.value.toLocaleString('pt-BR')}</span>
-                                    </div>
-                                </div>
-                                <span className="tai-mono" style={{ fontSize: 11.5, color: 'var(--text-muted)', textAlign: 'right' }}>{prev ? pct((f.value / prev) * 100) : ''}</span>
-                            </div>
-                        );
-                    })}
-                </Card>
                 <Card reveal style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <SectionTitle right={peakHour.count > 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>pico às <b style={{ color: 'var(--text-primary)' }}>{String(peakHour.hour).padStart(2, '0')}h</b></span>}>
                         Vendas por horário
