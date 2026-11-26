@@ -27,6 +27,7 @@ import {
 import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.service';
 import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
 import { buildLiveMetrics } from './live-metrics.service';
+import { buildDemoLive } from './live-demo.service';
 import axios from 'axios';
 import { sendTestSaleNotice, notifySale } from './sales-notify.service';
 import { saveClick, saveScrollDepth, getHeatmapData, getScrollAnalysis, getTopUrls } from './behavior.service';
@@ -93,6 +94,11 @@ router.get('/sources/:id/sales-report', async (req: Request, res: Response) => {
         logger.error('sales-report falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
+});
+
+// GET /tracking/live-demo — conta de demonstração da aba "Ao vivo" (dados fictícios, nada do banco)
+router.get('/live-demo', (_req: Request, res: Response) => {
+    res.json({ success: true, data: buildDemoLive() });
 });
 
 // GET /tracking/sources/:id/live — aba "Ao vivo": ativos agora, ritmo e projeção do dia

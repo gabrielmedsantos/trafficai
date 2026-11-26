@@ -21,6 +21,7 @@ interface Live {
 }
 
 const REFRESH_MS = 60_000;
+const DEMO_KEY = 'tai_live_demo';
 const STAGE_COLOR: Record<string, string> = { visits: '#0ea5e9', checkouts: '#ff6b35', pix: '#22d3ee', paid: '#00d27a' };
 const FEED: Record<FeedItem['kind'], { label: string; color: string; bg: string }> = {
     visit: { label: 'abriu a página', color: '#7dd3fc', bg: 'rgba(14,165,233,.14)' },
@@ -73,17 +74,21 @@ export default function AoVivoPage() {
     const [data, setData] = useState<Live | null>(null);
     const [error, setError] = useState('');
     const [now, setNow] = useState(Date.now());
+    const [demo, setDemo] = useState(false);
+
+    useEffect(() => { try { setDemo(localStorage.getItem(DEMO_KEY) === '1'); } catch { /* sem storage */ } }, []);
+    const toggleDemo = () => setDemo((d) => { try { localStorage.setItem(DEMO_KEY, d ? '0' : '1'); } catch { /* sem storage */ } return !d; });
 
     const load = useCallback(async () => {
-        if (!sourceId) return;
+        if (!sourceId && !demo) return;
         try {
-            setData(await api.request<Live>('GET', `/tracking/sources/${sourceId}/live`));
+            setData(await api.request<Live>('GET', demo ? '/tracking/live-demo' : `/tracking/sources/${sourceId}/live`));
             setError('');
         } catch (e: any) {
             setError(e.message || 'Não consegui carregar os dados ao vivo.');
         }
         setNow(Date.now());
-    }, [sourceId]);
+    }, [sourceId, demo]);
 
     useEffect(() => {
         setData(null);
@@ -112,8 +117,15 @@ export default function AoVivoPage() {
     return (
         <div className={styles.page}>
             <div className={styles.status}>
-                <span>{source?.name}</span>
-                <span className={styles.pill}>● dados de {hhmm(data.generated_at)} · atualiza a cada minuto</span>
+                <span className={styles.who2}>
+                    {demo ? <><b>Loja Demo</b> <span className={styles.demoTag}>dados fictícios</span></> : source?.name}
+                </span>
+                <span className={styles.statusRight}>
+                    <button type="button" className={`${styles.demoBtn} ${demo ? styles.demoOn : ''}`} onClick={toggleDemo} aria-pressed={demo}>
+                        {demo ? 'Sair da conta de teste' : 'Conta de teste'}
+                    </button>
+                    <span className={styles.pill}>● dados de {hhmm(data.generated_at)} · atualiza a cada minuto</span>
+                </span>
             </div>
             {error && <ErrorBox>{error} Mostrando a última leitura.</ErrorBox>}
 

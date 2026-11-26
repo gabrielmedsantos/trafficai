@@ -60,3 +60,10 @@
     .big { font-size: 52px; }
     .mid { font-size: 36px; }
 }
+
+.who2 { display: inline-flex; align-items: center; gap: 8px; }
+.demoTag { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #facc15; background: rgba(250, 204, 21, .12); border: 1px solid rgba(250, 204, 21, .3); padding: 2px 8px; border-radius: 999px; }
+.statusRight { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.demoBtn { font: inherit; font-size: 11.5px; color: var(--text-muted); background: transparent; border: 1px dashed var(--border); padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.demoBtn:hover { color: var(--text); border-color: var(--text-muted); }
+.demoOn { color: #facc15; border: 1px solid rgba(250, 204, 21, .4); }
