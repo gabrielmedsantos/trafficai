@@ -11,6 +11,7 @@ const TABS = [
     { href: '/vendas/campanhas', label: 'Campanhas', color: '#b794f4' },
     { href: '/vendas/criativos', label: 'Criativos', color: '#ff6b35' },
     { href: '/vendas/regioes', label: 'Regiões', color: '#00d27a' },
+    { href: '/vendas/persona', label: 'Persona', color: '#f472b6' },
     { href: '/vendas/utms', label: 'UTMs', color: '#38bdf8' },
     { href: '/vendas/pedidos', label: 'Pedidos', color: '#facc15' },
     { href: '/vendas/recuperacao', label: 'Recuperação', color: '#ff8b3d' },
