@@ -22,6 +22,7 @@ export interface Row {
     video_3s: number | null; thruplays: number | null; landing_views: number | null; initiate_checkouts: number | null;
     hook_rate: number | null; hold_rate: number | null; retention: number | null; connect_rate: number | null;
     page_conversion: number | null; checkout_conversion: number | null; cost_per_checkout: number | null;
+    thumbnail_url?: string | null;
     // Snapshot da última sync (similar ao UTMify)
     last_sync_at?: string | null;
     last_sync_spend?: number | null;

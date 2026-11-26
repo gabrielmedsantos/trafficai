@@ -28,6 +28,7 @@ import { getDiagnosticsSummary, listDiagnosticEvents } from './diagnostics.servi
 import { buildSummary, buildGroupedRows, ReportGroup, normalizeSalesSettings, updateMetaObject, getUserAdsToken, actId } from './sales-report.service';
 import { buildLiveMetrics } from './live-metrics.service';
 import { buildDemoLive } from './live-demo.service';
+import { buildRegions } from './regions.service';
 import axios from 'axios';
 import { sendTestSaleNotice, notifySale } from './sales-notify.service';
 import { saveClick, saveScrollDepth, getHeatmapData, getScrollAnalysis, getTopUrls } from './behavior.service';
@@ -92,6 +93,20 @@ router.get('/sources/:id/sales-report', async (req: Request, res: Response) => {
         res.json({ success: true, data: { ...range, group, summary, rows: grouped.rows, meta_live: grouped.live } });
     } catch (err: any) {
         logger.error('sales-report falhou', { error: err.message });
+        res.status(500).json({ success: false, error: { message: 'Erro interno' } });
+    }
+});
+
+// GET /tracking/sources/:id/regions?since&until — aba "Regiões": funil e vendas por estado
+router.get('/sources/:id/regions', async (req: Request, res: Response) => {
+    try {
+        const source = await loadReportSource(req.params.id, (req as any).user.userId);
+        if (!source) return res.status(404).json({ success: false, error: { message: 'Não encontrado' } });
+        const range = reportRange(req.query);
+        if (!range) return res.status(400).json({ success: false, error: { message: 'Período inválido' } });
+        res.json({ success: true, data: { ...range, ...(await buildRegions(source, range.since, range.until)) } });
+    } catch (err: any) {
+        logger.error('regions falhou', { error: err.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });
     }
 });

@@ -14,6 +14,8 @@ const PAGES: Record<string, { title: string; subtitle: string; period: boolean }
     '/vendas/quizzes': { title: 'Funis de Quiz', subtitle: 'Respostas, etapas e pedidos dos quizzes personalizados.', period: true },
     '/vendas': { title: 'Resumo', subtitle: 'Faturamento, gastos e lucro das vendas atribuídas aos anúncios.', period: true },
     '/vendas/campanhas': { title: 'Campanhas', subtitle: 'Vendas, CPA e lucro por campanha, conjunto e anúncio — com status e orçamento da Meta ao vivo.', period: true },
+    '/vendas/criativos': { title: 'Criativos', subtitle: 'Cada anúncio com miniatura, resultado e o funil da impressão até a venda.', period: true },
+    '/vendas/regioes': { title: 'Regiões', subtitle: 'Visitas, checkouts e vendas por estado — onde o anúncio converte e onde só gasta.', period: true },
     '/vendas/utms': { title: 'UTMs', subtitle: 'Vendas agrupadas por qualquer parâmetro UTM.', period: true },
     '/vendas/diario': { title: 'Relatório diário', subtitle: 'Resultado dia a dia no fuso de Brasília.', period: true },
     '/vendas/recuperacao': { title: 'Recuperação de vendas', subtitle: 'Carrinhos abandonados, Pix/boleto não pagos e pagamentos recusados — chame o cliente no WhatsApp.', period: true },

@@ -109,6 +109,8 @@ export interface ReportRow {
     thruplays: number | null;
     landing_views: number | null;
     initiate_checkouts: number | null;
+    /** Miniatura do criativo (só no nível de anúncio, com a Meta ao vivo). */
+    thumbnail_url?: string | null;
     hook_rate: number | null;        // % views de 3s ÷ impressões
     hold_rate: number | null;        // % ThruPlays ÷ impressões
     retention: number | null;        // % ThruPlays ÷ views de 3s
@@ -190,6 +192,7 @@ function buildRow(base: RowInput, taxRate: number): ReportRow {
         cpc: clicks ? spend / clicks : null,
         cpm: impressions ? (spend / impressions) * 1000 : null,
         ...creativeMetrics(base, sales, spend),
+        thumbnail_url: base.thumbnail_url ?? null,
         // Snapshot da última sync (similar ao UTMify)
         last_sync_at: base.last_sync_at ?? null,
         last_sync_spend: base.last_sync_spend ?? null,
@@ -260,6 +263,7 @@ interface MetaObj {
     thruplays: number | null;
     lpv: number | null;
     ic: number | null;
+    thumbnail?: string | null;
     // Snapshot da última sync (similar ao UTMify)
     last_sync_at?: string | null;
     last_sync_spend?: number | null;
@@ -312,7 +316,7 @@ async function fetchMetaLevel(
     const objFields = ['id', 'name', 'status', 'effective_status'];
     if (level !== 'ad') objFields.push('daily_budget', 'lifetime_budget');
     if (level === 'adset') objFields.push('campaign{name}');
-    if (level === 'ad') objFields.push('adset{name}');
+    if (level === 'ad') objFields.push('adset{name}', 'creative.thumbnail_width(480).thumbnail_height(480){thumbnail_url,image_url}');
 
     try {
         const [insights, objects] = await Promise.all([
@@ -345,6 +349,7 @@ async function fetchMetaLevel(
                 daily_budget: minor(o.daily_budget),
                 lifetime_budget: minor(o.lifetime_budget),
                 spend: 0, impressions: 0, clicks: 0, video3s: 0, thruplays: 0, lpv: 0, ic: 0,
+                thumbnail: o.creative?.thumbnail_url || o.creative?.image_url || null,
             });
         }
         for (const row of insights) {
@@ -490,6 +495,7 @@ function metaPartial(s: MetaObj | undefined) {
         thruplays: s.thruplays,
         landing_views: s.lpv,
         initiate_checkouts: s.ic,
+        thumbnail_url: s.thumbnail ?? null,
     };
 }
 
