@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { RefreshCw, Plus } from 'lucide-react';
 import { NovaFonteModal } from '@/components/vendas/NovaFonteModal';
 import Sidebar from '@/components/Sidebar';
-import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox } from '@/components/vendas/shared';
+import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox, DEMO_SOURCE, DEMO_SOURCE_ID } from '@/components/vendas/shared';
 import { MetricsTabs, METRICS_TAB_ROUTES } from '@/components/vendas/MetricsTabs';
 
 const PAGES: Record<string, { title: string; subtitle: string; period: boolean }> = {
@@ -55,7 +55,9 @@ function Header() {
                 <label style={label}>
                     Fonte de tracking
                     <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} style={{ ...selectStyle, minWidth: 180 }}>
+                        {!sourceId && <option value="">Escolha uma fonte</option>}
                         {sources.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        <option value={DEMO_SOURCE_ID}>{DEMO_SOURCE.name}</option>
                     </select>
                 </label>
                 <button type="button" className="btn btn-secondary" onClick={() => setCreating(true)} style={{ padding: '8px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -119,9 +121,17 @@ function TabsBar() {
 }
 
 function Body({ children }: { children: React.ReactNode }) {
-    const { sources, sourcesLoaded } = useVendas();
+    const { sources, sourcesLoaded, isDemo } = useVendas();
     const pathname=usePathname();
-    if (sourcesLoaded && !sources.length && pathname !== '/vendas/quizzes') {
+    if (isDemo && pathname !== '/vendas/ao-vivo') {
+        return (
+            <EmptyBox>
+                A <b>conta de teste</b> tem dados fictícios só na aba <Link href="/vendas/ao-vivo" style={{ color: 'var(--accent-blue)' }}>Ao vivo</Link>.
+                Para ver esta tela, escolha uma conta real em <b>Fonte de tracking</b>, no topo.
+            </EmptyBox>
+        );
+    }
+    if (sourcesLoaded && !sources.length && !isDemo && pathname !== '/vendas/quizzes') {
         return (
             <EmptyBox>
                 Nenhuma fonte de tracking ainda. Clique em <b>Nova fonte</b> no topo e escolha a conta do cliente — ou crie em{' '}

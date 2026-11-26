@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { useVendas, brl, ErrorBox } from '@/components/vendas/shared';
+import { useVendas, brl, ErrorBox, DEMO_SOURCE_ID } from '@/components/vendas/shared';
 import { LiveGlobe, pointCoords } from '@/components/vendas/LiveGlobe';
 import styles from './ao-vivo.module.css';
 
@@ -21,7 +21,6 @@ interface Live {
 }
 
 const REFRESH_MS = 60_000;
-const DEMO_KEY = 'tai_live_demo';
 const STAGE_COLOR: Record<string, string> = { visits: '#0ea5e9', checkouts: '#ff6b35', pix: '#22d3ee', paid: '#00d27a' };
 const FEED: Record<FeedItem['kind'], { label: string; color: string; bg: string }> = {
     visit: { label: 'abriu a página', color: '#7dd3fc', bg: 'rgba(14,165,233,.14)' },
@@ -70,14 +69,11 @@ function Area({ values }: { values: number[] }) {
 }
 
 export default function AoVivoPage() {
-    const { sourceId, source } = useVendas();
+    const { sourceId, source, isDemo: demo, setSourceId, leaveDemo } = useVendas();
     const [data, setData] = useState<Live | null>(null);
     const [error, setError] = useState('');
     const [now, setNow] = useState(Date.now());
-    const [demo, setDemo] = useState(false);
-
-    useEffect(() => { try { setDemo(localStorage.getItem(DEMO_KEY) === '1'); } catch { /* sem storage */ } }, []);
-    const toggleDemo = () => setDemo((d) => { try { localStorage.setItem(DEMO_KEY, d ? '0' : '1'); } catch { /* sem storage */ } return !d; });
+    const toggleDemo = () => (demo ? leaveDemo() : setSourceId(DEMO_SOURCE_ID));
 
     const load = useCallback(async () => {
         if (!sourceId && !demo) return;

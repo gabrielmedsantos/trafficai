@@ -78,12 +78,19 @@ export const PERIODS: { key: string; label: string; range: () => [string, string
 ];
 
 // ── Contexto: fonte + período compartilhados entre as páginas ───────────
+/** Conta de teste: aparece na lista de fontes e só tem dados (fictícios) na aba Ao vivo. */
+export const DEMO_SOURCE_ID = 'demo';
+export const DEMO_SOURCE = { id: DEMO_SOURCE_ID, name: 'Conta de teste · dados fictícios', demo: true };
 interface VendasCtx {
     sources: any[];
     sourcesLoaded: boolean;
     sourceId: string;
     source: any | null;
     setSourceId: (id: string) => void;
+    /** true com a conta de teste selecionada. */
+    isDemo: boolean;
+    /** Volta da conta de teste para a última fonte real. */
+    leaveDemo: () => void;
     periodKey: string;
     setPeriodKey: (k: string) => void;
     since: string;
@@ -116,6 +123,7 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
             const list = (await api.getTrackingSources()) || [];
             setSources(list);
             const want = selectId || readLS('vendas_source');
+            if (want === DEMO_SOURCE_ID) { setSourceIdState(DEMO_SOURCE_ID); setSourcesLoaded(true); return; }
             const pick = list.find((s: any) => s.id === want) || list[0];
             if (pick) { setSourceIdState(pick.id); if (selectId) writeLS('vendas_source', pick.id); }
         } catch { /* página mostra estado vazio */ }
@@ -129,7 +137,15 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
         loadSources(requestedSource || undefined);
     }, [loadSources]);
 
-    const setSourceId = useCallback((id: string) => { setSourceIdState(id); writeLS('vendas_source', id); }, []);
+    const setSourceId = useCallback((id: string) => {
+        setSourceIdState(id); writeLS('vendas_source', id);
+        if (id && id !== DEMO_SOURCE_ID) writeLS('vendas_source_real', id);
+    }, []);
+    const leaveDemo = useCallback(() => {
+        const last = readLS('vendas_source_real');
+        const pick = sources.find((s: any) => s.id === last) || sources[0];
+        setSourceIdState(pick ? pick.id : ''); writeLS('vendas_source', pick ? pick.id : '');
+    }, [sources]);
     const setPeriodKey = useCallback((k: string) => { setPeriodKeyState(k); writeLS('vendas_period', k); }, []);
     const setCustomRange = useCallback((a: string, b: string) => {
         setCustom(a <= b ? [a, b] : [b, a]);
@@ -142,7 +158,8 @@ export function VendasProvider({ children }: { children: React.ReactNode }) {
     }, [periodKey, custom]);
 
     const value: VendasCtx = {
-        sources, sourcesLoaded, sourceId, source: sources.find(s => s.id === sourceId) || null, setSourceId,
+        sources, sourcesLoaded, sourceId, setSourceId, isDemo: sourceId === DEMO_SOURCE_ID, leaveDemo,
+        source: sourceId === DEMO_SOURCE_ID ? DEMO_SOURCE : sources.find(s => s.id === sourceId) || null,
         periodKey, setPeriodKey, since, until, setCustomRange,
         reloadToken, reload: () => setReloadToken(t => t + 1),
         reloadSources: loadSources,
