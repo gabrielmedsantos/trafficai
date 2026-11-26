@@ -18,6 +18,18 @@ const router = Router();
 const thumbCache = new Map<string, { url: string; expiresAt: number }>();
 const THUMB_CACHE_TTL_MS = 30 * 60 * 1000; // 30min
 
+function isAllowedMetaMediaUrl(value?: string): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:' && ['fbcdn.net', 'fbsbx.com', 'facebook.com'].some(
+            host => url.hostname === host || url.hostname.endsWith(`.${host}`)
+        );
+    } catch {
+        return false;
+    }
+}
+
 // ─── ROTAS PÚBLICAS (sem auth) ─────────────────────────────────────────────
 
 // GET /reports/public/:token — página pública do cliente
@@ -70,43 +82,46 @@ router.get('/public/:token/ad-thumbnail/:adId', async (req: Request, res: Respon
         const { token, adId } = req.params;
         const fallback = typeof req.query.fallback === 'string' ? req.query.fallback : undefined;
 
-        const cached = thumbCache.get(adId);
-        if (cached && cached.expiresAt > Date.now()) {
-            return res.redirect(302, cached.url);
-        }
-
         const rows = await query<any>(
-            `SELECT a.user_id, a.meta_account_id
+            `SELECT r.metrics, a.id AS account_id, a.user_id, a.meta_account_id
              FROM client_reports r
              LEFT JOIN ad_accounts a ON r.account_id = a.id
              WHERE r.public_token = $1`,
             [token]
         );
         if (!rows.length) {
-            if (fallback) return res.redirect(302, fallback);
             return res.status(404).end();
         }
 
-        const { user_id, meta_account_id } = rows[0];
+        const { metrics, account_id, user_id, meta_account_id } = rows[0];
+        const topAds: any[] = metrics?.top_ads || [];
+        if (!topAds.some(ad => ad.ad_id === adId)) return res.status(404).end();
+
+        const safeFallback = isAllowedMetaMediaUrl(fallback) ? fallback : undefined;
+
+        const cacheKey = `${account_id}:${adId}`;
+        const cached = thumbCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) return res.redirect(302, cached.url);
+
         const user = await authRepository.findById(user_id);
         if (!user?.access_token || !meta_account_id) {
-            if (fallback) return res.redirect(302, fallback);
+            if (safeFallback) return res.redirect(302, safeFallback);
             return res.status(404).end();
         }
 
         const thumbnails = await metaService.getAdThumbnails(user_id, user.access_token, meta_account_id, [adId]);
         const url = thumbnails.get(adId);
         if (!url) {
-            if (fallback) return res.redirect(302, fallback);
+            if (safeFallback) return res.redirect(302, safeFallback);
             return res.status(404).end();
         }
 
-        thumbCache.set(adId, { url, expiresAt: Date.now() + THUMB_CACHE_TTL_MS });
+        thumbCache.set(cacheKey, { url, expiresAt: Date.now() + THUMB_CACHE_TTL_MS });
         res.redirect(302, url);
     } catch (error: any) {
         logger.error('Erro ao buscar thumbnail do anúncio', { error: error.message });
         const fallback = typeof req.query.fallback === 'string' ? req.query.fallback : undefined;
-        if (fallback) return res.redirect(302, fallback);
+        if (isAllowedMetaMediaUrl(fallback)) return res.redirect(302, fallback!);
         res.status(500).end();
     }
 });
@@ -119,7 +134,7 @@ router.get('/public/:token/ad-video/:adId', async (req: Request, res: Response) 
         const { token, adId } = req.params;
 
         const rows = await query<any>(
-            `SELECT r.metrics, a.user_id
+            `SELECT r.metrics, a.id AS account_id, a.user_id, a.meta_account_id
              FROM client_reports r
              LEFT JOIN ad_accounts a ON r.account_id = a.id
              WHERE r.public_token = $1`,
@@ -127,18 +142,26 @@ router.get('/public/:token/ad-video/:adId', async (req: Request, res: Response) 
         );
         if (!rows.length) return res.status(404).json({ success: false, error: { message: 'Relatório não encontrado' } });
 
-        const { metrics, user_id } = rows[0];
+        const { metrics, user_id, meta_account_id } = rows[0];
         const topAds: any[] = metrics?.top_ads || [];
         const ad = topAds.find((a: any) => a.ad_id === adId);
-        if (!ad?.video_id) return res.status(404).json({ success: false, error: { message: 'Vídeo não disponível' } });
+        if (!ad) return res.status(404).json({ success: false, error: { message: 'Anúncio não pertence a este relatório' } });
 
         const user = await authRepository.findById(user_id);
-        if (!user?.access_token) return res.status(404).json({ success: false, error: { message: 'Conta desconectada' } });
+        if (!user?.access_token || !meta_account_id) return res.status(404).json({ success: false, error: { message: 'Conta desconectada' } });
 
-        const url = await metaService.getVideoSourceUrl(user_id, user.access_token, ad.video_id);
-        if (!url) return res.status(404).json({ success: false, error: { message: 'Vídeo indisponível no momento' } });
+        // Relatórios antigos podem não ter video_id/is_video no snapshot. Reconsulta o
+        // anúncio no Meta quando o cliente abre o criativo e devolve a mídia mais recente.
+        const fresh = await metaService.getAdVideoInfo(user_id, user.access_token, meta_account_id, [adId]);
+        const freshInfo = fresh.get(adId);
+        const videoId = ad.video_id || freshInfo?.video_id;
+        const isVideo = !!videoId || freshInfo?.object_type === 'VIDEO' || !!ad.is_video;
+        const watchUrl = freshInfo?.permalink_url || ad.watch_url;
+        if (!isVideo) return res.json({ success: true, data: { is_video: false, watch_url: watchUrl } });
 
-        res.json({ success: true, data: { url } });
+        const url = videoId ? await metaService.getVideoSourceUrl(user_id, user.access_token, videoId) : undefined;
+
+        res.json({ success: true, data: { is_video: true, video_id: videoId, url, watch_url: watchUrl } });
     } catch (error: any) {
         logger.error('Erro ao buscar vídeo do anúncio', { error: error.message });
         res.status(500).json({ success: false, error: { message: 'Erro interno' } });

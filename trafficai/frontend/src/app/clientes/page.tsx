@@ -9,6 +9,7 @@ import {
     PenTool, Clock, Copy,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import ClientBillingLedger from '@/components/ClientBillingLedger';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 const token = () => localStorage.getItem('trafficai_token') || '';
@@ -67,6 +68,9 @@ interface BillingSummary {
     pending_count: number;
     total_owed: number;
     oldest_pending: string | null;
+    overdue_count: number;
+    overdue_amount: number;
+    upcoming_amount: number;
 }
 
 interface ClientForm {
@@ -324,7 +328,7 @@ export default function ClientesPage() {
         let s = 0;
         if (c.status === 'churned') s += 100;
         const billing = billingSummaryMap[c.id];
-        if (billing && Number(billing.total_owed) > 0) s += 40;
+        if (billing && Number(billing.overdue_amount) > 0) s += 40;
         const ms = meetingStatsMap[c.id];
         if (c.status === 'ativo' && ms) {
             if (ms.risk === 'high') s += 30;
@@ -362,7 +366,7 @@ export default function ClientesPage() {
         if (c.status !== 'ativo') return false;
         const billing = billingSummaryMap[c.id];
         const ms = meetingStatsMap[c.id];
-        return (billing && Number(billing.total_owed) > 0) || (ms?.risk === 'high');
+        return (billing && Number(billing.overdue_amount) > 0) || (ms?.risk === 'high');
     }).sort((a, b) => getRiskScore(b) - getRiskScore(a));
 
     // ── Drawer único ──
@@ -731,7 +735,7 @@ export default function ClientesPage() {
                         {atRiskClients.slice(0, 6).map(c => {
                             const billing = billingSummaryMap[c.id];
                             const ms = meetingStatsMap[c.id];
-                            const overdue = billing && Number(billing.total_owed) > 0;
+                            const overdue = billing && Number(billing.overdue_amount) > 0;
                             return (
                                 <button key={c.id} onClick={() => openDrawer(c)} style={{
                                     display: 'flex', alignItems: 'center', gap: 10,
@@ -745,7 +749,7 @@ export default function ClientesPage() {
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
                                         <div style={{ fontSize: 11.5, color: '#ef4444', marginTop: 1 }}>
-                                            {overdue && <>Deve {formatBRL(Number(billing.total_owed))}</>}
+                                            {overdue && <>Em atraso: {formatBRL(Number(billing.overdue_amount))}</>}
                                             {overdue && ms?.risk === 'high' && ' · '}
                                             {ms?.risk === 'high' && <>{ms.this_month} reuniões</>}
                                         </div>
@@ -800,7 +804,7 @@ export default function ClientesPage() {
                     {sortedClients.map((client, idx) => {
                         const cfg = STATUS_CONFIG[client.status] || STATUS_CONFIG.inativo;
                         const billing = billingSummaryMap[client.id];
-                        const isOverdue = billing && Number(billing.total_owed) > 0;
+                        const isOverdue = billing && Number(billing.overdue_amount) > 0;
                         const ms = meetingStatsMap[client.id];
                         const mrr = getMrr(client);
                         const risk = getRiskLevel(client);
@@ -862,19 +866,22 @@ export default function ClientesPage() {
                                 </div>
 
                                 {/* Coluna 4: Pagamento */}
-                                <div>
+                                <div role="button" tabIndex={0} aria-label={`Ver mensalidades de ${client.name}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawer(client); } }}>
                                     {!billing ? (
                                         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
                                     ) : isOverdue ? (
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600, color: '#ef4444' }}>
                                             <AlertCircle size={12} />
-                                            {formatBRL(Number(billing.total_owed))}
+                                            {formatBRL(Number(billing.overdue_amount))}
                                         </span>
+                                    ) : Number(billing.upcoming_amount) > 0 ? (
+                                        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>A vencer {formatBRL(Number(billing.upcoming_amount))}</span>
                                     ) : (
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#10b981' }}>
                                             <CheckCircle2 size={12} /> Em dia
                                         </span>
                                     )}
+                                    <div style={{ fontSize: 10, color: 'var(--primary)', marginTop: 4 }}>Ver mensalidades →</div>
                                 </div>
 
                                 {/* Coluna 5: Reuniões */}
@@ -998,10 +1005,10 @@ export default function ClientesPage() {
                                         <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Pagamento</div>
                                         {(() => {
                                             const b = billingSummaryMap[openClient.id];
-                                            const od = b && Number(b.total_owed) > 0;
+                                            const od = b && Number(b.overdue_amount) > 0;
                                             if (!b) return <div style={{ fontSize: 14, color: 'var(--text-muted)', marginTop: 4 }}>Sem cobranças</div>;
                                             return od ? (
-                                                <div style={{ fontSize: 15, fontWeight: 700, color: '#ef4444', marginTop: 4 }}>{formatBRL(Number(b.total_owed))}</div>
+                                                <div style={{ fontSize: 15, fontWeight: 700, color: '#ef4444', marginTop: 4 }}>{formatBRL(Number(b.overdue_amount))}</div>
                                             ) : (
                                                 <div style={{ fontSize: 14, fontWeight: 600, color: '#10b981', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                     <CheckCircle2 size={14} /> Em dia
@@ -1010,6 +1017,8 @@ export default function ClientesPage() {
                                         })()}
                                     </div>
                                 </div>
+
+                                <ClientBillingLedger key={openClient.id} clientId={openClient.id} onChanged={fetchClients} />
 
                                 {/* Plano */}
                                 {openClient.plan && (

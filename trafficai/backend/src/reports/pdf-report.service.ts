@@ -79,12 +79,16 @@ interface CampaignRow {
 }
 
 interface AdRow {
+    ad_id: string;
     ad_name: string;
     spend: number;
     conversions: number;
     cpa: number;
     reach: number;
     thumbnail_url?: string | null;
+    is_video?: boolean;
+    video_id?: string;
+    watch_url?: string;
     campaign_name?: string;
     ctr?: number;
     action_label?: string;
@@ -196,10 +200,13 @@ function dailyBarsSvg(daily: DailyPoint[], height: number = 100): string {
     </svg>`;
 }
 
-export function renderReportHTML(data: ReportInput): string {
+export function renderReportHTML(data: ReportInput, snapshotToken?: string): string {
     const periodLabel = data.periodLabel || `${formatDateBR(data.periodStart)} — ${formatDateBR(data.periodEnd)}`;
     const daysCount = daysBetween(data.periodStart, data.periodEnd) + 1;
     const p = data.totalsPrev;
+    const mediaBase = snapshotToken
+        ? `${(process.env.PUBLIC_API_URL || 'https://api.alfamaxdigital.com.br').replace(/\/$/, '')}/api/v1/r/pdf/${encodeURIComponent(snapshotToken)}`
+        : '';
 
     // KPI cards com delta comparativo
     const kpis: Array<{ label: string; value: string; sub: string; delta: string; invert?: boolean }> = [
@@ -221,15 +228,19 @@ export function renderReportHTML(data: ReportInput): string {
     const topAdsBlock = data.topAds.length > 0 ? `
       <div class="section-title" style="margin-top:44px">🏆 Ranking de Criativos <span style="color:#64748b;font-weight:500;text-transform:none;letter-spacing:0;font-size:11px">· ${data.topAds.length} anúncios</span></div>
       <div class="creative-grid">
-        ${data.topAds.map((ad, i) => `
+        ${data.topAds.map((ad, i) => {
+          const mediaSrc = ad.thumbnail_url || (mediaBase && ad.ad_id ? `${mediaBase}/ad-thumbnail/${encodeURIComponent(ad.ad_id)}` : '');
+          const watchUrl = ad.watch_url || '';
+          const thumb = mediaSrc
+            ? `<img class="fg" src="${escapeAttr(mediaSrc)}" alt="${escapeAttr(ad.ad_name)}" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML='<div class=creative-thumb-empty>prévia indisponível · clique para tentar abrir</div>'"/>`
+            : `<div class="creative-thumb-empty">prévia indisponível</div>`;
+          const mediaButton = ad.ad_id
+            ? `<button class="creative-open" type="button" data-ad-id="${escapeAttr(ad.ad_id)}" data-is-video="${ad.is_video ? 'true' : 'false'}" data-watch-url="${escapeAttr(watchUrl)}" data-image-src="${escapeAttr(mediaSrc)}" aria-label="${ad.is_video ? 'Assistir' : 'Ampliar'} ${escapeAttr(ad.ad_name)}">${thumb}${ad.is_video ? '<span class="creative-play">▶</span>' : '<span class="creative-zoom">⌕</span>'}</button>`
+            : thumb;
+          return `
           <div class="creative-card">
             <div class="creative-rank">#${i + 1}</div>
-            ${ad.thumbnail_url
-                ? `<div class="creative-thumb">
-                     <img class="bg" src="${escapeAttr(ad.thumbnail_url)}" alt="" referrerpolicy="no-referrer"/>
-                     <img class="fg" src="${escapeAttr(ad.thumbnail_url)}" alt="" referrerpolicy="no-referrer" onerror="this.parentElement.innerHTML='<div class=creative-thumb-empty>sem preview</div>'"/>
-                   </div>`
-                : `<div class="creative-thumb"><div class="creative-thumb-empty">sem preview</div></div>`}
+            <div class="creative-thumb">${mediaButton}</div>
             <div class="creative-info">
               <div class="creative-name" title="${escapeAttr(ad.ad_name)}">${escapeHtml(ad.ad_name.slice(0, 60))}${ad.ad_name.length > 60 ? '…' : ''}</div>
               <div class="creative-camp">${escapeHtml((ad.campaign_name || '').slice(0, 50))}</div>
@@ -241,7 +252,8 @@ export function renderReportHTML(data: ReportInput): string {
               </div>
             </div>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>` : '';
 
     // Insights bullets (highlights automáticos)
@@ -365,9 +377,19 @@ export function renderReportHTML(data: ReportInput): string {
   .creative-card { background:#111726; border:1px solid #1e2942; border-radius:14px; overflow:hidden; position:relative; }
   .creative-rank { position:absolute; top:10px; left:10px; z-index:2; background:linear-gradient(135deg,#a3d900,#d3f100); color:#0a0e1a; font-size:12px; font-weight:900; padding:4px 10px; border-radius:8px; box-shadow:0 4px 12px rgba(211,241,0,.35); }
   .creative-thumb { width:100%; aspect-ratio:1/1; background:#000; position:relative; overflow:hidden; }
-  .creative-thumb img.bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; filter:blur(30px) brightness(.5); transform:scale(1.2); }
-  .creative-thumb img.fg { position:relative; width:100%; height:100%; object-fit:contain; display:block; }
-  .creative-thumb-empty { color:#64748b; font-size:12px; font-weight:600; text-align:center; padding-top:40%; }
+  .creative-open { position:absolute; inset:0; width:100%; height:100%; padding:0; border:0; background:transparent; cursor:pointer; display:grid; place-items:center; }
+  .creative-open img { width:100%; height:100%; object-fit:contain; display:block; }
+  .creative-thumb-empty { width:100%; height:100%; color:#94a3b8; font-size:12px; font-weight:600; display:grid; place-items:center; text-align:center; padding:20px; }
+  .creative-play,.creative-zoom { position:absolute; right:12px; bottom:12px; width:42px; height:42px; border-radius:50%; background:rgba(10,14,26,.78); border:1px solid #d3f100; color:#fff; display:grid; place-items:center; font-size:20px; }
+  .creative-play { border-color:#8b5cf6; }
+  #creative-viewer { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center; padding:20px; background:rgba(3,6,12,.92); }
+  #creative-viewer.open { display:flex; }
+  #creative-viewer-panel { position:relative; width:min(94vw,850px); max-height:92vh; display:grid; place-items:center; }
+  #creative-viewer-content { max-width:100%; max-height:86vh; display:grid; place-items:center; }
+  #creative-viewer-content img,#creative-viewer-content video { max-width:100%; max-height:86vh; object-fit:contain; }
+  #creative-viewer-content iframe { width:min(450px,88vw); height:min(780px,82vh); border:0; border-radius:12px; background:#fff; }
+  #creative-viewer-close { position:absolute; right:0; top:-42px; border:0; border-radius:8px; background:#1e293b; color:white; font-size:20px; padding:7px 12px; cursor:pointer; }
+  #creative-viewer-link { color:#d3f100; font:600 14px sans-serif; margin-top:12px; }
   .creative-info { padding:14px 16px; }
   .creative-name { font-size:13px; font-weight:700; color:#f1f5f9; margin-bottom:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .creative-camp { font-size:11px; color:#64748b; margin-bottom:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -574,6 +596,67 @@ export function renderReportHTML(data: ReportInput): string {
       <div>Gerado em ${formatDateBR(new Date().toISOString().slice(0, 10))}</div>
     </div>
   </div>
+<div id="creative-viewer" data-media-player-v2="true" data-media-base="${escapeAttr(mediaBase)}" role="dialog" aria-modal="true" aria-label="Prévia do anúncio">
+  <div id="creative-viewer-panel"><button id="creative-viewer-close" type="button" aria-label="Fechar">×</button><div id="creative-viewer-content"></div><a id="creative-viewer-link" target="_blank" rel="noopener noreferrer" style="display:none">Abrir no Facebook/Instagram</a></div>
+</div>
+<script>
+(() => {
+  const viewer = document.getElementById('creative-viewer');
+  const content = document.getElementById('creative-viewer-content');
+  const link = document.getElementById('creative-viewer-link');
+  const base = viewer && viewer.dataset.mediaBase;
+  const close = () => { viewer.classList.remove('open'); content.innerHTML = ''; link.style.display = 'none'; };
+  const showPostEmbed = (url) => {
+    try {
+      const parsed = new URL(url);
+      const path = parsed.pathname.replace(/\\/+$/, '');
+      if (/instagram\\.com$/i.test(parsed.hostname) && /^\\/(p|reel|tv)\\//i.test(path)) {
+        const frame = document.createElement('iframe'); frame.src = parsed.origin + path + '/embed'; frame.title = 'Vídeo do Instagram'; frame.allow = 'autoplay; encrypted-media; picture-in-picture; web-share'; frame.allowFullscreen = true; content.replaceChildren(frame); return true;
+      }
+      if (/facebook\\.com$/i.test(parsed.hostname) && /\\/(videos|watch|reel)\\//i.test(path)) {
+        const frame = document.createElement('iframe'); frame.src = 'https://www.facebook.com/plugins/video.php?href=' + encodeURIComponent(url) + '&show_text=false'; frame.title = 'Vídeo do Facebook'; frame.allow = 'autoplay; encrypted-media; picture-in-picture; web-share'; frame.allowFullscreen = true; content.replaceChildren(frame); return true;
+      }
+    } catch { /* link externo continua disponível */ }
+    return false;
+  };
+  document.getElementById('creative-viewer-close').addEventListener('click', close);
+  viewer.addEventListener('click', e => { if (e.target === viewer) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  document.querySelectorAll('.creative-open').forEach(button => button.addEventListener('click', async () => {
+    const adId = button.dataset.adId;
+    const imageSrc = button.dataset.imageSrc;
+    let isVideo = button.dataset.isVideo === 'true';
+    let watchUrl = button.dataset.watchUrl || '';
+    viewer.classList.add('open');
+    content.innerHTML = '<div style="color:#cbd5e1;font:14px sans-serif;padding:40px">Carregando criativo…</div>';
+    if (base && adId) {
+      try {
+        const response = await fetch(base + '/ad-video/' + encodeURIComponent(adId));
+        const result = await response.json();
+        if (result.success) {
+          isVideo = !!result.data?.is_video;
+          watchUrl = result.data?.watch_url || watchUrl;
+          if (isVideo && result.data?.url) {
+            const video = document.createElement('video'); video.src = result.data.url; video.controls = true; video.autoplay = true; content.replaceChildren(video);
+          } else if (!isVideo && imageSrc) {
+            const image = document.createElement('img'); image.src = imageSrc; image.alt = 'Prévia do anúncio'; content.replaceChildren(image);
+          }
+        }
+      } catch { /* usa miniatura guardada como fallback */ }
+    }
+    if (!content.querySelector('video, img')) {
+      if (isVideo) {
+        if (!showPostEmbed(watchUrl)) content.innerHTML = '<div style="color:#cbd5e1;font:14px sans-serif;padding:40px">Vídeo indisponível para reprodução direta.</div>';
+      }
+      else if (base && adId) { const image = document.createElement('img'); image.src = base + '/ad-thumbnail/' + encodeURIComponent(adId); image.alt = 'Prévia do anúncio'; content.replaceChildren(image); }
+      else if (imageSrc) { const image = document.createElement('img'); image.src = imageSrc; image.alt = 'Prévia do anúncio'; content.replaceChildren(image); }
+    }
+    const image = content.querySelector('img');
+    if (image) image.onerror = () => { content.innerHTML = '<div style="color:#cbd5e1;font:14px sans-serif;padding:40px">Prévia indisponível.</div>'; };
+    if (watchUrl) { link.href = watchUrl; link.style.display = 'inline-block'; }
+  }));
+})();
+</script>
 </body>
 </html>`;
 }
@@ -629,12 +712,13 @@ function daysBetween(a: string, b: string): number {
 /**
  * Salva HTML como snapshot público acessível via /r/pdf/:token.
  */
-export async function saveReportSnapshot(userId: string, accountId: string, html: string, meta: { periodStart: string; periodEnd: string; accountName: string }): Promise<{ token: string; url: string }> {
+export async function saveReportSnapshot(userId: string, accountId: string, html: string | ((token: string) => string), meta: { periodStart: string; periodEnd: string; accountName: string }): Promise<{ token: string; url: string }> {
     const token = crypto.randomBytes(18).toString('hex');
+    const snapshotHtml = typeof html === 'function' ? html(token) : html;
     await query(
         `INSERT INTO report_pdf_snapshots (token, user_id, account_id, html, period_start, period_end, account_name, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
-        [token, userId, accountId, html, meta.periodStart, meta.periodEnd, meta.accountName]
+        [token, userId, accountId, snapshotHtml, meta.periodStart, meta.periodEnd, meta.accountName]
     );
     const baseUrl = process.env.PUBLIC_API_URL || 'https://api.alfamaxdigital.com.br';
     const url = `${baseUrl}/api/v1/r/pdf/${token}`;
@@ -739,9 +823,12 @@ export async function buildReportForAccount(userId: string, accountId: string, p
         const raw = await metaService.getAdInsightsForReport(userId, accessToken, acc.meta_account_id, periodStart, periodEnd);
         const adIds = raw.map((r: any) => r.ad_id).filter(Boolean);
         // Busca thumbnails com fields expandidos (asset_feed / object_story / image_url)
-        const thumbMap = adIds.length > 0
-            ? await metaService.getAdThumbnails(userId, accessToken, acc.meta_account_id, adIds)
-            : new Map();
+        const [thumbMap, videoInfo] = adIds.length > 0
+            ? await Promise.all([
+                metaService.getAdThumbnails(userId, accessToken, acc.meta_account_id, adIds),
+                metaService.getAdVideoInfo(userId, accessToken, acc.meta_account_id, adIds),
+            ])
+            : [new Map(), new Map()];
         const campaignMap = new Map(campRows.map((c: any) => [c.meta_campaign_id, c]));
 
         topAds = raw.map((r: any) => {
@@ -754,12 +841,16 @@ export async function buildReportForAccount(userId: string, accountId: string, p
             const convCount = primary.count;
             const convLabel = primary.label;
             return {
+                ad_id: r.ad_id || '',
                 ad_name: r.ad_name || '(sem nome)',
                 campaign_name: r.campaign_name || '',
                 spend, conversions: convCount, reach: 0,
                 cpa: convCount > 0 ? spend / convCount : 0,
                 ctr: impressions > 0 ? (clicks / impressions) * 100 : parseFloat(r.ctr || '0'),
                 thumbnail_url: thumbMap.get(r.ad_id) || null,
+                is_video: videoInfo.get(r.ad_id)?.object_type === 'VIDEO' || !!videoInfo.get(r.ad_id)?.video_id,
+                video_id: videoInfo.get(r.ad_id)?.video_id,
+                watch_url: videoInfo.get(r.ad_id)?.permalink_url,
                 action_label: convLabel,
             };
         })
@@ -782,7 +873,7 @@ export async function buildReportForAccount(userId: string, accountId: string, p
                 if (ad.thumbnail_url && base64Map.has(ad.thumbnail_url)) {
                     ad.thumbnail_url = base64Map.get(ad.thumbnail_url)!;
                 } else if (ad.thumbnail_url) {
-                    // fetch falhou — remove pra mostrar placeholder ao invés de img quebrada
+                    // Usa a rota pública on-demand no HTML; URLs assinadas da Meta expiram.
                     ad.thumbnail_url = null;
                 }
             }

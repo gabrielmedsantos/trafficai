@@ -41,6 +41,9 @@ import {
     ShieldCheck,
     Send,
     Flame,
+    Image,
+    MapPin,
+    UserRound,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
@@ -114,7 +117,11 @@ const AREAS = [
                 label: 'Vendas',
                 items: [
                     { href: '/vendas',            label: 'Resumo',            icon: LayoutDashboard, color: C.cyan, exact: true },
+                    { href: '/vendas/ao-vivo',    label: 'Ao vivo',           icon: Radio, color: C.orange },
                     { href: '/vendas/campanhas',  label: 'Campanhas',         icon: Megaphone, color: C.orange },
+                    { href: '/vendas/criativos',  label: 'Criativos',         icon: Image, color: C.orange },
+                    { href: '/vendas/regioes',    label: 'Regiões',           icon: MapPin, color: C.green },
+                    { href: '/vendas/persona',    label: 'Persona',           icon: UserRound, color: C.purple },
                     { href: '/vendas/utms',       label: 'UTMs',              icon: Link2, color: C.purple },
                     { href: '/vendas/diario',     label: 'Relatório diário',  icon: CalendarDays, color: C.blue },
                     { href: '/vendas/pedidos',    label: 'Pedidos',           icon: ShoppingCart, color: C.green },

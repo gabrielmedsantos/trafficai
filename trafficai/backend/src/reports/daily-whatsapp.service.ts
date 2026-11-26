@@ -627,8 +627,7 @@ export class DailyWhatsAppService {
         try {
             const { buildReportForAccount, renderReportHTML, saveReportSnapshot } = await import('./pdf-report.service');
             const data = await buildReportForAccount(acc.user_id, acc.id, since, until);
-            const html = renderReportHTML(data);
-            const snapshot = await saveReportSnapshot(acc.user_id, acc.id, html, {
+            const snapshot = await saveReportSnapshot(acc.user_id, acc.id, token => renderReportHTML(data, token), {
                 periodStart: since, periodEnd: until, accountName: data.accountName,
             });
             return snapshot.url;

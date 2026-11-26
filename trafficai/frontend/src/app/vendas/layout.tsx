@@ -6,12 +6,17 @@ import { usePathname, useRouter } from 'next/navigation';
 import { RefreshCw, Plus } from 'lucide-react';
 import { NovaFonteModal } from '@/components/vendas/NovaFonteModal';
 import Sidebar from '@/components/Sidebar';
-import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox } from '@/components/vendas/shared';
+import { VendasProvider, useVendas, PERIODS, selectStyle, EmptyBox, DEMO_SOURCE, DEMO_SOURCE_ID } from '@/components/vendas/shared';
+import { MetricsTabs, METRICS_TAB_ROUTES } from '@/components/vendas/MetricsTabs';
 
 const PAGES: Record<string, { title: string; subtitle: string; period: boolean }> = {
+    '/vendas/ao-vivo': { title: 'Ao vivo', subtitle: 'Quem está no funil agora, o ritmo do dia e a projeção de vendas.', period: false },
     '/vendas/quizzes': { title: 'Funis de Quiz', subtitle: 'Respostas, etapas e pedidos dos quizzes personalizados.', period: true },
     '/vendas': { title: 'Resumo', subtitle: 'Faturamento, gastos e lucro das vendas atribuídas aos anúncios.', period: true },
     '/vendas/campanhas': { title: 'Campanhas', subtitle: 'Vendas, CPA e lucro por campanha, conjunto e anúncio — com status e orçamento da Meta ao vivo.', period: true },
+    '/vendas/criativos': { title: 'Criativos', subtitle: 'Cada anúncio com miniatura, resultado e o funil da impressão até a venda.', period: true },
+    '/vendas/regioes': { title: 'Regiões', subtitle: 'Visitas, checkouts e vendas por estado — onde o anúncio converte e onde só gasta.', period: true },
+    '/vendas/persona': { title: 'Persona', subtitle: 'Quem compra: idade e gênero pela Meta e as respostas do quiz que mais convertem.', period: true },
     '/vendas/utms': { title: 'UTMs', subtitle: 'Vendas agrupadas por qualquer parâmetro UTM.', period: true },
     '/vendas/diario': { title: 'Relatório diário', subtitle: 'Resultado dia a dia no fuso de Brasília.', period: true },
     '/vendas/recuperacao': { title: 'Recuperação de vendas', subtitle: 'Carrinhos abandonados, Pix/boleto não pagos e pagamentos recusados — chame o cliente no WhatsApp.', period: true },
@@ -50,7 +55,9 @@ function Header() {
                 <label style={label}>
                     Fonte de tracking
                     <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} style={{ ...selectStyle, minWidth: 180 }}>
+                        {!sourceId && <option value="">Escolha uma fonte</option>}
                         {sources.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                        <option value={DEMO_SOURCE_ID}>{DEMO_SOURCE.name}</option>
                     </select>
                 </label>
                 <button type="button" className="btn btn-secondary" onClick={() => setCreating(true)} style={{ padding: '8px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -108,10 +115,23 @@ function Header() {
     );
 }
 
+function TabsBar() {
+    const pathname = usePathname() || '/vendas';
+    return METRICS_TAB_ROUTES.includes(pathname) ? <MetricsTabs /> : null;
+}
+
 function Body({ children }: { children: React.ReactNode }) {
-    const { sources, sourcesLoaded } = useVendas();
+    const { sources, sourcesLoaded, isDemo } = useVendas();
     const pathname=usePathname();
-    if (sourcesLoaded && !sources.length && pathname !== '/vendas/quizzes') {
+    if (isDemo && pathname !== '/vendas/ao-vivo') {
+        return (
+            <EmptyBox>
+                A <b>conta de teste</b> tem dados fictícios só na aba <Link href="/vendas/ao-vivo" style={{ color: 'var(--accent-blue)' }}>Ao vivo</Link>.
+                Para ver esta tela, escolha uma conta real em <b>Fonte de tracking</b>, no topo.
+            </EmptyBox>
+        );
+    }
+    if (sourcesLoaded && !sources.length && !isDemo && pathname !== '/vendas/quizzes') {
         return (
             <EmptyBox>
                 Nenhuma fonte de tracking ainda. Clique em <b>Nova fonte</b> no topo e escolha a conta do cliente — ou crie em{' '}
@@ -129,6 +149,7 @@ export default function VendasLayout({ children }: { children: React.ReactNode }
             <main className="main-content" style={{ minWidth: 0 }}>
                 <VendasProvider>
                     <Header />
+                    <TabsBar />
                     <Body>{children}</Body>
                 </VendasProvider>
             </main>

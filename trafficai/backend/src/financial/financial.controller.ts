@@ -126,16 +126,35 @@ router.get('/dashboard', async (req: Request, res: Response) => {
              GROUP BY status`,
             [userId, startDate]
         );
-        const contractsPaid = Number(billingTotals.find((r: any) => r.status === 'paid')?.total || 0);
-        const contractsPending = Number(billingTotals.find((r: any) => r.status === 'pending')?.total || 0);
-        const contractsOverdue = Number(billingTotals.find((r: any) => r.status === 'overdue')?.total || 0);
+        const receiptRows = await query<any>(
+            `SELECT cb.id, cb.client_id, cl.name AS client_name, cb.reference_month, cb.total_amount,
+                    cb.paid_at, cb.payment_method,
+                    (cb.paid_at AT TIME ZONE 'America/Fortaleza')::date AS received_date
+             FROM contract_billing cb JOIN clients cl ON cl.id=cb.client_id AND cl.user_id=cb.user_id
+             WHERE cb.user_id=$1 AND cb.status='paid'
+               AND (cb.paid_at AT TIME ZONE 'America/Fortaleza')::date BETWEEN $2::date AND $3::date
+             ORDER BY cb.paid_at DESC`, [userId, startDate, endDate]
+        );
+        const contractsPaid = isCash
+            ? receiptRows.reduce((sum: number, row: any) => sum + Number(row.total_amount), 0)
+            : Number(billingTotals.find((r: any) => r.status === 'paid')?.total || 0);
+        const openRows = await query<any>(
+            `SELECT
+                COALESCE(SUM(total_amount) FILTER (WHERE COALESCE(due_date,reference_month) < (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date),0) AS overdue,
+                COALESCE(SUM(total_amount) FILTER (WHERE COALESCE(due_date,reference_month) >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date),0) AS upcoming
+             FROM contract_billing WHERE user_id=$1 AND status IN ('pending','overdue')`, [userId]
+        );
+        const contractsPending = Number(openRows[0]?.upcoming || 0);
+        const contractsOverdue = Number(openRows[0]?.overdue || 0);
         const contractsReceivable = contractsPending + contractsOverdue;
+        const competenceOpen = billingTotals.filter((r: any) => ['pending','overdue'].includes(r.status))
+            .reduce((sum: number, row: any) => sum + Number(row.total), 0);
 
         // Em regime caixa, contratos pending NÃO contam como receita realizada.
         // Em competência, somam (entram em "Receitas"), assim como tx pending já entrou em txIncome.
         const income = isCash
             ? txIncome + contractsPaid
-            : txIncome + contractsPaid + contractsPending + contractsOverdue;
+            : txIncome + contractsPaid + competenceOpen;
         const expense = txExpense;
         // Receita "a receber" combina tx income pending + cobranças não-pagas
         const totalReceivable = contractsReceivable + pendingIncome;
@@ -181,6 +200,26 @@ router.get('/dashboard', async (req: Request, res: Response) => {
             [userId, startDate, endDate]
         );
 
+        if (contractsPaid + (isCash ? 0 : competenceOpen) > 0) {
+            const category = { type: 'income', category: 'Mensalidades de contratos', total: contractsPaid + (isCash ? 0 : competenceOpen) };
+            byCategory.push(category);
+            incomeByCategory.push(category);
+        }
+        const contractDaily = await query<any>(
+            `SELECT ${isCash ? "(paid_at AT TIME ZONE 'America/Fortaleza')::date" : 'reference_month'} AS date,
+                    'income' AS type, SUM(total_amount) AS total
+             FROM contract_billing WHERE user_id=$1
+               AND ${isCash ? "status='paid' AND (paid_at AT TIME ZONE 'America/Fortaleza')::date BETWEEN $2::date AND $3::date" : "status IN ('paid','pending','overdue') AND reference_month BETWEEN $2::date AND $3::date"}
+             GROUP BY 1`, [userId,startDate,endDate]
+        );
+        const mergedFlow = new Map<string, any>();
+        for (const row of [...dailyFlow, ...contractDaily]) {
+            const day = row.date instanceof Date ? row.date.toISOString().slice(0,10) : String(row.date).slice(0,10);
+            const key = `${day}:${row.type}`;
+            const previous = mergedFlow.get(key);
+            mergedFlow.set(key, { date: day, type: row.type, total: Number(row.total) + Number(previous?.total || 0) });
+        }
+
         res.json({
             success: true,
             data: {
@@ -192,7 +231,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
                     transactions: txIncome,
                     contracts_paid: contractsPaid,
                     pending_tx: pendingIncome,
-                    pending_contracts: contractsPending + contractsOverdue,
+                    pending_contracts: competenceOpen,
                 },
                 expense_breakdown: {
                     transactions: txExpense,
@@ -209,7 +248,8 @@ router.get('/dashboard', async (req: Request, res: Response) => {
                 expenseByCategory,
                 recent,
                 accounts,
-                dailyFlow,
+                dailyFlow: [...mergedFlow.values()].sort((a, b) => a.date.localeCompare(b.date)),
+                billing_receipts: receiptRows,
                 period: { month: targetMonth, year: targetYear, startDate, endDate },
             }
         });
@@ -408,7 +448,8 @@ router.delete('/recurring/:id', async (req: Request, res: Response) => {
 router.get('/billing', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
-        const { months = 3, status, client_id } = req.query;
+        const { months = 3, status, client_id, all } = req.query;
+        if (all === 'true' && !client_id) return res.status(400).json({ success: false, error: { message: 'Selecione um cliente para consultar todo o histórico.' } });
 
         // Get start date: N months ago
         const startDate = new Date();
@@ -429,14 +470,14 @@ router.get('/billing', async (req: Request, res: Response) => {
             FROM contract_billing cb
             JOIN contracts c ON cb.contract_id = c.id
             JOIN clients cl ON cb.client_id = cl.id
-            WHERE cb.user_id = $1 AND cb.reference_month >= $2
+            WHERE cb.user_id = $1 ${all === 'true' ? '' : 'AND (cb.reference_month >= $2 OR cb.status IN (\'pending\', \'overdue\'))'}
         `;
-        const params: any[] = [userId, startStr];
+        const params: any[] = all === 'true' ? [userId] : [userId, startStr];
 
         if (status) { params.push(status); sql += ` AND cb.status = $${params.length}`; }
         if (client_id) { params.push(client_id); sql += ` AND cb.client_id = $${params.length}`; }
 
-        sql += ` ORDER BY cb.reference_month DESC, cl.name ASC`;
+        sql += ` ORDER BY cb.reference_month ASC, cl.name ASC`;
 
         const rows = await query<any>(sql, params);
         res.json({ success: true, data: rows });
@@ -459,6 +500,12 @@ router.get('/billing/summary', async (req: Request, res: Response) => {
                 cl.reminder_mode,
                 COUNT(cb.id) FILTER (WHERE cb.status IN ('pending', 'overdue')) AS pending_count,
                 COALESCE(SUM(cb.total_amount) FILTER (WHERE cb.status IN ('pending', 'overdue')), 0) AS total_owed,
+                COUNT(cb.id) FILTER (WHERE cb.status IN ('pending', 'overdue') AND COALESCE(cb.due_date, cb.reference_month) < (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date) AS overdue_count,
+                COALESCE(SUM(cb.total_amount) FILTER (WHERE cb.status IN ('pending', 'overdue') AND COALESCE(cb.due_date, cb.reference_month) < (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date), 0) AS overdue_amount,
+                MIN(cb.reference_month) FILTER (WHERE cb.status IN ('pending', 'overdue') AND COALESCE(cb.due_date, cb.reference_month) < (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date) AS oldest_overdue,
+                COUNT(cb.id) FILTER (WHERE cb.status IN ('pending', 'overdue') AND COALESCE(cb.due_date, cb.reference_month) >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date) AS upcoming_count,
+                COALESCE(SUM(cb.total_amount) FILTER (WHERE cb.status IN ('pending', 'overdue') AND COALESCE(cb.due_date, cb.reference_month) >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date), 0) AS upcoming_amount,
+                MIN(COALESCE(cb.due_date, cb.reference_month)) FILTER (WHERE cb.status IN ('pending', 'overdue') AND COALESCE(cb.due_date, cb.reference_month) >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Fortaleza')::date) AS next_due_date,
                 COALESCE(SUM(cb.total_amount) FILTER (WHERE cb.status = 'paid'), 0) AS total_paid,
                 MIN(cb.reference_month) FILTER (WHERE cb.status IN ('pending', 'overdue')) AS oldest_pending
              FROM clients cl
@@ -538,15 +585,25 @@ router.put('/billing/:id', async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user.userId;
         const { id } = req.params;
-        const { status, percentage_amount, payment_method, notes, due_date } = req.body;
+        const { status, percentage_amount, payment_method, notes, due_date, paid_at } = req.body;
+        const invalid = (message: string) => res.status(400).json({ success: false, error: { message } });
+        if (status !== undefined && !['pending','overdue','paid'].includes(status)) return invalid('Situação inválida.');
+        if (percentage_amount !== undefined && (!Number.isFinite(Number(percentage_amount)) || Number(percentage_amount) < 0)) return invalid('Valor adicional inválido.');
+        const validDay = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+            && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
+        if (due_date && !validDay(due_date)) return invalid('Vencimento inválido.');
+        if (paid_at !== undefined && !validDay(paid_at)) return invalid('Informe a data do recebimento.');
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Fortaleza', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        if (paid_at && paid_at > today) return invalid('O recebimento não pode estar no futuro.');
 
         // Recalculate total if percentage_amount changes
         const existing = await query<any>(
-            `SELECT cb.fixed_amount FROM contract_billing cb WHERE cb.id = $1 AND cb.user_id = $2`,
+            `SELECT cb.fixed_amount, cb.status, cb.paid_at FROM contract_billing cb WHERE cb.id = $1 AND cb.user_id = $2`,
             [id, userId]
         );
         if (!existing.length) return res.status(404).json({ success: false, error: { message: 'Registro não encontrado' } });
 
+        if (paid_at !== undefined && (status || existing[0].status) !== 'paid') return invalid('A data de recebimento exige situação paga.');
         const fixedAmt = Number(existing[0].fixed_amount);
         const pctAmt = percentage_amount !== undefined ? Number(percentage_amount) : null;
         const totalAmt = pctAmt !== null ? fixedAmt + pctAmt : null;
@@ -564,10 +621,14 @@ router.put('/billing/:id', async (req: Request, res: Response) => {
                 payment_method = COALESCE($6, payment_method),
                 notes = COALESCE($7, notes),
                 due_date = CASE WHEN $9::boolean THEN $8::date ELSE due_date END,
-                paid_at = CASE WHEN $3 = 'paid' AND paid_at IS NULL THEN NOW() ELSE paid_at END,
+                paid_at = CASE
+                    WHEN COALESCE($3,status) <> 'paid' THEN NULL
+                    WHEN $10::date IS NOT NULL THEN ($10::date + TIME '12:00') AT TIME ZONE 'America/Fortaleza'
+                    WHEN status <> 'paid' OR paid_at IS NULL THEN NOW()
+                    ELSE paid_at END,
                 updated_at = NOW()
              WHERE id = $1 AND user_id = $2 RETURNING *`,
-            [id, userId, status || null, pctAmt, totalAmt, payment_method || null, notes || null, dueDateParam, dueDateProvided]
+            [id, userId, status || null, pctAmt, totalAmt, payment_method || null, notes || null, dueDateParam, dueDateProvided, paid_at || null]
         );
 
         res.json({ success: true, data: rows[0] });
@@ -655,9 +716,9 @@ router.get('/metrics', async (req: Request, res: Response) => {
         // Receita realizada do mês (caixa): billings paid + tx income confirmed
         const revenueRows = await query<any>(
             `SELECT
-                COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income' AND t.status != 'cancelled'), 0) AS tx_income,
+                COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income' AND t.status = 'confirmed'), 0) AS tx_income,
                 COALESCE((SELECT SUM(total_amount) FROM contract_billing
-                          WHERE user_id = $1 AND reference_month = $2 AND status = 'paid'), 0) AS contract_paid
+                          WHERE user_id = $1 AND (paid_at AT TIME ZONE 'America/Fortaleza')::date BETWEEN $2::date AND $3::date AND status = 'paid'), 0) AS contract_paid
              FROM transactions t
              WHERE t.user_id = $1 AND t.date BETWEEN $2 AND $3`,
             [userId, refMonth, monthEnd]
@@ -667,9 +728,9 @@ router.get('/metrics', async (req: Request, res: Response) => {
         // Receita mês anterior pra MoM
         const prevRevenueRows = await query<any>(
             `SELECT
-                COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income' AND t.status != 'cancelled'), 0) AS tx_income,
+                COALESCE(SUM(t.amount) FILTER (WHERE t.type = 'income' AND t.status = 'confirmed'), 0) AS tx_income,
                 COALESCE((SELECT SUM(total_amount) FROM contract_billing
-                          WHERE user_id = $1 AND reference_month = $2 AND status = 'paid'), 0) AS contract_paid
+                          WHERE user_id = $1 AND (paid_at AT TIME ZONE 'America/Fortaleza')::date BETWEEN $2::date AND $3::date AND status = 'paid'), 0) AS contract_paid
              FROM transactions t
              WHERE t.user_id = $1 AND t.date BETWEEN $2 AND $3`,
             [userId, prevMonthStart, prevMonthEnd]
@@ -683,7 +744,7 @@ router.get('/metrics', async (req: Request, res: Response) => {
         const expenseRows = await query<any>(
             `SELECT COALESCE(SUM(amount), 0) AS total
              FROM transactions
-             WHERE user_id = $1 AND type = 'expense' AND status != 'cancelled'
+             WHERE user_id = $1 AND type = 'expense' AND status = 'confirmed'
                AND date BETWEEN $2 AND $3`,
             [userId, refMonth, monthEnd]
         );
@@ -773,14 +834,14 @@ router.get('/revenue-by-client', async (req: Request, res: Response) => {
                     SELECT SUM(t.amount)
                     FROM transactions t
                     WHERE t.user_id = $1 AND t.client_id = cl.id
-                      AND t.type = 'income' AND t.status != 'cancelled'
+                      AND t.type = 'income' AND t.status = 'confirmed'
                       AND t.date BETWEEN $2 AND $3
                 ), 0) AS tx_income,
                 COALESCE((
                     SELECT SUM(cb.total_amount)
                     FROM contract_billing cb
                     WHERE cb.user_id = $1 AND cb.client_id = cl.id
-                      AND cb.reference_month = $2 AND cb.status = 'paid'
+                      AND (cb.paid_at AT TIME ZONE 'America/Fortaleza')::date BETWEEN $2::date AND $3::date AND cb.status = 'paid'
                 ), 0) AS contract_paid,
                 COALESCE((
                     SELECT SUM(cb.total_amount)
@@ -793,11 +854,11 @@ router.get('/revenue-by-client', async (req: Request, res: Response) => {
              ORDER BY (
                 COALESCE((SELECT SUM(t.amount) FROM transactions t
                           WHERE t.user_id = $1 AND t.client_id = cl.id
-                            AND t.type = 'income' AND t.status != 'cancelled'
+                            AND t.type = 'income' AND t.status = 'confirmed'
                             AND t.date BETWEEN $2 AND $3), 0)
               + COALESCE((SELECT SUM(cb.total_amount) FROM contract_billing cb
                           WHERE cb.user_id = $1 AND cb.client_id = cl.id
-                            AND cb.reference_month = $2 AND cb.status = 'paid'), 0)
+                            AND (cb.paid_at AT TIME ZONE 'America/Fortaleza')::date BETWEEN $2::date AND $3::date AND cb.status = 'paid'), 0)
              ) DESC`,
             [userId, refMonth, monthEnd]
         );
